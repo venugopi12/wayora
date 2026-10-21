@@ -150,7 +150,7 @@ Uses the Phase 5 library throughout (`Reveal`, `RevealGroup`, `LineReveal`,
   clear button and a hint that announces it is sample data.
 - Cards have a single link (the destination name) covering the card; tags and
   badges are not part of its name. Travel options are named "Flights to Kyoto"
-  and described by their "Coming in a later phase" status.
+  and described as "Demo search · booking later".
 - Breadcrumb `nav` with `aria-current="page"`.
 - Region buttons read "Show in the collection: India" (visible text plus a
   visually hidden region name).

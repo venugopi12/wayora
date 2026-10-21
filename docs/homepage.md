@@ -27,14 +27,23 @@ Moods and destinations: `HOME_MOODS` and `FEATURED_DESTINATIONS` in
 - **Every action has a real destination.** CTAs go to `#journeys` (the
   selector), `/discover` or a service's search page (a demo search since
   Phase 9; see docs/search.md). Since Phase 6,
-  moods open `/discover?mood=<slug>#collection`, featured destinations and the
-  travel selector open `/discover/<slug>` (`?mode=<service>` lists the chosen
-  service first), and the content comes from `features/discover/data.ts`
+  moods open `/discover?mood=<slug>#collection` and featured destinations open
+  `/discover/<slug>`; the content comes from `features/discover/data.ts`
   (see docs/discover.md). Booking still opens later, and every page says so
   plainly.
-- **Status comes from the catalog.** Selector tabs show "Coming in a later
-  phase" until the catalog API marks a service `beta`/`live`; then the badge
-  changes automatically.
+- **The travel selector opens search.** Its main action ("Search flights",
+  "Plan a metro journey", …) goes to the chosen service's search page. A
+  sample destination picked in "Where to?" travels as `?to=<destination slug>`,
+  the same link Discover uses: the search page maps it to a valid place for
+  that service with the shared place lookup and only prefills the form (no
+  search runs until the visitor adds dates), or says the demo doesn't cover
+  that destination. The secondary action explores the destination on Discover
+  (`/discover/<slug>?mode=<service>`) or Discover itself.
+- **Status comes from the catalog.** Every service is `beta` (demo search):
+  the panel shows a "Demo search" badge, the catalog's description of what the
+  demo covers, and `DEMO_SEARCH_NOTICE` ("Nothing can be booked yet"). A
+  `planned` service would show "Coming in a later phase" and lead to Discover
+  instead; a `live` one "Available".
 - **Sample data is labelled.** The "Where to?" field and header search show
   a "Sample data" badge and a hint that nothing can be booked yet.
 

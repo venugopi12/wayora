@@ -22,7 +22,7 @@ tests and what is deliberately not built yet.
 ```text
 apps/web                                   apps/api
 ────────                                   ────────
-AuthProvider ── GET /auth/me (once) ─────▶ loadSession (cookie → SessionService.resolve)
+AuthProvider ── GET /auth/session (once) ▶ loadSession (cookie → SessionService.resolve)
   │  status: loading | authenticated |       │   res.locals.auth = { session, user } | absent
   │          unauthenticated                 ▼
 RequireAuth / RedirectIfSignedIn         requireTrustedOrigin (Origin allow-list, unsafe methods)
@@ -69,6 +69,7 @@ All under `/api/v1`. Responses use the standard envelope
 | POST   | `/auth/login`                       | –    | 200 `{ user }` + new session cookie  | 401 generic; per-IP and per-email limits    |
 | POST   | `/auth/logout`                      | –    | 200 `{ signedOut: true }`            | Idempotent; revokes and clears the cookie   |
 | POST   | `/auth/logout-all`                  | yes  | 200 `{ signedOut, sessionsRevoked }` | Revokes every session of the user           |
+| GET    | `/auth/session`                     | –    | 200 `{ user }` or `{ user: null }`   | App start-up check; clears a dead cookie    |
 | GET    | `/auth/me`                          | yes  | 200 `{ user }`                       | 401 when signed out                         |
 | GET    | `/users/me`                         | yes  | 200 `SafeUser`                       |                                             |
 | PATCH  | `/users/me`                         | yes  | 200 `SafeUser`                       | Only `name`; unknown fields → 400           |
@@ -83,6 +84,20 @@ token hashes, session ids and account status are never returned.
 Identity always comes from the session cookie. No endpoint accepts a user id
 from the client; another user's traveller id behaves exactly like a missing
 one (404), so ids can't be probed.
+
+### Start-up check: `GET /auth/session`
+
+The web app asks once, on load, who is signed in. `GET /auth/session` answers
+**200** either way: `{ user }` for a valid session, `{ user: null }` otherwise,
+so a signed-out visit doesn't log a failed request in the browser console.
+It is `no-store`, never returns the token or its hash, and when the browser
+sent a cookie that no longer names a valid session (expired, revoked, garbage)
+the response clears it. Real failures are not hidden: if the database can't be
+reached the endpoint answers 5xx, and the app shows "We couldn't check whether
+you're signed in" with a retry instead of treating the visitor as signed out.
+
+`GET /auth/me` is unchanged (401 when signed out) for clients that want a
+strict "must be signed in" answer.
 
 ## Session lifecycle
 
@@ -274,7 +289,8 @@ redaction.
 
 Web tests (`apps/web/test/auth.test.tsx`) drive the real routes against an
 in-memory fake of these endpoints: guards and redirects (including open-redirect
-attempts), the single `/auth/me` request, no protected-content flash, form
+attempts), the single `/auth/session` request (a 5xx is a failed check, not
+"signed out"), no protected-content flash, form
 validation, server errors, double-submit protection, show/hide password, no
 browser storage, header and drawer states, sign-out, profile editing and
 traveller CRUD.

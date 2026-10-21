@@ -103,6 +103,7 @@ function InvalidOfferLink() {
     <Container size="narrow" className="py-section-sm">
       <EmptyState
         size="page"
+        titleAs="h1"
         icon={<SearchX />}
         title="This offer link isn't valid"
         description="It doesn't name a travel service and offer Wayora knows. Start a new search instead."

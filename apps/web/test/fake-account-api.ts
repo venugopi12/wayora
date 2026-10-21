@@ -66,6 +66,7 @@ export function installFakeAccountApi({
     const authed = state.signedIn && state.account !== null;
     const unauth = () => fail(401, 'UNAUTHENTICATED', 'Sign in to continue.');
 
+    if (method === 'GET' && path === '/auth/session') return ok({ user: authed ? safe() : null });
     if (method === 'GET' && path === '/auth/me') return authed ? ok({ user: safe() }) : unauth();
     if (method === 'POST' && path === '/auth/login') {
       const email = String(body.email ?? '')

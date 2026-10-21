@@ -25,7 +25,7 @@ export function AuthLayout({ children }: { children?: ReactNode }) {
     <div className="grid min-h-dvh bg-page lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
       <SkipLink />
       <div className="flex min-h-dvh flex-col px-gutter">
-        <div className="flex h-(--header-h) items-center justify-between gap-4">
+        <header className="flex h-(--header-h) items-center justify-between gap-4">
           <Link to="/" className="rounded-md" aria-label="Wayora, home">
             <Wordmark />
           </Link>
@@ -36,7 +36,7 @@ export function AuthLayout({ children }: { children?: ReactNode }) {
             <ArrowLeft className="size-4" aria-hidden="true" />
             Back to Wayora
           </Link>
-        </div>
+        </header>
         <main
           id="main"
           tabIndex={-1}

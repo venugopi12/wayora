@@ -25,7 +25,7 @@ function ServiceLink({ service, className }: { service: ServiceNavItem; classNam
             icon={service.icon}
             title={service.name}
             summary={service.summary}
-            soon
+            availability={service.availability}
           />
         </Link>
       </NavigationMenuLink>
@@ -35,7 +35,8 @@ function ServiceLink({ service, className }: { service: ServiceNavItem; classNam
 
 /**
  * Panel for the "More" trigger: secondary services plus a featured panel.
- * Every service is labelled "Soon" (booking isn't open) and links to its demo search page.
+ * Each service carries its catalog badge ("Demo" while only demo search exists)
+ * and links to its search page.
  */
 export function TravelMegaMenu() {
   return (

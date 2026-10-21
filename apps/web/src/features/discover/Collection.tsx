@@ -136,7 +136,7 @@ export function Collection({ filters, onChange, onClear, source = DESTINATIONS }
                   <span
                     className={cn(
                       'numeric rounded-full px-1.5 text-caption',
-                      pressed ? 'bg-white/20' : 'bg-sunken text-ink-secondary',
+                      pressed ? 'bg-brand-700' : 'bg-sunken text-ink-secondary',
                     )}
                   >
                     {regionCount(r.slug)}

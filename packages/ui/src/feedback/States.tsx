@@ -10,6 +10,11 @@ export interface EmptyStateProps {
   action?: ReactNode;
   /** `inline` for inside cards and panels, `page` for whole regions. */
   size?: 'inline' | 'page';
+  /**
+   * Element for the title. A paragraph by default; use a heading when the
+   * state IS the page (e.g. `h1` on a not-found page) so the page has one.
+   */
+  titleAs?: 'p' | 'h1' | 'h2' | 'h3';
   className?: string;
 }
 
@@ -20,6 +25,7 @@ export function EmptyState({
   description,
   action,
   size = 'inline',
+  titleAs: Title = 'p',
   className,
 }: EmptyStateProps) {
   return (
@@ -39,7 +45,7 @@ export function EmptyState({
         </span>
       ) : null}
       <div className="flex max-w-sm flex-col gap-1.5">
-        <p className={size === 'page' ? 'text-heading-3' : 'text-title'}>{title}</p>
+        <Title className={size === 'page' ? 'text-heading-3' : 'text-title'}>{title}</Title>
         {description ? <p className="text-body-sm text-ink-secondary">{description}</p> : null}
       </div>
       {action ? <div className="mt-2">{action}</div> : null}

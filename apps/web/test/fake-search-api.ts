@@ -138,7 +138,7 @@ export function installFakeSearchApi(
     }
 
     const match = /^\/api\/v1\/search\/([a-z]+)$/.exec(url.pathname);
-    // Everything else (catalog, /auth/me…) behaves as offline, like other web tests.
+    // Everything else (catalog, /auth/session…) behaves as offline, like other web tests.
     if (!match) throw new TypeError('offline');
     calls.push({
       serviceType: match[1]!,

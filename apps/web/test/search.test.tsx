@@ -31,7 +31,7 @@ const flights = () => [
 ];
 const flightResponse = () => searchResponse(flights());
 
-const sidebar = () => screen.getByRole('complementary', { name: 'Filters' });
+const sidebar = () => screen.getByRole('region', { name: 'Filters' });
 const resultsList = () => screen.findByRole('list', { name: 'Search results' });
 
 describe('service search pages', () => {

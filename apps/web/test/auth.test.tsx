@@ -97,14 +97,14 @@ describe('API client: cookies and session end', () => {
 });
 
 describe('protected routes', () => {
-  it('shows only a loader until /auth/me answers, then redirects to sign-in with the destination', async () => {
+  it('shows only a loader until /auth/session answers, then redirects to sign-in with the destination', async () => {
     const api = installFakeAccountApi({ signedIn: false });
-    const release = api.hold('GET', '/auth/me');
+    const release = api.hold('GET', '/auth/session');
     const { router } = renderRoute('/profile/travellers');
 
     expect(await screen.findByText('Loading page')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Saved travellers' })).toBeNull();
-    expect(api.calls()).toEqual(['GET /auth/me']);
+    expect(api.calls()).toEqual(['GET /auth/session']);
 
     release();
     expect(
@@ -113,7 +113,7 @@ describe('protected routes', () => {
     expect(router.state.location.pathname).toBe('/login');
     expect(router.state.location.search).toBe('?redirect=%2Fprofile%2Ftravellers');
     // Exactly one session check for the whole app.
-    expect(api.calls().filter((c) => c === 'GET /auth/me')).toHaveLength(1);
+    expect(api.calls().filter((c) => c === 'GET /auth/session')).toHaveLength(1);
   });
 
   it('sends people back to the page they wanted after signing in', async () => {
@@ -164,6 +164,21 @@ describe('protected routes', () => {
     expect(router.state.location.pathname).toBe('/profile');
   });
 
+  it('treats a server error from the session check as a failed check, not as signed out', async () => {
+    const api = installFakeAccountApi({ signedIn: true });
+    api.failNext('GET', '/auth/session', 503, 'SERVICE_UNAVAILABLE');
+    const { router } = renderRoute('/profile');
+    expect(
+      await screen.findByText("We couldn't check whether you're signed in"),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/profile');
+
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Your profile' }),
+    ).toBeInTheDocument();
+  });
+
   it('when a session ends on the server, protected pages go to sign-in with an explanation', async () => {
     const api = installFakeAccountApi({ signedIn: true });
     const { router } = renderRoute('/profile');
@@ -186,7 +201,7 @@ describe('sign in', () => {
     expect(await screen.findByText('Enter your email address.')).toBeInTheDocument();
     expect(screen.getByText('Enter your password.')).toBeInTheDocument();
     expect(field(/email address/i)).toHaveAttribute('aria-invalid', 'true');
-    expect(api.calls()).toEqual(['GET /auth/me']);
+    expect(api.calls()).toEqual(['GET /auth/session']);
   });
 
   it('shows the same generic message for a wrong password', async () => {
@@ -291,7 +306,7 @@ describe('registration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
     expect(await screen.findByText('Use at least 10 characters.')).toBeInTheDocument();
     expect(screen.getByText("The passwords don't match.")).toBeInTheDocument();
-    expect(api.calls()).toEqual(['GET /auth/me']);
+    expect(api.calls()).toEqual(['GET /auth/session']);
   });
 
   it('creates the account, signs in and welcomes the person', async () => {

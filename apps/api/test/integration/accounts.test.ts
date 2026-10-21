@@ -38,6 +38,12 @@ const login = (agent: Agent, email = 'asha@example.com', password = PASSWORD) =>
   agent.post('/api/v1/auth/login').set('Origin', ORIGIN).send({ email, password });
 
 // Without TEST_DATABASE_URL this suite is reported as skipped (see docs/auth.md#running-the-tests).
+// In CI it must run: a skipped suite would let the pipeline pass untested.
+if (process.env.CI && !TEST_DATABASE_URL) {
+  throw new Error(
+    'CI is set but TEST_DATABASE_URL is not: the integration tests would be skipped.',
+  );
+}
 
 describe.skipIf(!TEST_DATABASE_URL)('accounts (integration, real PostgreSQL)', () => {
   beforeEach(resetAccounts);
@@ -198,6 +204,45 @@ describe.skipIf(!TEST_DATABASE_URL)('accounts (integration, real PostgreSQL)', (
         expect(res.status).toBe(401);
         expect(res.body.error.code).toBe('UNAUTHENTICATED');
       }
+    });
+
+    it('GET /auth/session answers 200 with user null when signed out, and clears a dead cookie', async () => {
+      const app = buildAccountsApp();
+      const anonymous = await request(app).get('/api/v1/auth/session');
+      expect(anonymous.status).toBe(200);
+      expect(anonymous.body.data).toEqual({ user: null });
+      expect(anonymous.headers['cache-control']).toBe('no-store');
+      expect(anonymous.headers['set-cookie']).toBeUndefined();
+
+      for (const cookie of [`${COOKIE}=garbage`, `${COOKIE}=${'A'.repeat(43)}`]) {
+        const res = await request(app).get('/api/v1/auth/session').set('Cookie', cookie);
+        expect(res.status).toBe(200);
+        expect(res.body.data).toEqual({ user: null });
+        const cleared = (res.headers['set-cookie'] as unknown as string[])[0]!;
+        expect(cleared).toMatch(/^wayora_session=;/);
+        expect(cleared).toMatch(/Expires=Thu, 01 Jan 1970/);
+      }
+    });
+
+    it('GET /auth/session returns the safe user for a valid session, and null once it is revoked', async () => {
+      const agent = request.agent(buildAccountsApp());
+      const registered = await register(agent);
+      const token = sessionTokenFrom(registered)!;
+
+      const res = await agent.get('/api/v1/auth/session');
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ user: registered.body.data.user });
+      expect(res.headers['set-cookie']).toBeUndefined();
+      // Neither the token nor its hash is ever echoed.
+      expect(JSON.stringify(res.body)).not.toContain(token);
+      expect(JSON.stringify(res.body)).not.toContain(hashSessionToken(token));
+
+      await agent.post('/api/v1/auth/logout').set('Origin', ORIGIN);
+      const replay = await request(buildAccountsApp())
+        .get('/api/v1/auth/session')
+        .set('Cookie', `${COOKIE}=${token}`);
+      expect(replay.status).toBe(200);
+      expect(replay.body.data).toEqual({ user: null });
     });
 
     it('never accepts a client-supplied user id as identity', async () => {

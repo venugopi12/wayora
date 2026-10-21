@@ -26,7 +26,7 @@ export const authKeys = {
 };
 
 /**
- * - `loading`: the one `/auth/me` check hasn't answered yet. Protected pages
+ * - `loading`: the one `/auth/session` check hasn't answered yet. Protected pages
  *   show a loader (never their content) and the header shows placeholders.
  * - `authenticated`: a valid session; `user` is set.
  * - `unauthenticated`: no session, or the check failed (API unreachable).
@@ -40,7 +40,7 @@ export interface AuthContextValue {
   status: AuthStatus;
   user: SafeUser | null;
   sessionEnd: SessionEnd;
-  /** The `/auth/me` check failed for a reason other than "not signed in". */
+  /** The `/auth/session` check failed (network or server error), not "signed out". */
   checkFailed: boolean;
   retryCheck: () => void;
   signIn: (body: LoginRequest) => Promise<SafeUser>;
@@ -59,7 +59,7 @@ function forgetAccountData(client: QueryClient) {
 }
 
 /**
- * Session state for the whole app, from a single `GET /auth/me` request
+ * Session state for the whole app, from a single `GET /auth/session` request
  * (cached by React Query; never refetched on focus). The session cookie is
  * HttpOnly, so JavaScript can't see it: the server's answer is the only source
  * of truth, and nothing about the session is kept in browser storage.

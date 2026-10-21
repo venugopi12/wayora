@@ -11,7 +11,7 @@ export interface LoginLocationState {
 }
 
 /**
- * Wraps protected routes. Until `/auth/me` answers, only a loader renders,
+ * Wraps protected routes. Until `/auth/session` answers, only a loader renders,
  * so protected content never flashes. Signed-out visitors go to
  * `/login?redirect=<this page>`; someone who just signed out goes home.
  * If the check itself failed (API unreachable), say so instead of bouncing

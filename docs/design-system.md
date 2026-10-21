@@ -282,7 +282,7 @@ composes feature components from `apps/web/src/features/navigation/`:
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `config.ts`              | Typed, single source of truth: service names (from the catalog contract), paths, Lucide icons, one-line summaries, which links collapse into "More" below `xl`. Desktop, mega menu, drawer, footer and search pages all read it. |
 | `DesktopNavigation`      | `lg+`: Discover, Flights, Hotels, Trains, Buses (moves into "More" between `lg` and `xl`), More.                                                                                                                                 |
-| `TravelMegaMenu`         | "More" panel: Metro, Cabs, Holiday packages (+ Buses below `xl`), each marked "Soon", and a featured deep-navy panel linking to Discover.                                                                                        |
+| `TravelMegaMenu`         | "More" panel: Metro, Cabs, Holiday packages (+ Buses below `xl`), each badged from the catalog ("Demo" while `beta`), and a featured deep-navy panel linking to Discover.                                                        |
 | `DestinationSearch`      | Popover combobox over the **sample** destination dataset (`features/discover/data.ts`, labelled "Sample data"). Arrow keys, Home/End, Enter, Escape; `/` opens it. Selecting goes to `/discover/<slug>`. No API calls.           |
 | `CurrencySelector`       | Display-currency preference (INR default) in React context for the current visit. Changes the label only; prices are never converted.                                                                                            |
 | `AccountAction`          | Links to `/sign-in`, an honest "accounts are on the way" page.                                                                                                                                                                   |
@@ -297,8 +297,8 @@ Routes for every navigation destination exist: `/flights`, `/hotels`,
 pages (`apps/web/src/features/search/`, Phase 9; the earlier `ComingSoon`
 component was retired with them). Booking flows will add nested routes under
 each service in `apps/web/src/app/routes.tsx`; set the service's
-`availability` in the catalog contract when it opens and the "Soon" labels
-follow automatically.
+`availability` in the catalog contract when it opens and the menu badges
+follow automatically ("Soon" for `planned`, "Demo" for `beta`, none for `live`).
 
 ## Homepage (Phase 4)
 

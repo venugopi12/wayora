@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEMO_SEARCH_NOTICE,
   TRAVEL_CATEGORIES,
   addMoney,
   apiErrorEnvelopeSchema,
@@ -59,10 +60,21 @@ describe('API envelopes', () => {
 });
 
 describe('catalog', () => {
-  it('lists the seven planned categories with unique slugs', () => {
+  it('lists the seven categories with unique slugs, all in demo-search beta', () => {
     const slugs = TRAVEL_CATEGORIES.map((c) => c.slug);
     expect(new Set(slugs).size).toBe(7);
-    expect(TRAVEL_CATEGORIES.every((c) => c.availability === 'planned')).toBe(true);
+    expect(TRAVEL_CATEGORIES.every((c) => c.availability === 'beta')).toBe(true);
+    expect(DEMO_SEARCH_NOTICE).toMatch(/demo search/i);
+    expect(DEMO_SEARCH_NOTICE).toMatch(/nothing can be booked/i);
+  });
+
+  it('describes only what exists today: sample search, never booking features', () => {
+    for (const category of TRAVEL_CATEGORIES) {
+      expect(category.description, category.slug).toMatch(/\bsample\b/);
+      expect(category.description, category.slug).not.toMatch(
+        /\b(book|booking|ticket|e-ticket|confirm|confirmation|PNR|real-time|live|instant|availability|seat selection|inventory)/i,
+      );
+    }
   });
 });
 

@@ -9,6 +9,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      'apps/web/sourcemaps/**',
       '**/coverage/**',
       '**/*.tsbuildinfo',
       'database/src/generated/**',

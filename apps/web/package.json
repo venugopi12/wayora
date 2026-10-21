@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/assert-no-dev-routes.mjs",
+    "build": "vite build && node scripts/extract-sourcemaps.mjs && node scripts/assert-no-dev-routes.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"

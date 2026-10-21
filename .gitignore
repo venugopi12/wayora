@@ -4,6 +4,8 @@ node_modules/
 # Build output
 dist/
 build/
+# Production source maps extracted from apps/web/dist (never published)
+apps/web/sourcemaps/
 *.tsbuildinfo
 coverage/
 

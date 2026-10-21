@@ -39,6 +39,7 @@
     "db:migrate": "npm run db:migrate -w @wayora/database",
     "db:migrate:deploy": "npm run db:migrate:deploy -w @wayora/database",
     "db:migrate:status": "npm run db:migrate:status -w @wayora/database",
+    "db:migrate:check": "npm run db:migrate:check -w @wayora/database",
     "db:reset": "npm run db:reset -w @wayora/database",
     "db:seed": "npm run db:seed -w @wayora/database",
     "db:studio": "npm run db:studio -w @wayora/database",

@@ -29,6 +29,7 @@ const emailKey = (email: string) =>
  * POST /auth/logout     revoke this session, clear cookie    200 { signedOut: true }
  * POST /auth/logout-all revoke every session of the user     200 { signedOut: true, sessionsRevoked }
  * GET  /auth/me         the signed-in user, or 401           200 { user }
+ * GET  /auth/session    the signed-in user, or null          200 { user: user | null }
  */
 export function authRouter(options: AuthRouterOptions): Router {
   const { auth, sessions, cookie } = options;
@@ -81,6 +82,20 @@ export function authRouter(options: AuthRouterOptions): Router {
 
   router.get('/me', requireAuth, (_req, res) => {
     sendData(res, { user: toSafeUser(currentUser(res)) });
+  });
+
+  // For app start-up: "signed out" is an ordinary answer here, not a 401, so
+  // browsers don't log an error for every anonymous visit. Real failures
+  // (database down) still reach the error handler and answer 5xx. A cookie
+  // that no longer names a valid session is cleared.
+  router.get('/session', (_req, res) => {
+    const locals = res.locals as AuthLocals;
+    if (locals.auth) {
+      sendData(res, { user: toSafeUser(locals.auth.user) });
+      return;
+    }
+    if (locals.sessionToken !== undefined) clearSessionCookie(res, cookie);
+    sendData(res, { user: null });
   });
 
   return router;

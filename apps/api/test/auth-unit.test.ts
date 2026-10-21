@@ -14,7 +14,8 @@ import {
   isWellFormedToken,
 } from '../src/modules/auth/session-token.js';
 import { REDACT_PATHS } from '../src/utils/logger.js';
-import { validEnvSource } from './helpers.js';
+import type { PrismaClient } from '@wayora/database';
+import { buildTestApp, validEnvSource } from './helpers.js';
 
 describe('password hashing', () => {
   it('uses Argon2id with the configured parameters and verifies correctly', async () => {
@@ -147,5 +148,31 @@ describe('what leaves the server', () => {
       '*.tokenHash',
     ])
       expect(REDACT_PATHS).toContain(path);
+  });
+});
+
+describe('GET /auth/session failures', () => {
+  // A stand-in database whose session lookup fails, as when PostgreSQL is down.
+  const brokenPrisma = {
+    session: {
+      findUnique: async () => {
+        throw new Error('connect ECONNREFUSED 127.0.0.1:5432');
+      },
+    },
+  } as unknown as PrismaClient;
+
+  it('reports a real failure as 500, not as "signed out"', async () => {
+    const res = await request(buildTestApp({ prisma: brokenPrisma }))
+      .get('/api/v1/auth/session')
+      .set('Cookie', `wayora_session=${generateSessionToken()}`);
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    expect(JSON.stringify(res.body)).not.toContain('ECONNREFUSED');
+  });
+
+  it('answers a visitor without a cookie without touching the database', async () => {
+    const res = await request(buildTestApp({ prisma: brokenPrisma })).get('/api/v1/auth/session');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ user: null });
   });
 });

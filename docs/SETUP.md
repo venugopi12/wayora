@@ -150,15 +150,75 @@ The exception is the account integration suite, which runs against a separate
 `*_test` PostgreSQL database only when `TEST_DATABASE_URL` is set and is reported
 as skipped otherwise. See [auth.md](auth.md#running-the-tests).
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request,
+on Ubuntu with Node 22 and a PostgreSQL 16 service container:
+
+1. `npm ci` (npm cache via `actions/setup-node`; Prisma engines cached in
+   `~/.cache/prisma`, keyed by `package-lock.json`).
+2. `prisma --version`: fails early and clearly if the Prisma engine is missing.
+3. `npm run db:migrate:deploy` into the `wayora_test` database, then
+   `npm run db:migrate:check` (exit code 2 if the migrated schema and
+   `schema.prisma` differ).
+4. `npm run lint`, `npm run format:check`, `npm run typecheck`.
+5. `npm test` with `TEST_DATABASE_URL` set, so the account integration suite
+   runs against PostgreSQL. With `CI` set, a missing `TEST_DATABASE_URL` fails
+   the suite instead of skipping it.
+6. `npm run build` (the web build also checks that no source maps or
+   development-only routes end up in `apps/web/dist`).
+
+### Running the CI steps locally
+
+With Docker running (`npm run infra:up`) and the test database created once
+(see [auth.md](auth.md#running-the-tests)):
+
+```bash
+export CI=true
+export TEST_DATABASE_URL=postgresql://wayora:wayora_local_dev_only@localhost:5432/wayora_test
+export DATABASE_URL=$TEST_DATABASE_URL     # Prisma CLI target for the next two steps
+npm ci
+npm run db:migrate:deploy
+npm run db:migrate:check
+npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
+unset DATABASE_URL                         # back to apps' .env files for dev
+```
+
+To run the workflow file itself, [`act`](https://github.com/nektos/act)
+(`act pull_request`) executes it in Docker with the same service container.
+
+### Prisma engines and restricted networks
+
+Every Prisma CLI command, including `prisma generate` (run by `npm ci` and by
+`build:packages` before typecheck, tests and builds), first makes sure the
+**schema-engine** binary for the installed Prisma version is present. On a
+normal network `npm ci` downloads it once from `binaries.prisma.sh` into
+`~/.cache/prisma` and `node_modules/@prisma/engines`; nothing is fetched after
+that. Where that host is blocked, every Prisma command fails with
+`Failed to fetch sha256 checksum … 403`. Supported fixes, in order of
+preference:
+
+1. Allow `binaries.prisma.sh`, or restore `~/.cache/prisma` from a cache (as CI
+   does).
+2. `PRISMA_ENGINES_MIRROR=https://<internal mirror>` serving the same files.
+3. Pre-provision the binary and point at it with
+   `PRISMA_SCHEMA_ENGINE_BINARY=/path/to/schema-engine`. Add
+   `PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1` only if the mirror has no
+   `.sha256` files.
+
+Don't point `PRISMA_SCHEMA_ENGINE_BINARY` at a stub (e.g. `/bin/true`): it lets
+`generate` pass but makes every migrate command silently do nothing. The
+binary is never committed.
+
 ## Troubleshooting
 
-| Symptom                                                                    | Fix                                                                                                                 |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `Invalid environment configuration` on start                               | Run `npm run setup`, then check the listed variables                                                                |
-| Readiness shows `unready`, PostgreSQL down                                 | `npm run infra:up`; check `DATABASE_URL` matches `.env` credentials                                                 |
-| Readiness shows `degraded`, Redis down                                     | `npm run infra:up`. The API keeps serving; rate limiting falls back to per-process memory                           |
-| Web shows "Showing the built-in service list"                              | The API isn't running or `VITE_API_BASE_URL` is wrong; start `npm run dev:api`                                      |
-| Port 5432/6379 already in use                                              | Set `POSTGRES_PORT` / `REDIS_PORT` in root `.env` and update the URLs in the app `.env` files                       |
-| `prisma generate` fails fetching `binaries.prisma.sh` during `npm install` | Your network blocks Prisma's engine download. Allow that host, or set `PRISMA_ENGINES_MIRROR` to an internal mirror |
-| `npm run job:example` times out                                            | Start the worker (`npm run dev:worker`) and check Redis is up                                                       |
-| CORS error in the browser                                                  | Add the web origin to `CORS_ORIGIN` in `apps/api/.env`                                                              |
+| Symptom                                                                    | Fix                                                                                                                                 |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `Invalid environment configuration` on start                               | Run `npm run setup`, then check the listed variables                                                                                |
+| Readiness shows `unready`, PostgreSQL down                                 | `npm run infra:up`; check `DATABASE_URL` matches `.env` credentials                                                                 |
+| Readiness shows `degraded`, Redis down                                     | `npm run infra:up`. The API keeps serving; rate limiting falls back to per-process memory                                           |
+| Web shows "Showing the built-in service list"                              | The API isn't running or `VITE_API_BASE_URL` is wrong; start `npm run dev:api`                                                      |
+| Port 5432/6379 already in use                                              | Set `POSTGRES_PORT` / `REDIS_PORT` in root `.env` and update the URLs in the app `.env` files                                       |
+| `prisma generate` fails fetching `binaries.prisma.sh` during `npm install` | Your network blocks Prisma's engine download. See [Prisma engines and restricted networks](#prisma-engines-and-restricted-networks) |
+| `npm run job:example` times out                                            | Start the worker (`npm run dev:worker`) and check Redis is up                                                                       |
+| CORS error in the browser                                                  | Add the web origin to `CORS_ORIGIN` in `apps/api/.env`                                                                              |

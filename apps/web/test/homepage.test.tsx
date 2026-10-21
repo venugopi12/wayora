@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TRAVEL_CATEGORIES } from '@wayora/contracts';
+import { DEMO_SEARCH_NOTICE, TRAVEL_CATEGORIES } from '@wayora/contracts';
 import { FEATURED_DESTINATIONS, HOME_MOODS } from '../src/features/home/content';
 import { renderRoute } from './render';
 
@@ -104,8 +104,28 @@ describe('calls to action', () => {
 
 describe('travel selector', () => {
   const selector = () => screen.getByRole('region', { name: /how would you like to travel/i });
+  /** Search requests sent so far (the selector must never send one). */
+  const searchCalls = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.map(([input]) => String(input))
+      .filter((url) => url.includes('/api/v1/search/'));
+  /** Types into "Where to?" and picks the only suggestion. */
+  const pickDestination = (query: string, name: string) => {
+    const field = within(selector()).getByRole('combobox', { name: 'Where to?' });
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: query } });
+    expect(
+      within(selector())
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual([expect.stringContaining(name)]);
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(field).toHaveValue(name);
+    return field;
+  };
 
-  it('offers all seven services as tabs, Flights selected, each labelled coming soon', () => {
+  it('offers all seven services as tabs, Flights selected, each labelled demo search', () => {
     renderRoute('/');
     const tabs = within(selector()).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent)).toEqual(TRAVEL_CATEGORIES.map((c) => c.name));
@@ -115,7 +135,12 @@ describe('travel selector', () => {
     );
     const panel = within(selector()).getByRole('tabpanel');
     expect(within(panel).getByRole('heading', { name: 'Flights' })).toBeInTheDocument();
-    expect(within(panel).getByText('Coming in a later phase')).toBeInTheDocument();
+    expect(within(panel).getByText('Demo search')).toBeInTheDocument();
+    expect(within(panel).getByText(DEMO_SEARCH_NOTICE)).toBeInTheDocument();
+    // Nothing on the selector promises booking features that don't exist, and the
+    // old "no search yet" copy is gone.
+    expect(selector()).not.toHaveTextContent(/e-ticket|instant confirmation|PNR|real-time/i);
+    expect(selector()).not.toHaveTextContent(/Booking isn't open yet|Coming in a later phase/);
   });
 
   it('moves between services with the arrow keys', async () => {
@@ -132,39 +157,57 @@ describe('travel selector', () => {
     expect(within(selector()).getByRole('tabpanel')).toHaveAccessibleName('Hotels');
   });
 
-  it('links the selected service to its demo search page', async () => {
+  it("opens the selected service's search page", async () => {
     const { router } = renderRoute('/');
     fireEvent.mouseDown(within(selector()).getByRole('tab', { name: 'Cabs' }));
-    const about = await within(selector()).findByRole('link', { name: /about cabs/i });
-    expect(about).toHaveAttribute('href', '/cabs');
-    fireEvent.click(about);
+    const action = await within(selector()).findByRole('link', { name: 'Find a cab' });
+    expect(action).toHaveAttribute('href', '/cabs');
+    fireEvent.click(action);
     expect(await screen.findByRole('heading', { level: 1, name: 'Cabs' })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/cabs');
     expect(screen.getByText('Demo data only')).toBeInTheDocument();
+    expect(searchCalls()).toEqual([]);
   });
 
-  it('explores a sample destination by the chosen mode, honestly', async () => {
+  it('prefills the search with a sample destination without running a search', async () => {
+    const { router } = renderRoute('/');
+    fireEvent.mouseDown(within(selector()).getByRole('tab', { name: 'Hotels' }));
+    pickDestination('go', 'Goa');
+
+    const action = within(selector()).getByRole('link', { name: 'Search hotels' });
+    expect(action).toHaveAttribute('href', '/hotels?to=goa');
+    fireEvent.click(action);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Hotels' })).toBeInTheDocument();
+    // The search page maps the destination to a valid place and fills it in…
+    expect(await screen.findByRole('combobox', { name: /destination/i })).toHaveValue('city:goa');
+    expect(screen.getByText(/Planning a trip to Goa/)).toBeInTheDocument();
+    // …but dates are still missing, so nothing is searched and no errors show.
+    expect(router.state.location.search).toBe('?to=goa');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(searchCalls()).toEqual([]);
+  });
+
+  it('says so when the demo does not cover the destination for that service', async () => {
+    renderRoute('/');
+    fireEvent.mouseDown(within(selector()).getByRole('tab', { name: 'Trains' }));
+    pickDestination('go', 'Goa');
+    fireEvent.click(within(selector()).getByRole('link', { name: 'Search trains' }));
+    expect(
+      await screen.findByText(/The demo doesn't cover trains for Goa yet/),
+    ).toBeInTheDocument();
+    expect(searchCalls()).toEqual([]);
+  });
+
+  it('still explores a sample destination by the chosen mode', async () => {
     const { router } = renderRoute('/');
     fireEvent.mouseDown(within(selector()).getByRole('tab', { name: 'Trains' }));
-    const field = within(selector()).getByRole('combobox', { name: 'Where to?' });
+    const field = pickDestination('go', 'Goa');
     expect(field).toHaveAccessibleDescription(/sample destinations only/i);
 
-    fireEvent.focus(field);
-    fireEvent.change(field, { target: { value: 'go' } });
-    expect(within(selector()).getByText('Sample data')).toBeInTheDocument();
-    expect(
-      within(selector())
-        .getAllByRole('option')
-        .map((o) => o.textContent),
-    ).toEqual(['GoaWest coast, India']);
-    fireEvent.keyDown(field, { key: 'Enter' });
-    expect(field).toHaveValue('Goa');
-
-    fireEvent.click(within(selector()).getByRole('button', { name: 'Explore Goa' }));
+    fireEvent.click(within(selector()).getByRole('link', { name: 'Explore Goa' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/discover/goa'));
     expect(router.state.location.search).toBe('?mode=trains');
     expect(await screen.findByRole('heading', { level: 1, name: 'Goa' })).toBeInTheDocument();
-    // The chosen service is offered first, and is honestly not bookable yet.
     const options = within(
       screen.getByRole('list', { name: 'Travel options for Goa' }),
     ).getAllByRole('link');
@@ -174,7 +217,7 @@ describe('travel selector', () => {
 
   it('explores ideas without a destination', async () => {
     const { router } = renderRoute('/');
-    fireEvent.click(within(selector()).getByRole('button', { name: 'Explore ideas' }));
+    fireEvent.click(within(selector()).getByRole('link', { name: 'Destination ideas' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/discover'));
     expect(
       await screen.findByRole('heading', {

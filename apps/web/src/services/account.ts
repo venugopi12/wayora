@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   authResponseSchema,
   safeUserSchema,
+  sessionResponseSchema,
   travellerListSchema,
   travellerSchema,
   type CreateTravellerRequest,
@@ -12,7 +13,6 @@ import {
   type UpdateProfileRequest,
   type UpdateTravellerRequest,
 } from '@wayora/contracts';
-import { ApiClientError } from '../lib/api-client';
 import { api } from './api';
 
 /*
@@ -21,19 +21,19 @@ import { api } from './api';
  * token.
  */
 
-/** The signed-in user, or `null` when this browser has no valid session. */
+/**
+ * The signed-in user, or `null` when this browser has no valid session.
+ * `GET /auth/session` answers 200 either way, so a signed-out visit logs no
+ * error in the browser. Network failures and 5xx responses still throw: the
+ * app reports "couldn't check", it never silently treats them as signed out.
+ */
 export async function fetchCurrentUser(signal?: AbortSignal): Promise<SafeUser | null> {
-  try {
-    const { user } = await api.request('/auth/me', {
-      schema: authResponseSchema,
-      signal,
-      reportsSessionEnd: false,
-    });
-    return user;
-  } catch (error) {
-    if (error instanceof ApiClientError && error.status === 401) return null;
-    throw error;
-  }
+  const { user } = await api.request('/auth/session', {
+    schema: sessionResponseSchema,
+    signal,
+    reportsSessionEnd: false,
+  });
+  return user;
 }
 
 export async function signIn(body: LoginRequest): Promise<SafeUser> {

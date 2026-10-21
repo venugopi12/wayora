@@ -86,7 +86,7 @@ export function InspirationSection() {
                       d ? (
                         <li key={d.slug} className="flex items-center gap-1">
                           {i === 1 ? (
-                            <span aria-hidden="true" className="px-1 text-ink-subtle">
+                            <span aria-hidden="true" className="px-1 text-ink-secondary">
                               then
                             </span>
                           ) : null}

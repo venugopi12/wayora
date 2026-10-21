@@ -1,5 +1,13 @@
 import type { LucideIcon } from 'lucide-react';
+import type { CategoryAvailability } from '@wayora/contracts';
 import { Badge, ICON_STROKE, cn } from '@wayora/ui';
+
+/** Badge per catalog status: nothing once a service is live. */
+const AVAILABILITY_BADGE: Record<CategoryAvailability, string | null> = {
+  planned: 'Soon',
+  beta: 'Demo',
+  live: null,
+};
 
 /**
  * Shared row content for a service in the desktop "More" panel and the mobile
@@ -10,14 +18,18 @@ export function ServiceMenuItem({
   icon: Icon,
   title,
   summary,
-  soon = false,
+  availability,
 }: {
   icon: LucideIcon;
   title: string;
   summary: string;
-  /** Shows a "Soon" badge until the service is live. */
-  soon?: boolean;
+  /**
+   * From the catalog: "Soon" while planned, "Demo" while it offers demo search
+   * only. Omit for entries that aren't catalog services (Discover).
+   */
+  availability?: CategoryAvailability;
 }) {
+  const badge = availability ? AVAILABILITY_BADGE[availability] : null;
   return (
     <>
       <span
@@ -33,7 +45,7 @@ export function ServiceMenuItem({
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex items-center gap-2">
           <span className="text-label text-ink">{title}</span>
-          {soon ? <Badge size="sm">Soon</Badge> : null}
+          {badge ? <Badge size="sm">{badge}</Badge> : null}
         </span>
         <span className="text-body-sm text-ink-secondary">{summary}</span>
       </span>

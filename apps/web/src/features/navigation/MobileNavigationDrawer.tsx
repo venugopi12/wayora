@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import type { CurrencyCode } from '@wayora/contracts';
+import type { CategoryAvailability, CurrencyCode } from '@wayora/contracts';
 import { Divider, Field, MobileNav, Select, Wordmark, cn } from '@wayora/ui';
 import { RevealGroup, RevealItem, stagger } from '@wayora/ui/motion';
 import { DISPLAY_CURRENCIES, useDisplayCurrency } from '../preferences/currency';
@@ -18,7 +18,7 @@ function DrawerLink({
   icon,
   title,
   summary,
-  soon,
+  availability,
   current,
   onNavigate,
 }: {
@@ -26,7 +26,7 @@ function DrawerLink({
   icon: LucideIcon;
   title: string;
   summary: string;
-  soon?: boolean;
+  availability?: CategoryAvailability;
   current: boolean;
   onNavigate: () => void;
 }) {
@@ -41,7 +41,7 @@ function DrawerLink({
           'min-h-14 items-center px-3 py-2 aria-[current=page]:bg-brand-soft',
         )}
       >
-        <ServiceMenuItem icon={icon} title={title} summary={summary} soon={soon} />
+        <ServiceMenuItem icon={icon} title={title} summary={summary} availability={availability} />
       </Link>
     </RevealItem>
   );
@@ -103,7 +103,7 @@ export function MobileNavigationDrawer({
                 icon={s.icon}
                 title={s.name}
                 summary={s.summary}
-                soon={s.availability !== 'live'}
+                availability={s.availability}
                 current={pathname === s.path}
                 onNavigate={close}
               />
@@ -127,7 +127,6 @@ export function MobileNavigationDrawer({
               icon={DISCOVER.icon}
               title={DISCOVER.name}
               summary={DISCOVER.summary}
-              soon
               current={pathname === DISCOVER.path}
               onNavigate={close}
             />

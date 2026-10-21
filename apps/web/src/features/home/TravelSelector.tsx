@@ -1,38 +1,64 @@
-import { ArrowRight, Compass } from 'lucide-react';
+import { Compass, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
-import type {
-  CategoryAvailability,
-  DestinationSummary,
-  TravelCategorySlug,
+import { Link } from 'react-router';
+import {
+  DEMO_SEARCH_NOTICE,
+  type CategoryAvailability,
+  type DestinationSummary,
+  type TravelCategorySlug,
 } from '@wayora/contracts';
 import { Badge, Button, Container, Tabs, TabsContent, TabsList, TabsTrigger } from '@wayora/ui';
 import { useCategories } from '../catalog/useCategories';
-import { destinationPath, discoverPath } from '../discover/paths';
+import { destinationPath, discoverPath, servicePathFor } from '../discover/paths';
 import { SERVICE_NAV, type ServiceNavItem } from '../navigation/config';
 import { DestinationCombobox } from '../navigation/DestinationCombobox';
 
 export interface TravelIntent {
   service: TravelCategorySlug;
   destinationSlug: string | null;
+  availability: CategoryAvailability;
 }
 
 /**
- * Where an intent leads today: the destination's Discover page (which offers
- * the chosen service as its first travel option), or Discover itself. Replace
- * per service as booking flows ship.
+ * Where the main action leads.
+ *
+ * - A service with search (catalog `beta` or `live`): its search page. A chosen
+ *   destination travels as `?to=<destination slug>`, the same link Discover
+ *   uses: the search page maps it to a valid place for that service with the
+ *   shared place lookup and prefills the form only. It never starts a search,
+ *   because the dates (and, for journeys, the origin) are still missing. A
+ *   destination the demo doesn't cover is named on that page, honestly.
+ * - A `planned` service has no search yet: Discover ideas instead.
  */
-export function intentHref({ service, destinationSlug }: TravelIntent): string {
-  if (destinationSlug) return `${destinationPath(destinationSlug)}?mode=${service}`;
-  return discoverPath();
+export function intentHref({ service, destinationSlug, availability }: TravelIntent): string {
+  if (availability === 'planned') {
+    return destinationSlug ? `${destinationPath(destinationSlug)}?mode=${service}` : discoverPath();
+  }
+  return destinationSlug ? servicePathFor(service, destinationSlug) : `/${service}`;
 }
+
+/** The secondary action: the destination's Discover page, or Discover itself. */
+export function exploreHref({ service, destinationSlug }: TravelIntent): string {
+  return destinationSlug ? `${destinationPath(destinationSlug)}?mode=${service}` : discoverPath();
+}
+
+/** Button text for the main action. It opens the search page; it doesn't run a search. */
+const SEARCH_ACTION: Record<TravelCategorySlug, string> = {
+  flights: 'Search flights',
+  hotels: 'Search hotels',
+  trains: 'Search trains',
+  buses: 'Search buses',
+  metro: 'Plan a metro journey',
+  cabs: 'Find a cab',
+  holidays: 'Search holiday packages',
+};
 
 const statusCopy: Record<
   CategoryAvailability,
   { badge: string; tone: 'neutral' | 'brand' | 'success' }
 > = {
   planned: { badge: 'Coming in a later phase', tone: 'neutral' },
-  beta: { badge: 'Beta', tone: 'brand' },
+  beta: { badge: 'Demo search', tone: 'brand' },
   live: { badge: 'Available', tone: 'success' },
 };
 
@@ -60,23 +86,24 @@ function ServicePanel({
           </Badge>
         </div>
         <p className="text-body-sm text-ink-secondary">
-          {availability === 'live'
-            ? service.summary
-            : `${service.category.description} Booking isn't open yet; you can explore destination ideas today.`}
+          {availability === 'planned'
+            ? "Search and booking aren't available yet; you can explore destination ideas today."
+            : service.category.description}
         </p>
+        {availability === 'beta' ? (
+          <p className="text-caption text-ink-secondary">{DEMO_SEARCH_NOTICE}</p>
+        ) : null}
       </div>
     </div>
   );
 }
 
 /**
- * Homepage travel entry point. Selecting a service and a sample destination
- * leads to that destination's Discover page (no search API exists yet). Service status
- * comes from the catalog API, falling back to the bundled contract, so a
- * service flips to "Available" here as soon as the API marks it live.
+ * Homepage travel entry point. Pick a service (and optionally a sample
+ * destination), then open that service's search page, prefilled. Service
+ * status comes from the catalog API, falling back to the bundled contract.
  */
-export function TravelSelector({ onExplore }: { onExplore?: (intent: TravelIntent) => void }) {
-  const navigate = useNavigate();
+export function TravelSelector() {
   const { data } = useCategories();
   const [service, setService] = useState<TravelCategorySlug>('flights');
   const [destination, setDestination] = useState<DestinationSummary | null>(null);
@@ -88,7 +115,13 @@ export function TravelSelector({ onExplore }: { onExplore?: (intent: TravelInten
   }, [data]);
 
   const current = SERVICE_NAV.find((s) => s.slug === service) ?? SERVICE_NAV[0]!;
-  const intent: TravelIntent = { service, destinationSlug: destination?.slug ?? null };
+  const currentAvailability = availability.get(service) ?? current.availability;
+  const intent: TravelIntent = {
+    service,
+    destinationSlug: destination?.slug ?? null,
+    availability: currentAvailability,
+  };
+  const anySearch = [...availability.values()].some((a) => a !== 'planned');
 
   return (
     <section
@@ -103,7 +136,9 @@ export function TravelSelector({ onExplore }: { onExplore?: (intent: TravelInten
               How would you like to travel?
             </h2>
             <p className="text-caption text-ink-secondary">
-              Booking opens service by service in later phases.
+              {anySearch
+                ? 'Try any service with demo search. Booking opens in a later phase.'
+                : 'Booking opens service by service in later phases.'}
             </p>
           </div>
 
@@ -143,24 +178,32 @@ export function TravelSelector({ onExplore }: { onExplore?: (intent: TravelInten
                   onClear={() => setDestination(null)}
                 />
                 <p id="journey-destination-hint" className="text-caption text-ink-secondary">
-                  Sample destinations only. Nothing can be booked yet.
+                  Optional. Sample destinations only, used to start your search.
                 </p>
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row lg:flex-col lg:pb-6">
-                <Button
-                  size="lg"
-                  leadingIcon={<Compass />}
-                  onClick={() => (onExplore ? onExplore(intent) : navigate(intentHref(intent)))}
-                >
-                  {destination ? `Explore ${destination.name}` : 'Explore ideas'}
-                </Button>
-                <Button asChild variant="ghost" size="sm" className="justify-center">
-                  <Link to={current.path}>
-                    About {current.name}
-                    <ArrowRight aria-hidden="true" />
+                <Button asChild size="lg">
+                  <Link to={intentHref(intent)}>
+                    {currentAvailability === 'planned' ? (
+                      <Compass aria-hidden="true" />
+                    ) : (
+                      <Search aria-hidden="true" />
+                    )}
+                    {currentAvailability === 'planned'
+                      ? destination
+                        ? `Explore ${destination.name}`
+                        : 'Explore ideas'
+                      : SEARCH_ACTION[service]}
                   </Link>
                 </Button>
+                {currentAvailability === 'planned' ? null : (
+                  <Button asChild variant="ghost" size="sm" className="justify-center">
+                    <Link to={exploreHref(intent)}>
+                      {destination ? `Explore ${destination.name}` : 'Destination ideas'}
+                    </Link>
+                  </Button>
+                )}
               </div>
             </div>
           </Tabs>

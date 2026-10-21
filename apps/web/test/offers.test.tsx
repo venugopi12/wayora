@@ -132,7 +132,11 @@ describe('offers that cannot be shown', () => {
   it('rejects invalid service types and offer ids', async () => {
     const api = installFakeSearchApi();
     const first = renderRoute('/offers/rockets/demo-rockets%3Ax');
-    expect(await screen.findByText("This offer link isn't valid")).toBeInTheDocument();
+    // The state is the whole page, so it is the page's one level-1 heading.
+    expect(
+      await screen.findByRole('heading', { level: 1, name: "This offer link isn't valid" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     first.unmount();
     renderRoute('/offers/flights/has%20a%20space');
     expect(await screen.findByText("This offer link isn't valid")).toBeInTheDocument();

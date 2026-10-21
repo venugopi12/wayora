@@ -152,7 +152,7 @@ function About({ destination }: { destination: Destination }) {
               key={h.title}
               className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-1 border-b border-line py-6 first:pt-0 last:border-b-0"
             >
-              <span aria-hidden="true" className="numeric row-span-2 text-heading-3 text-brand-300">
+              <span aria-hidden="true" className="numeric row-span-2 text-heading-3 text-brand">
                 {String(i + 1).padStart(2, '0')}
               </span>
               <h3 className="text-title">{h.title}</h3>

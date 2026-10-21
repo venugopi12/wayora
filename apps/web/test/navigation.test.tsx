@@ -55,8 +55,9 @@ describe('desktop navigation', () => {
       'href',
       '/discover',
     );
-    // Every service in the panel is visibly marked as not yet available.
-    expect(within(nav).getAllByText('Soon').length).toBeGreaterThanOrEqual(3);
+    // Every service in the panel is visibly marked as demo search (catalog: beta).
+    expect(within(nav).getAllByText('Demo').length).toBeGreaterThanOrEqual(3);
+    expect(within(nav).queryByText('Soon')).toBeNull();
   });
 
   it('closes the mega menu on Escape and returns focus to the trigger', async () => {
@@ -261,7 +262,13 @@ describe('mobile navigation drawer', () => {
       'href',
       '/discover',
     );
-    // Signed out (the /auth/me check fails offline): sign-in and registration.
+    // Services are badged from the catalog ("Demo" while beta); Discover, a
+    // working page rather than a catalog service, carries no badge.
+    expect(within(drawer).getAllByText('Demo')).toHaveLength(SERVICE_NAV.length);
+    expect(within(drawer).getByRole('link', { name: /^Discover/ })).not.toHaveTextContent(
+      /Soon|Demo/,
+    );
+    // Signed out (the /auth/session check fails offline): sign-in and registration.
     expect(await within(drawer).findByRole('link', { name: 'Sign in' })).toHaveAttribute(
       'href',
       '/login',

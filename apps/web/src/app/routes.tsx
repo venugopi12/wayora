@@ -92,7 +92,7 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *         │  /legal/privacy, /legal/terms, /flights … /holidays (demo search),
  *         │  /offers/:serviceType/:resultId (offer details), dev /design-system
  *         ├─ /sign-in          redirects to /login
- *         ├─ RequireAuth       loader until /auth/me answers; else /login?redirect=
+ *         ├─ RequireAuth       loader until /auth/session answers; else /login?redirect=
  *         │  └─ /profile, /profile/travellers
  *         └─ *                 not-found page
  *

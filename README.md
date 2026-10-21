@@ -38,29 +38,30 @@ Full instructions and troubleshooting: [docs/SETUP.md](docs/SETUP.md).
 
 ## Scripts
 
-| Script                                       | Purpose                                                       |
-| -------------------------------------------- | ------------------------------------------------------------- |
-| `npm run setup`                              | Copy every `.env.example` to `.env` (never overwrites)        |
-| `npm run dev`                                | Build shared packages, then run API, worker and web           |
-| `npm run dev:api` / `dev:worker` / `dev:web` | Run one app in watch mode                                     |
-| `npm run build`                              | Build packages, API, worker and web for production            |
-| `npm run start:api` / `start:worker`         | Run the built API / worker                                    |
-| `npm run lint` / `lint:fix`                  | ESLint across the monorepo                                    |
-| `npm run format` / `format:check`            | Prettier                                                      |
-| `npm run typecheck`                          | Strict TypeScript in every workspace                          |
-| `npm test`                                   | Vitest in every workspace (no external services needed)       |
-| `npm run check`                              | lint + format check + typecheck + tests (CI gate)             |
-| `npm run infra:up` / `infra:down`            | Start / stop PostgreSQL and Redis                             |
-| `npm run infra:reset`                        | Stop and **delete** local database and Redis volumes          |
-| `npm run infra:logs` / `infra:ps`            | Follow logs / list containers                                 |
-| `npm run db:migrate`                         | Create/apply migrations in development (`prisma migrate dev`) |
-| `npm run db:migrate:deploy`                  | Apply committed migrations (CI / production)                  |
-| `npm run db:migrate:status`                  | Show migration status                                         |
-| `npm run db:generate`                        | Regenerate the Prisma client                                  |
-| `npm run db:seed`                            | Seed development data (refuses in production)                 |
-| `npm run db:reset`                           | Drop, re-migrate and re-seed the dev database                 |
-| `npm run db:studio`                          | Prisma Studio                                                 |
-| `npm run job:example`                        | Enqueue the example worker job and wait for its result        |
+| Script                                       | Purpose                                                                              |
+| -------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `npm run setup`                              | Copy every `.env.example` to `.env` (never overwrites)                               |
+| `npm run dev`                                | Build shared packages, then run API, worker and web                                  |
+| `npm run dev:api` / `dev:worker` / `dev:web` | Run one app in watch mode                                                            |
+| `npm run build`                              | Build packages, API, worker and web for production                                   |
+| `npm run start:api` / `start:worker`         | Run the built API / worker                                                           |
+| `npm run lint` / `lint:fix`                  | ESLint across the monorepo                                                           |
+| `npm run format` / `format:check`            | Prettier                                                                             |
+| `npm run typecheck`                          | Strict TypeScript in every workspace                                                 |
+| `npm test`                                   | Vitest in every workspace (no external services needed)                              |
+| `npm run check`                              | lint + format check + typecheck + tests (also run by CI, `.github/workflows/ci.yml`) |
+| `npm run infra:up` / `infra:down`            | Start / stop PostgreSQL and Redis                                                    |
+| `npm run infra:reset`                        | Stop and **delete** local database and Redis volumes                                 |
+| `npm run infra:logs` / `infra:ps`            | Follow logs / list containers                                                        |
+| `npm run db:migrate`                         | Create/apply migrations in development (`prisma migrate dev`)                        |
+| `npm run db:migrate:deploy`                  | Apply committed migrations (CI / production)                                         |
+| `npm run db:migrate:check`                   | Fail (exit 2) if the migrated database differs from `schema.prisma` (CI)             |
+| `npm run db:migrate:status`                  | Show migration status                                                                |
+| `npm run db:generate`                        | Regenerate the Prisma client                                                         |
+| `npm run db:seed`                            | Seed development data (refuses in production)                                        |
+| `npm run db:reset`                           | Drop, re-migrate and re-seed the dev database                                        |
+| `npm run db:studio`                          | Prisma Studio                                                                        |
+| `npm run job:example`                        | Enqueue the example worker job and wait for its result                               |
 
 ## Environment
 
@@ -88,10 +89,11 @@ is missing. See the `.env.example` next to each app and
 | --------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | GET                   | `/api/v1/health`                                               | Liveness. Always 200 while the process is up                              |
 | GET                   | `/api/v1/health/ready`                                         | Readiness. 200 ready/degraded, 503 unready                                |
-| GET                   | `/api/v1/catalog/categories`                                   | Travel categories (`?availability=planned`)                               |
+| GET                   | `/api/v1/catalog/categories`                                   | Travel categories (`?availability=beta`)                                  |
 | GET                   | `/api/v1/catalog/categories/:slug`                             | One category                                                              |
 | POST                  | `/api/v1/auth/register` · `/login` · `/logout` · `/logout-all` | Accounts and sessions ([auth.md](docs/auth.md))                           |
-| GET                   | `/api/v1/auth/me`                                              | The signed-in user                                                        |
+| GET                   | `/api/v1/auth/session`                                         | The signed-in user, or `null` (always 200; used on app start-up)          |
+| GET                   | `/api/v1/auth/me`                                              | The signed-in user (401 when signed out)                                  |
 | GET/PATCH             | `/api/v1/users/me`                                             | Profile                                                                   |
 | GET/POST/PATCH/DELETE | `/api/v1/users/me/travellers[/:id]`                            | Saved travellers                                                          |
 | POST                  | `/api/v1/search/:serviceType`                                  | Demo search for one category ([search.md](docs/search.md))                |

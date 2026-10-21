@@ -7,6 +7,7 @@ import {
   BrandMark,
   Button,
   Checkbox,
+  EmptyState,
   Field,
   IconButton,
   Input,
@@ -195,5 +196,20 @@ describe('display components', () => {
     expect(screen.getByRole('img', { name: 'Wayora' })).toBeInTheDocument();
     render(<Wordmark />);
     expect(screen.getByText('wayora')).toBeInTheDocument();
+  });
+});
+
+describe('EmptyState', () => {
+  it('titles with a paragraph by default, so it never adds headings to a page', () => {
+    render(<EmptyState title="No trips yet" />);
+    expect(screen.getByText('No trips yet').tagName).toBe('P');
+    expect(screen.queryByRole('heading')).toBeNull();
+  });
+
+  it('can title the page when the state is the whole page', () => {
+    render(<EmptyState size="page" titleAs="h1" title="This offer link isn't valid" />);
+    expect(
+      screen.getByRole('heading', { level: 1, name: "This offer link isn't valid" }),
+    ).toBeInTheDocument();
   });
 });

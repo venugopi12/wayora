@@ -1,0 +1,102 @@
+# Continuous integration for the Wayora monorepo (npm workspaces).
+#
+# Runs on every push to main and every pull request:
+#   install → Prisma engine check → migrations + drift check (PostgreSQL)
+#   → lint → format → typecheck → tests (incl. DB integration) → build.
+#
+# Run the same steps locally: see docs/SETUP.md#continuous-integration.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      # Throwaway database for migrations and the API integration tests. The
+      # name must end in _test: the integration suite refuses anything else.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wayora
+          POSTGRES_PASSWORD: wayora_ci_only
+          POSTGRES_DB: wayora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wayora -d wayora_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+
+    env:
+      CI: 'true'
+      # Used by the API integration tests (they fail rather than skip when CI is set).
+      TEST_DATABASE_URL: postgresql://wayora:wayora_ci_only@localhost:5432/wayora_test
+      # Used by the Prisma CLI (migrate deploy, migrate diff) via database/prisma.config.ts.
+      DATABASE_URL: postgresql://wayora:wayora_ci_only@localhost:5432/wayora_test
+      # No Prisma telemetry or update checks from CI.
+      CHECKPOINT_DISABLE: '1'
+      PRISMA_HIDE_UPDATE_MESSAGE: '1'
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Prisma's CLI needs its schema-engine binary for every command, including
+      # `prisma generate` (run by `npm ci`). @prisma/engines downloads it once per
+      # engine version into ~/.cache/prisma; caching that directory keeps CI
+      # reproducible and independent of binaries.prisma.sh after the first run.
+      # The key follows the lockfile, i.e. the pinned Prisma version.
+      - name: Cache Prisma engines
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/prisma
+          key: prisma-engines-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the Prisma engine is installed
+        run: npm exec --workspace @wayora/database -- prisma --version
+
+      - name: Apply migrations to the test database
+        run: npm run db:migrate:deploy
+
+      - name: Check migrations match schema.prisma
+        run: npm run db:migrate:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

@@ -34,6 +34,17 @@ for later phases, so they are built the same way from day one.
 - Unexpected errors return a generic message plus request ID; internals are logged,
   not exposed (except in local development).
 
+### Web build
+
+- Production source maps are `hidden` (no `sourceMappingURL` in the bundle) and
+  moved out of `apps/web/dist` into the git-ignored `apps/web/sourcemaps/` by
+  `apps/web/scripts/extract-sourcemaps.mjs`. The build fails if a map file or a
+  map reference is left in `dist/`, so deploying `dist/` never publishes the
+  original source. Keep the maps for debugging or an error tracker's private
+  upload; the dev server always has full source maps.
+- The build also fails if development-only routes (the design-system showcase)
+  leak into the bundle.
+
 ### Logging
 
 - Structured JSON logs with request IDs.
@@ -147,7 +158,8 @@ Details: [search.md](search.md).
 - TLS everywhere; HSTS on the web origin.
 - Separate database roles: migrations role (DDL) vs application role (DML only).
 - Centralised error reporting with PII scrubbing.
-- Dependency updates and `npm audit` in CI; `npm run check` as the merge gate.
+- Dependency updates and `npm audit` in CI (CI itself runs today: lint, format,
+  typecheck, tests with PostgreSQL, build; `npm audit` is not a CI step yet).
 - Backups with point-in-time recovery for PostgreSQL; AOF persistence for Redis queues.
 
 ## Reporting

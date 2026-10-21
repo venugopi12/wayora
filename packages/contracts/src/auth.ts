@@ -126,6 +126,14 @@ export type SafeUser = z.infer<typeof safeUserSchema>;
 export const authResponseSchema = z.object({ user: safeUserSchema });
 export type AuthResponse = z.infer<typeof authResponseSchema>;
 
+/**
+ * GET /auth/session: who this browser is signed in as. Always 200: `user` is
+ * null when there is no valid session, so a signed-out visitor is a normal
+ * answer, not an error.
+ */
+export const sessionResponseSchema = z.object({ user: safeUserSchema.nullable() });
+export type SessionResponse = z.infer<typeof sessionResponseSchema>;
+
 // ─── Saved travellers ─────────────────────────────────────────────────────
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;

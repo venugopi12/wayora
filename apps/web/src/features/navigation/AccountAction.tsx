@@ -19,7 +19,7 @@ import { ACCOUNT_PATHS, DISCOVER, type HeaderTone } from './config';
 
 /*
  * Account entry points in the header and the mobile drawer. Every variant has
- * three states, driven by the single /auth/me check:
+ * three states, driven by the single /auth/session check:
  *   loading          → same-size placeholders (no flash of the wrong state)
  *   unauthenticated  → Sign in / Create account
  *   authenticated    → account menu: profile, saved travellers, sign out

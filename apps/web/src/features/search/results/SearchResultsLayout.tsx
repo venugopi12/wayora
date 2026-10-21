@@ -152,7 +152,9 @@ export function SearchResultsLayout({
       aria-labelledby="results-title"
       className="grid gap-6 lg:grid-cols-[16rem_minmax(0,1fr)] lg:gap-10"
     >
-      <aside aria-label="Filters" className="hidden lg:block">
+      {/* A region, not <aside>: complementary landmarks must be top-level, and
+          this sits inside the results section. */}
+      <section aria-label="Filters" className="hidden lg:block">
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-title">Filters</h2>
@@ -168,7 +170,7 @@ export function SearchResultsLayout({
           </div>
           {filterPanel}
         </div>
-      </aside>
+      </section>
 
       <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">

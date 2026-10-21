@@ -12,7 +12,11 @@ export default defineConfig({
     port: 4173,
   },
   build: {
-    sourcemap: true,
+    // Production maps are generated for debugging and error tracking but are
+    // never referenced from the bundle (`hidden`: no sourceMappingURL), and
+    // scripts/extract-sourcemaps.mjs moves them out of dist/ so a deploy of
+    // dist/ can't publish them. The dev server always has full source maps.
+    sourcemap: 'hidden',
     target: 'es2022',
     rolldownOptions: {
       output: {
