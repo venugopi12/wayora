@@ -1,0 +1,10 @@
+import { useEffect } from 'react';
+
+const BASE_TITLE = 'Wayora';
+
+/** Sets `document.title` as "<title> | Wayora" (or just "Wayora"). */
+export function useDocumentTitle(title?: string): void {
+  useEffect(() => {
+    document.title = title ? `${title} | ${BASE_TITLE}` : BASE_TITLE;
+  }, [title]);
+}

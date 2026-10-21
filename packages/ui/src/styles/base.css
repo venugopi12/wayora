@@ -1,0 +1,101 @@
+/*
+ * Wayora base layer and shared utilities. Import after tailwindcss and theme.css.
+ */
+
+/*
+ * Metric-matched fallback for Plus Jakarta Sans. The web font loads with
+ * font-display: swap; until it arrives, text renders in Arial (or the
+ * metric-compatible Liberation Sans on Linux) scaled to the same average
+ * width and line metrics, so lines don't rewrap and the page doesn't shift
+ * when the font swaps in. Values computed from the font files
+ * (avg. width 0.474 vs 0.447 em; ascent 1038, descent 222 per 1000).
+ */
+@font-face {
+  font-family: 'Plus Jakarta Sans Fallback';
+  src: local('Arial'), local('ArialMT'), local('Liberation Sans'), local('Helvetica');
+  size-adjust: 106.05%;
+  ascent-override: 97.88%;
+  descent-override: 20.93%;
+  line-gap-override: 0%;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--color-page);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* One focus ring for every interactive element, keyboard-only. */
+  :where(a, button, input, select, textarea, summary, [tabindex], [role='menuitem']):focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  ::selection {
+    background-color: var(--color-brand-200);
+    color: var(--color-brand-950);
+  }
+
+  ::placeholder {
+    color: var(--color-ink-subtle);
+    opacity: 1;
+  }
+}
+
+/* Tabular, lining figures for prices, times and codes so digits align. */
+@utility numeric {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings:
+    'tnum' 1,
+    'lnum' 1;
+}
+
+/* Keeps the focus ring visible on dark (deep navy) surfaces. */
+@utility focus-ring-inverse {
+  --focus-ring-color: var(--color-white);
+}
+
+/* Makes a link's click area cover its nearest `relative` ancestor (cards). */
+@utility stretched-link {
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    z-index: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

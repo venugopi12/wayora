@@ -1,0 +1,319 @@
+// Wayora — Phase 1 foundational schema.
+//
+// Conventions (see docs/architecture.md#database):
+// - Primary keys are UUIDv7 (time-ordered, index-friendly), stored as native `uuid`.
+// - All timestamps are `timestamptz(3)` and written in UTC.
+// - Money is stored as BIGINT minor units (`*AmountMinor`) + ISO 4217 `currency`.
+//   Never use Float/Decimal-with-float-math for money.
+// - Table/column names are snake_case via @@map/@map; Prisma models are PascalCase.
+// - CHECK constraints that Prisma cannot express live in the migration SQL.
+// - No raw card data is ever stored. Payment references come from the PSP.
+
+// Prisma 7 TypeScript client (no native query engine). Generated into
+// src/generated/prisma (git-ignored) and re-exported by src/index.ts.
+generator client {
+  provider            = "prisma-client"
+  output              = "./src/generated/prisma"
+  runtime             = "nodejs"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+// Connection URL is configured in prisma.config.ts (CLI) and passed to the
+// pg driver adapter at runtime (src/index.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+
+  @@map("user_status")
+}
+
+/// Mirrors `travelCategorySlugSchema` in @wayora/contracts.
+enum TravelCategory {
+  FLIGHT
+  HOTEL
+  TRAIN
+  BUS
+  METRO
+  CAB
+  HOLIDAY_PACKAGE
+
+  @@map("travel_category")
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING_PAYMENT
+  PAID
+  PARTIALLY_FULFILLED
+  FULFILLED
+  CANCELLED
+  REFUNDED
+  FAILED
+
+  @@map("order_status")
+}
+
+enum BookingStatus {
+  PENDING
+  HELD
+  CONFIRMED
+  CANCELLED
+  FAILED
+
+  @@map("booking_status")
+}
+
+enum BookingItemStatus {
+  ACTIVE
+  CANCELLED
+
+  @@map("booking_item_status")
+}
+
+enum IdempotencyKeyStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+
+  @@map("idempotency_key_status")
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+
+  @@map("webhook_event_status")
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+  ADMIN
+  PROVIDER
+
+  @@map("audit_actor_type")
+}
+
+// ─── Identity ─────────────────────────────────────────────────────────────
+
+/// An account holder. Signs in with email + password (Phase 8).
+model User {
+  id              String     @id @default(uuid(7)) @db.Uuid
+  /// Normalized (trimmed, lower-cased) by the application and enforced by a
+  /// CHECK constraint, so the unique index is effectively case-insensitive.
+  email           String     @unique @db.VarChar(320)
+  /// Set only by a real verification flow (not implemented yet).
+  emailVerifiedAt DateTime?  @map("email_verified_at") @db.Timestamptz(3)
+  /// The person's name, as shown in the app ("name" in the API).
+  displayName     String?    @map("display_name") @db.VarChar(120)
+  /// Argon2id PHC string. Null for accounts without a password (e.g. seed data),
+  /// which therefore cannot sign in. Never returned by the API.
+  passwordHash    String?    @map("password_hash") @db.VarChar(255)
+  /// E.164 format, e.g. +919876543210.
+  phoneE164       String?    @map("phone_e164") @db.VarChar(16)
+  status          UserStatus @default(ACTIVE)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  travellers Traveller[]
+  orders     Order[]
+  sessions   Session[]
+
+  @@index([status])
+  @@map("users")
+}
+
+/// A signed-in browser session. The cookie carries a random token; only its
+/// SHA-256 hash is stored, so a database leak does not expose usable sessions.
+/// A session authenticates only while revokedAt is null, expiresAt is in the
+/// future and the user is ACTIVE (docs/auth.md#session-lifecycle).
+model Session {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  /// Hex SHA-256 of the cookie token.
+  tokenHash      String    @unique @map("token_hash") @db.Char(64)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  /// Refreshed at most every few minutes while the session is used.
+  lastActivityAt DateTime  @default(now()) @map("last_activity_at") @db.Timestamptz(3)
+  /// min(createdAt + absolute lifetime, lastActivityAt + idle timeout).
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// A person who travels on a booking (may differ from the account holder).
+/// Identity documents (passport etc.) are deliberately NOT modelled yet; they
+/// require field-level encryption and a retention policy first.
+model Traveller {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  firstName   String    @map("first_name") @db.VarChar(100)
+  lastName    String    @map("last_name") @db.VarChar(100)
+  dateOfBirth DateTime? @map("date_of_birth") @db.Date
+  /// ISO 3166-1 alpha-2.
+  nationality String?   @db.Char(2)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookingItems BookingItem[]
+
+  @@index([userId])
+  @@map("travellers")
+}
+
+// ─── Commerce ─────────────────────────────────────────────────────────────
+
+/// The customer-facing purchase. One order can contain bookings across
+/// categories (e.g. a flight + a hotel) and is the unit of payment.
+model Order {
+  id                String      @id @default(uuid(7)) @db.Uuid
+  /// Human-friendly, customer-visible reference, e.g. WY-7KQ2-M9XD.
+  reference         String      @unique @db.VarChar(32)
+  userId            String      @map("user_id") @db.Uuid
+  status            OrderStatus @default(DRAFT)
+  currency          String      @db.Char(3)
+  totalAmountMinor  BigInt      @default(0) @map("total_amount_minor")
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  bookings Booking[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+  @@map("orders")
+}
+
+/// A single supplier reservation within an order (one per provider booking).
+model Booking {
+  id                String         @id @default(uuid(7)) @db.Uuid
+  orderId           String         @map("order_id") @db.Uuid
+  category          TravelCategory
+  status            BookingStatus  @default(PENDING)
+  /// Provider identifier, e.g. "amadeus". Null until a provider is chosen.
+  provider          String?        @db.VarChar(64)
+  /// Provider-side reference (PNR, confirmation number).
+  providerReference String?        @map("provider_reference") @db.VarChar(128)
+  currency          String         @db.Char(3)
+  totalAmountMinor  BigInt         @default(0) @map("total_amount_minor")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items BookingItem[]
+
+  @@unique([provider, providerReference])
+  @@index([orderId])
+  @@index([category, status])
+  @@map("bookings")
+}
+
+/// A priced line within a booking (a seat, a room-night, a fare component).
+model BookingItem {
+  id               String            @id @default(uuid(7)) @db.Uuid
+  bookingId        String            @map("booking_id") @db.Uuid
+  travellerId      String?           @map("traveller_id") @db.Uuid
+  status           BookingItemStatus @default(ACTIVE)
+  description      String            @db.VarChar(255)
+  quantity         Int               @default(1)
+  currency         String            @db.Char(3)
+  unitAmountMinor  BigInt            @map("unit_amount_minor")
+  totalAmountMinor BigInt            @map("total_amount_minor")
+  /// Category-specific, non-sensitive attributes (e.g. cabin class, room type).
+  attributes       Json?
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  booking   Booking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  traveller Traveller? @relation(fields: [travellerId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([travellerId])
+  @@map("booking_items")
+}
+
+// ─── Reliability & compliance ─────────────────────────────────────────────
+
+/// Stores the outcome of mutating requests so client retries are safe.
+/// Rows are short-lived; a scheduled worker job purges expired keys.
+model IdempotencyKey {
+  id             String               @id @default(uuid(7)) @db.Uuid
+  /// Client-supplied `Idempotency-Key` header value.
+  key            String               @db.VarChar(255)
+  /// Operation the key applies to, e.g. "POST /api/v1/orders".
+  scope          String               @db.VarChar(128)
+  /// Owner of the key; keys are never shared across users.
+  userId         String?              @map("user_id") @db.Uuid
+  /// SHA-256 of the canonical request body; mismatches are rejected.
+  requestHash    String               @map("request_hash") @db.Char(64)
+  status         IdempotencyKeyStatus @default(IN_PROGRESS)
+  responseStatus Int?                 @map("response_status") @db.SmallInt
+  responseBody   Json?                @map("response_body")
+  lockedUntil    DateTime?            @map("locked_until") @db.Timestamptz(3)
+  expiresAt      DateTime             @map("expires_at") @db.Timestamptz(3)
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([scope, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+/// Inbound provider/PSP webhooks, recorded before processing so delivery is
+/// at-least-once and processing is idempotent (unique provider + external id).
+model WebhookEvent {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  provider          String             @db.VarChar(64)
+  /// The provider's event ID — used for de-duplication.
+  externalId        String             @map("external_id") @db.VarChar(255)
+  eventType         String             @map("event_type") @db.VarChar(128)
+  /// Verified payload. Must never contain raw card data (PSPs do not send it).
+  payload           Json
+  signatureVerified Boolean            @default(false) @map("signature_verified")
+  status            WebhookEventStatus @default(RECEIVED)
+  attempts          Int                @default(0)
+  lastError         String?            @map("last_error")
+  receivedAt        DateTime           @default(now()) @map("received_at") @db.Timestamptz(3)
+  processedAt       DateTime?          @map("processed_at") @db.Timestamptz(3)
+
+  @@unique([provider, externalId])
+  @@index([status, receivedAt])
+  @@map("webhook_events")
+}
+
+/// Append-only record of security- and money-relevant actions.
+model AuditLog {
+  id         String         @id @default(uuid(7)) @db.Uuid
+  actorType  AuditActorType @map("actor_type")
+  actorId    String?        @map("actor_id") @db.VarChar(64)
+  /// Dot-namespaced verb, e.g. "order.status_changed".
+  action     String         @db.VarChar(128)
+  entityType String         @map("entity_type") @db.VarChar(64)
+  entityId   String         @map("entity_id") @db.VarChar(64)
+  requestId  String?        @map("request_id") @db.VarChar(128)
+  /// Non-sensitive context (before/after status, reason codes). No secrets/PII.
+  metadata   Json?
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorType, actorId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

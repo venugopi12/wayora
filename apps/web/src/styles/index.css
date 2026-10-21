@@ -1,0 +1,6 @@
+@import 'tailwindcss';
+@import '@wayora/ui/theme.css';
+@import '@wayora/ui/base.css';
+
+/* Shared components live in packages/ui; let Tailwind see their classes. */
+@source '../../../../packages/ui/src';

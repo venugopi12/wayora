@@ -1,0 +1,256 @@
+# Architecture
+
+## Overview
+
+```text
+                ┌──────────────────────┐
+  Browser ───▶  │  apps/web (Vite SPA) │  React Router · TanStack Query · Motion
+                └──────────┬───────────┘
+                           │ HTTPS JSON  /api/v1/*   (contracts validated both sides)
+                ┌──────────▼───────────┐
+                │  apps/api (Express)  │  modular monolith
+                │  system · catalog ·  │
+                │  (future modules)    │
+                └───┬─────────────┬────┘
+        essential   │             │ optional (cache, rate limits, enqueue)
+           ┌────────▼───┐   ┌─────▼──────┐
+           │ PostgreSQL │   │   Redis    │◀────┐
+           └────────▲───┘   └────────────┘     │ BullMQ queues
+                    │                     ┌────┴────────────┐
+                    └─────────────────────│ apps/worker     │
+                      (from later phases) │ (BullMQ Worker) │
+                                          └─────────────────┘
+```
+
+| Workspace            | Depends on                             | Never depends on      |
+| -------------------- | -------------------------------------- | --------------------- |
+| `packages/contracts` | `zod`                                  | any app               |
+| `packages/ui`        | nothing at runtime                     | any app               |
+| `packages/config`    | nothing                                | anything              |
+| `database`           | Prisma                                 | any app               |
+| `apps/api`           | contracts, database                    | web, worker           |
+| `apps/worker`        | contracts (database from later phases) | web, api              |
+| `apps/web`           | contracts, ui                          | api, database, worker |
+
+The web app never imports server code. It shares only Zod contracts, which hold no
+secrets or server logic.
+
+## Why a modular monolith
+
+One deployable API keeps transactions, debugging and deploys simple while the
+team and traffic are small. Domain boundaries are enforced in code (folders,
+explicit service interfaces, contracts) so a module can be extracted into its own
+service later, if scale or team structure demands it, without a rewrite.
+
+### Module rules
+
+1. A module lives in `apps/api/src/modules/<domain>/` and owns its routes,
+   service logic and (later) its repository and tables.
+2. Routes do HTTP only: validate input with contracts, call the service, send the envelope.
+3. Services are framework-agnostic and receive dependencies via constructor or factory,
+   so tests can pass fakes.
+4. Modules call each other only through an exported service function or interface,
+   never by importing another module's internals or querying its tables.
+5. Cross-module side effects (send a confirmation after payment) go through worker
+   jobs, not synchronous chains.
+
+### Planned module boundaries
+
+| Module        | Owns                                                        | Notes                                                 |
+| ------------- | ----------------------------------------------------------- | ----------------------------------------------------- |
+| identity      | `users`, `travellers`, `sessions`                           | Built (Phase 8): `modules/auth`, `modules/users`      |
+| flights       | flight search cache, fare rules                             | Provider adapters behind a `FlightProvider` interface |
+| hotels        | hotel content, rate snapshots                               | `HotelProvider` interface                             |
+| trains        | train availability, PNR status                              | `RailProvider` interface                              |
+| buses         | operators, seat layouts                                     | `BusProvider` interface                               |
+| metro         | city ticket products                                        | Per-city adapters                                     |
+| cabs          | quotes, rides                                               | Quote → book → track                                  |
+| holidays      | packages, itineraries                                       | Composes other modules' services                      |
+| orders        | `orders`, `bookings`, `booking_items`, `idempotency_keys`   | The only writer of order state                        |
+| payments      | payment intents, refunds, PSP webhooks via `webhook_events` | Never sees raw card data                              |
+| notifications | templates, delivery log                                     | Executed by the worker                                |
+
+Every travel vertical produces `Booking` + `BookingItem` rows through the orders
+module, so one order can combine a flight, a hotel and a cab, and payment happens once.
+
+### Adding a module
+
+1. Add request/response schemas to `packages/contracts/src/<domain>.ts` and export them.
+2. Create `apps/api/src/modules/<domain>/<domain>.routes.ts` and `<domain>.service.ts`.
+3. Mount the router in `apps/api/src/routes/v1.ts`.
+4. Add tables to `database/schema.prisma` and run `npm run db:migrate` (see below).
+5. Add tests next to the existing ones in `apps/api/test/`.
+6. In the web app, add `src/services/<domain>.ts`, `src/features/<domain>/`, and a
+   lazy route in `src/app/routes.tsx`.
+
+## API request pipeline
+
+```text
+requestId → pino-http access log → helmet → CORS → JSON body (100 kB)
+→ rate limit (/api, health exempt) → /api/v1 router → 404 handler → error handler
+```
+
+`createApp()` builds the app from injected dependencies (env, logger, health checks,
+rate-limit store) and opens no connections, which is what makes the HTTP tests
+fast and hermetic. `server.ts` owns connections, listening and graceful shutdown.
+
+### Dependencies: essential vs optional
+
+| Dependency | API           | Worker        | When down                                                                                                                         |
+| ---------- | ------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| PostgreSQL | **essential** | (later)       | Readiness 503; data endpoints fail with errors                                                                                    |
+| Redis      | optional      | **essential** | API: readiness `degraded`, rate limiting falls back to memory. Worker: reconnects and logs, processes nothing until Redis returns |
+
+The API starts even if PostgreSQL is down at boot (liveness stays 200, readiness 503) so orchestrators can restart dependencies independently. Redis commands fail
+fast (no offline queue) so a Redis outage never stalls HTTP requests.
+
+### Graceful shutdown
+
+On `SIGTERM`/`SIGINT`:
+
+- **API:** stop accepting connections, let in-flight requests finish, close idle
+  keep-alive sockets, disconnect Prisma and Redis, exit 0. Forced exit 1 after
+  `SHUTDOWN_TIMEOUT_MS`.
+- **Worker:** `worker.close()` stops fetching new jobs and waits for active ones,
+  then exits. Forced exit after `SHUTDOWN_TIMEOUT_MS`. Interrupted jobs are retried
+  by BullMQ (stalled-job detection), so handlers must be idempotent.
+
+## Worker
+
+- One queue per concern (`wayora-system` today). Queue and job names, and payload
+  schemas, live in `packages/contracts/src/jobs.ts`.
+- Payloads carry IDs and non-sensitive metadata only. Schemas are `.strict()` so
+  extra fields (an email, a token) are rejected rather than silently enqueued.
+- Invalid payloads and unknown job names throw `UnrecoverableError`, so they fail
+  once instead of burning retries.
+- Completed jobs are kept 24 h (max 1000), failed jobs 7 days.
+- Add a job: define its schema and name in contracts, write a pure handler in
+  `apps/worker/src/jobs/`, register it in `processor.ts`, add tests.
+
+Planned jobs: idempotency-key purge, webhook processing, notification delivery,
+booking status polling with providers.
+
+## Database
+
+PostgreSQL 16 via Prisma 7 (TypeScript client with the `pg` driver adapter; no
+native query engine at runtime).
+
+### Phase 1 tables
+
+| Table              | Purpose                                                                                  |
+| ------------------ | ---------------------------------------------------------------------------------------- |
+| `users`            | Account holders; `password_hash` (Argon2id) added in Phase 8                             |
+| `travellers`       | People who travel; may differ from the account holder                                    |
+| `orders`           | Customer purchase, unit of payment; human reference like `WY-7KQ2-M9XD`                  |
+| `bookings`         | One supplier reservation per order and category; unique `(provider, provider_reference)` |
+| `booking_items`    | Priced lines (seat, room-night, fare component)                                          |
+| `idempotency_keys` | Stored outcomes of mutating requests, unique `(scope, key)`                              |
+| `webhook_events`   | Inbound provider/PSP webhooks, de-duplicated on `(provider, external_id)`                |
+| `audit_logs`       | Append-only record of security- and money-relevant actions                               |
+
+Phase 8 added `sessions` (hashed session tokens with expiry and revocation); see
+[auth.md](auth.md).
+
+### Conventions
+
+- **IDs:** UUIDv7 (`@default(uuid(7))`, native `uuid`). Time-ordered, so B-tree
+  inserts stay local, and they're safe to expose.
+- **Timestamps:** `timestamptz(3)`, written in UTC. The Compose database runs with `TZ=UTC`.
+- **Money:** `BIGINT` minor units (`*_amount_minor`) plus `CHAR(3)` currency. CHECK
+  constraints enforce non-negative amounts and ISO-4217-shaped codes. Arithmetic
+  uses `bigint`. Never `float`.
+- **Enums:** explicit Postgres enums for every status.
+- **Naming:** snake_case tables and columns via `@@map` / `@map`; PascalCase models.
+- **Integrity in the database, not only in code:** FKs with deliberate `onDelete`
+  (orders `RESTRICT` user deletion; bookings cascade from orders), CHECK
+  constraints, and a trigger that makes `audit_logs` append-only.
+- **No card data, ever.** Payment details stay with the PSP; we store PSP references.
+- **No identity documents yet.** Passport/ID numbers need field-level encryption and
+  a retention policy before they get a column.
+
+### Changing the schema
+
+1. Edit `database/schema.prisma`.
+2. `npm run db:migrate -- --name <short_description>` creates
+   `database/migrations/<timestamp>_<name>/migration.sql` and applies it locally.
+3. Review the SQL. Prisma cannot express CHECK constraints, partial indexes or
+   triggers: add those by hand at the end of the generated file (see the init
+   migration for the pattern), or create an empty migration with
+   `npm run db:migrate -- --create-only --name <name>` and write SQL.
+4. Commit schema and migration together. Never edit a migration that has been applied
+   anywhere shared; add a new one.
+5. Deploy with `npm run db:migrate:deploy` before rolling out code that needs it.
+
+Zero-downtime rules for later phases:
+
+- **Expand, then contract.** Add the new column (nullable or with a default), deploy
+  code that writes both, backfill in batches, switch reads, then drop the old column
+  in a later release.
+- Create indexes on large tables with `CREATE INDEX CONCURRENTLY` in a create-only
+  migration (one statement per migration, since it cannot run in a transaction).
+- Never rename a column or table in place on a live system.
+- Adding an enum value is additive and safe; removing one needs a data migration first.
+
+> The init migration was written to match Prisma's generated SQL and verified
+> against PostgreSQL 16 (all tables, indexes, FKs, CHECK constraints and the
+> audit trigger). On first `npm run db:migrate`, Prisma confirms the schema and
+> history agree. If it reports drift, see "Unfinished work" in the Phase 1 report.
+
+## Web app
+
+```text
+src/
+├── app/         App providers (QueryClient, Motion, Router) and the route table
+├── routes/      Route components: Home, NotFound, RouteErrorBoundary
+├── components/  Layouts (RootLayout, MarketingLayout, ContentPage), header, footer,
+│                route handles + breadcrumbs, page-level feedback, GlobalErrorBoundary
+├── features/    Feature folders: home (hero, travel selector, moods, destinations,
+│                experience, closing CTA, media manifest), catalog (API categories), system (status),
+│                discover (destination discovery: sample data, search, pages),
+│                navigation (header, mega menu, search, drawer),
+│                search (search and results pages for the seven services, Phases 9–10),
+│                offers (offer detail pages, Phase 10),
+│                info (about, help, legal drafts),
+│                auth (session provider, guards, sign-in/registration),
+│                account (profile, saved travellers),
+│                preferences (display currency),
+│                design-system (dev-only showcase)
+├── services/    API calls per domain, built on the shared api client
+├── lib/         env, api-client, query-client
+├── hooks/       Shared hooks
+├── styles/      Tailwind entry + base layer
+└── types/       Ambient types (import.meta.env)
+```
+
+- **Data:** components call hooks (`useCategories`), hooks call `services/*`, and
+  services call `lib/api-client`, which validates every response against its contract.
+  Components never call `fetch`.
+- **Errors:** `GlobalErrorBoundary` wraps the providers, the router's `errorElement`
+  handles route errors and 404s, and query errors render inline `ErrorState`s with
+  a retry. The catalog falls back to the contract's bundled list when the API is
+  unreachable and says so.
+- **Design system:** tokens, brand assets and shared components live in
+  `packages/ui` (source-consumed internal package). App code composes them and
+  never uses raw hex values. See [design-system.md](design-system.md).
+- **Motion:** one orchestrated moment (the hero route drawing in) plus small
+  entrances and responsive feedback. `MotionConfig reducedMotion="user"` and a CSS media query honour
+  reduced-motion settings.
+- **Accessibility:** skip link, labelled navigation, visible focus rings, labelled
+  inputs with `aria-invalid` / `aria-describedby`, `role="alert"` and `role="status"`
+  for async feedback, semantic headings.
+- **Fonts:** Plus Jakarta Sans, self-hosted from npm
+  (`@fontsource-variable/plus-jakarta-sans`), so there are no third-party font requests.
+  A metric-matched local fallback (`Plus Jakarta Sans Fallback` in
+  `packages/ui/src/styles/base.css`) keeps text from rewrapping when the font
+  swaps in.
+- **Routes:** `/` (cinematic homepage, header overlay), `/status` (API readiness), `/discover` (filters in the URL: `?q`, `?mood`, `?region`; old `?destination=` links redirect), `/discover/:slug` (destination pages), `/about`, `/help`, `/legal/privacy` and `/legal/terms` (draft placeholders), `/login` and `/register` (auth layout; `/sign-in` redirects), `/profile` and `/profile/travellers` (signed in only), one route per travel service (`/flights` … `/holidays`, search and results pages since Phases 9–10, see [search.md](search.md); `?to=<destination>` prefills the destination), `/offers/:serviceType/:resultId` (offer details), dev-only `/design-system`, and a not-found fallback. Layouts, route handles, containers, breadcrumbs and the footer: see [layouts.md](layouts.md).
+- **Code splitting:** the homepage, not-found page and error boundary ship in the
+  main bundle. `/status`, `/discover`, `/discover/:slug`, `/sign-in`, the info
+  and legal pages and the seven service pages load on first visit through React
+  Router `lazy` (the seven search pages share one chunk, the info pages another; Discover and destination pages share
+  another, which also carries the destinations' long-form copy, so the homepage
+  and header search only bundle the light destination summaries). While a lazy page loads, the router's hydration fallback renders
+  the header with the brand loader in `<main>`
+  (`<MarketingLayout footer={false}><PageLoader /></MarketingLayout>`); the footer appears
+  with the page, so nothing visible jumps when the chunk arrives.
+- **Dev-only routes:** `/design-system` exists only in development builds (see design-system.md).

@@ -1,0 +1,66 @@
+import { z } from 'zod';
+
+/** API version prefix shared by server routing and the web API client. */
+export const API_V1_PREFIX = '/api/v1';
+
+/** Header used to propagate a request correlation ID end-to-end. */
+export const REQUEST_ID_HEADER = 'x-request-id';
+
+/**
+ * Machine-readable error codes. Clients branch on `code`, never on `message`.
+ * Add new codes deliberately; removing or renaming one is a breaking change.
+ */
+export const apiErrorCodeSchema = z.enum([
+  'BAD_REQUEST',
+  'VALIDATION_FAILED',
+  'INVALID_JSON',
+  'UNAUTHENTICATED',
+  'FORBIDDEN',
+  'NOT_FOUND',
+  'CONFLICT',
+  'PAYLOAD_TOO_LARGE',
+  'RATE_LIMITED',
+  'SERVICE_UNAVAILABLE',
+  'INTERNAL_ERROR',
+]);
+export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
+
+/** A single field-level validation problem. `path` is dot-joined, e.g. `body.travellers.0.email`. */
+export const validationIssueSchema = z.object({
+  path: z.string(),
+  message: z.string(),
+  code: z.string(),
+});
+export type ValidationIssue = z.infer<typeof validationIssueSchema>;
+
+export const apiErrorSchema = z.object({
+  code: apiErrorCodeSchema,
+  message: z.string(),
+  requestId: z.string(),
+  details: z.array(validationIssueSchema).optional(),
+});
+export type ApiError = z.infer<typeof apiErrorSchema>;
+
+/** Every non-2xx response body: `{ "error": { ... } }`. */
+export const apiErrorEnvelopeSchema = z.object({
+  error: apiErrorSchema,
+});
+export type ApiErrorEnvelope = z.infer<typeof apiErrorEnvelopeSchema>;
+
+export const responseMetaSchema = z.object({
+  requestId: z.string(),
+});
+export type ResponseMeta = z.infer<typeof responseMetaSchema>;
+
+/** Builds the schema for a 2xx response body: `{ "data": T, "meta": { requestId } }`. */
+export function apiSuccessEnvelopeSchema<T extends z.ZodType>(data: T) {
+  return z.object({
+    data,
+    meta: responseMetaSchema,
+  });
+}
+
+export interface ApiSuccessEnvelope<T> {
+  data: T;
+  meta: ResponseMeta;
+}

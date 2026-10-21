@@ -1,0 +1,5 @@
+{
+  "extends": "@wayora/config/tsconfig.node.json",
+  "compilerOptions": { "rootDir": ".", "noEmit": true },
+  "include": ["src", "test", "vitest.config.ts"]
+}

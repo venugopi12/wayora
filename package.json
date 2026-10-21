@@ -1,0 +1,57 @@
+{
+  "name": "wayora",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wayora \u2014 premium travel-tech platform",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10"
+  },
+  "workspaces": [
+    "packages/*",
+    "database",
+    "apps/*"
+  ],
+  "scripts": {
+    "setup": "node scripts/setup-env.mjs",
+    "build:packages": "npm run build -w @wayora/contracts -w @wayora/database",
+    "dev": "npm run build:packages && concurrently -k -n api,worker,web -c blue,magenta,green \"npm:dev:api\" \"npm:dev:worker\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @wayora/api",
+    "dev:worker": "npm run dev -w @wayora/worker",
+    "dev:web": "npm run dev -w @wayora/web",
+    "start:api": "npm run start -w @wayora/api",
+    "start:worker": "npm run start -w @wayora/worker",
+    "build": "npm run build:packages && npm run build -w @wayora/api -w @wayora/worker -w @wayora/web",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run build:packages && npm run test --workspaces --if-present",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm run test",
+    "infra:up": "docker compose -f infra/docker/docker-compose.yml --project-directory . up -d --wait",
+    "infra:down": "docker compose -f infra/docker/docker-compose.yml --project-directory . down",
+    "infra:reset": "docker compose -f infra/docker/docker-compose.yml --project-directory . down -v",
+    "infra:logs": "docker compose -f infra/docker/docker-compose.yml --project-directory . logs -f",
+    "infra:ps": "docker compose -f infra/docker/docker-compose.yml --project-directory . ps",
+    "db:generate": "npm run db:generate -w @wayora/database",
+    "db:migrate": "npm run db:migrate -w @wayora/database",
+    "db:migrate:deploy": "npm run db:migrate:deploy -w @wayora/database",
+    "db:migrate:status": "npm run db:migrate:status -w @wayora/database",
+    "db:reset": "npm run db:reset -w @wayora/database",
+    "db:seed": "npm run db:seed -w @wayora/database",
+    "db:studio": "npm run db:studio -w @wayora/database",
+    "job:example": "npm run job:example -w @wayora/worker"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "concurrently": "9.2.5",
+    "eslint": "10.13.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.13.0",
+    "prettier": "3.9.10",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.0"
+  }
+}

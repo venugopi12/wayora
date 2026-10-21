@@ -1,0 +1,42 @@
+{
+  "name": "@wayora/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wayora web app (React + Vite)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/assert-no-dev-routes.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fontsource-variable/plus-jakarta-sans": "5.3.0",
+    "@hookform/resolvers": "5.9.2",
+    "@tanstack/react-query": "5.104.5",
+    "@wayora/contracts": "0.1.0",
+    "@wayora/ui": "0.1.0",
+    "lucide-react": "0.577.0",
+    "motion": "12.43.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-hook-form": "7.90.0",
+    "react-router": "7.18.4",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.3",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@vitejs/plugin-react": "5.2.0",
+    "@wayora/config": "0.1.0",
+    "jsdom": "26.1.0",
+    "tailwindcss": "4.3.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  }
+}

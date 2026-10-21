@@ -1,0 +1,5 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "//": "Repository-wide compiler baseline. The options live in packages/config so workspaces can extend them through the @wayora/config package.",
+  "extends": "./packages/config/tsconfig.base.json"
+}
