@@ -6,4 +6,5 @@ export * from './destination.js';
 export * from './health.js';
 export * from './jobs.js';
 export * from './money.js';
+export * from './payments.js';
 export * from './search/index.js';

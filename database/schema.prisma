@@ -67,8 +67,41 @@ enum BookingStatus {
   CONFIRMED
   CANCELLED
   FAILED
+  /// Not paid within the payment window (Phase 13).
+  EXPIRED
 
   @@map("booking_status")
+}
+
+/// How a booking is paid (Phase 13, docs/payments.md#booking-payment-mode).
+enum BookingPaymentMode {
+  /// Nothing is paid on Wayora (Phase 12 bookings, payments off, estimate prices).
+  NONE
+  /// A simulated payment is required before the demo confirmation.
+  DEMO
+
+  @@map("booking_payment_mode")
+}
+
+/// Payment attempt lifecycle (docs/payments.md#states).
+enum PaymentStatus {
+  CREATED
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUND_PENDING
+  REFUNDED
+
+  @@map("payment_status")
+}
+
+/// DEMO: simulated, no money moves. LIVE: reserved for a real gateway.
+enum PaymentMode {
+  DEMO
+  LIVE
+
+  @@map("payment_mode")
 }
 
 /// Passenger types where a fare distinguishes them (flights).
@@ -139,6 +172,7 @@ model User {
   orders     Order[]
   sessions   Session[]
   bookings   Booking[]
+  payments   Payment[]
 
   @@index([status])
   @@map("users")
@@ -219,50 +253,56 @@ model Order {
 /// to it and to the other booked facts. Payments later attach bookings to an
 /// `Order` (the unit of payment), hence the optional `orderId`.
 model Booking {
-  id                String         @id @default(uuid(7)) @db.Uuid
+  id                String             @id @default(uuid(7)) @db.Uuid
   /// Customer-visible reference, e.g. WYD-7KQ2-M9XD ("WYD": Wayora demo booking).
-  reference         String         @unique @db.VarChar(32)
-  userId            String         @map("user_id") @db.Uuid
-  orderId           String?        @map("order_id") @db.Uuid
+  reference         String             @unique @db.VarChar(32)
+  userId            String             @map("user_id") @db.Uuid
+  orderId           String?            @map("order_id") @db.Uuid
   category          TravelCategory
-  status            BookingStatus  @default(PENDING)
+  status            BookingStatus      @default(PENDING)
   /// Simulated booking: no supplier reservation, ticket or payment.
-  isDemo            Boolean        @map("is_demo")
+  isDemo            Boolean            @map("is_demo")
   /// Provider identifier, e.g. "demo-flights".
-  provider          String?        @db.VarChar(64)
+  provider          String?            @db.VarChar(64)
   /// Provider-side reference (PNR, confirmation number). Never set for demo bookings.
-  providerReference String?        @map("provider_reference") @db.VarChar(128)
+  providerReference String?            @map("provider_reference") @db.VarChar(128)
   /// The search session the offer came from (sessions expire; kept for support).
-  searchId          String?        @map("search_id") @db.Uuid
+  searchId          String?            @map("search_id") @db.Uuid
   /// The offer as booked: validated contract JSON (see docs/bookings.md#snapshot).
-  offerSnapshot     Json           @map("offer_snapshot")
+  offerSnapshot     Json               @map("offer_snapshot")
   /// People the booked price covers.
-  partySize         Int            @map("party_size")
+  partySize         Int                @map("party_size")
   /// Local travel dates from the offer; null where it has none (metro).
-  startsOn          DateTime?      @map("starts_on") @db.Date
-  endsOn            DateTime?      @map("ends_on") @db.Date
+  startsOn          DateTime?          @map("starts_on") @db.Date
+  endsOn            DateTime?          @map("ends_on") @db.Date
   /// E.164 mobile number, only for categories that need one (cabs).
-  contactPhone      String?        @map("contact_phone") @db.VarChar(16)
-  currency          String         @db.Char(3)
+  contactPhone      String?            @map("contact_phone") @db.VarChar(16)
+  currency          String             @db.Char(3)
   /// The booked total. Null when the offer's price is an estimate range (cabs);
   /// the range is in the snapshot.
-  totalAmountMinor  BigInt?        @map("total_amount_minor")
-  confirmedAt       DateTime?      @map("confirmed_at") @db.Timestamptz(3)
-  cancelledAt       DateTime?      @map("cancelled_at") @db.Timestamptz(3)
-  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  totalAmountMinor  BigInt?            @map("total_amount_minor")
+  /// How it is paid; fixed when booked (Phase 13).
+  paymentMode       BookingPaymentMode @map("payment_mode")
+  /// Pay before this or the booking expires (payment mode DEMO only).
+  paymentDueAt      DateTime?          @map("payment_due_at") @db.Timestamptz(3)
+  confirmedAt       DateTime?          @map("confirmed_at") @db.Timestamptz(3)
+  cancelledAt       DateTime?          @map("cancelled_at") @db.Timestamptz(3)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user       User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
   order      Order?               @relation(fields: [orderId], references: [id], onDelete: Cascade)
   items      BookingItem[]
   travellers BookingTraveller[]
   events     BookingStatusEvent[]
+  payments   Payment[]
 
   @@unique([provider, providerReference])
   @@index([orderId])
   @@index([category, status])
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, status, startsOn])
+  @@index([status, paymentDueAt])
   @@map("bookings")
 }
 
@@ -304,6 +344,72 @@ model BookingStatusEvent {
 }
 
 /// A priced line within a booking (a seat, a room-night, a fare component).
+// ─── Payments (Phase 13) ──────────────────────────────────────────────────
+
+/// One attempt to pay for one booking (docs/payments.md). Separate from the
+/// booking's lifecycle: a succeeded payment never means a supplier reserved
+/// anything. Rows are kept for audit; card or bank details are never stored
+/// (the demo provider takes none; a real gateway keeps them on its side).
+model Payment {
+  id                 String        @id @default(uuid(7)) @db.Uuid
+  bookingId          String        @map("booking_id") @db.Uuid
+  /// The owner (the booking's user), kept for direct ownership checks.
+  userId             String        @map("user_id") @db.Uuid
+  /// 1, 2, … per booking.
+  attempt            Int           @db.SmallInt
+  mode               PaymentMode
+  /// Provider id, e.g. "demo".
+  provider           String        @db.VarChar(64)
+  /// The provider's id for this attempt (never a secret). Set once.
+  providerReference  String?       @map("provider_reference") @db.VarChar(128)
+  status             PaymentStatus @default(CREATED)
+  currency           String        @db.Char(3)
+  /// From the booking's record, never from the client.
+  amountMinor        BigInt        @map("amount_minor")
+  /// The simulated outcome asked for (DEMO mode only).
+  demoScenario       String?       @map("demo_scenario") @db.VarChar(32)
+  /// SHA-256 of the client's Idempotency-Key (the key itself isn't kept here).
+  idempotencyKeyHash String?       @map("idempotency_key_hash") @db.Char(64)
+  /// Safe, user-facing failure reason.
+  failureCode        String?       @map("failure_code") @db.VarChar(64)
+  failureMessage     String?       @map("failure_message") @db.VarChar(255)
+  /// Succeeded after its booking was cancelled or expired: money would be owed back.
+  refundRequired     Boolean       @default(false) @map("refund_required")
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// When it first reached succeeded, failed or cancelled.
+  completedAt        DateTime?     @map("completed_at") @db.Timestamptz(3)
+
+  booking Booking              @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  user    User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  events  PaymentStatusEvent[]
+
+  @@unique([bookingId, attempt])
+  @@unique([provider, providerReference])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("payments")
+}
+
+/// Append-only history of a payment's status (a trigger forbids changes).
+model PaymentStatusEvent {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  paymentId       String         @map("payment_id") @db.Uuid
+  /// Null for the event that created the payment.
+  fromStatus      PaymentStatus? @map("from_status")
+  toStatus        PaymentStatus  @map("to_status")
+  actorType       AuditActorType @map("actor_type")
+  /// The provider event that caused it (see webhook_events), if any.
+  providerEventId String?        @map("provider_event_id") @db.VarChar(255)
+  note            String?        @db.VarChar(255)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId, createdAt])
+  @@map("payment_status_events")
+}
+
 model BookingItem {
   id               String            @id @default(uuid(7)) @db.Uuid
   bookingId        String            @map("booking_id") @db.Uuid

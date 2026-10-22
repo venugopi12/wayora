@@ -2,7 +2,7 @@ import type { Server } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPrismaClient } from '@wayora/database';
-import { createApp, createSessionService } from './app.js';
+import { createApp, createPaymentsService, createSessionService } from './app.js';
 import { EnvValidationError, parseEnv, searchSessionStore, type Env } from './config/env.js';
 import { loadEnvFile } from './config/load-env-file.js';
 import { ResilientRedisStore } from './middleware/rate-limit.js';
@@ -115,12 +115,34 @@ async function main(): Promise<void> {
     () => {
       void purgeSessions();
       void purgeIdempotencyKeys();
-      void purgeIdempotencyKeys();
     },
     60 * 60 * 1000,
   );
   purgeTimer.unref();
   void purgeSessions();
+
+  // Payments (docs/payments.md#background-work): attempts still in progress
+  // are reconciled with their provider, and bookings past their payment
+  // window expire. Both are idempotent and row-locked, so every API instance
+  // may run them. Reads do the same for the rows they show, so this only
+  // keeps records current when nobody is looking.
+  const payments = createPaymentsService(prisma, env, logger);
+  let paymentsRunning = false;
+  const paymentMaintenance = async () => {
+    if (paymentsRunning) return;
+    paymentsRunning = true;
+    try {
+      const reconciled = await payments.reconcileInProgress();
+      const expired = await payments.expireOverdueBookings();
+      if (expired > 0) logger.info({ expired, reconciled }, 'Expired unpaid bookings');
+    } catch (err) {
+      logger.warn({ err }, 'Payment maintenance failed; will retry');
+    } finally {
+      paymentsRunning = false;
+    }
+  };
+  const paymentTimer = setInterval(() => void paymentMaintenance(), 30 * 1000);
+  paymentTimer.unref();
 
   const server: Server = app.listen(env.PORT, env.HOST, () => {
     logger.info({ url: `http://localhost:${env.PORT}`, host: env.HOST }, 'Wayora API listening');
@@ -146,6 +168,7 @@ async function main(): Promise<void> {
     forceExit.unref();
 
     clearInterval(purgeTimer);
+    clearInterval(paymentTimer);
     // 1. Stop accepting connections and let in-flight requests finish.
     await new Promise<void>((resolve) => {
       server.close(() => resolve());

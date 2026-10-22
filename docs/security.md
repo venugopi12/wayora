@@ -1,8 +1,9 @@
 # Security considerations
 
 Authentication (email + password, server-side sessions) shipped in Phase 8; see
-[auth.md](auth.md) for its full design. Payments and provider integrations are not
-built yet. This document records the controls in place now and the approach decided
+[auth.md](auth.md) for its full design. Payments exist only with a simulated demo
+provider (Phase 13, [payments.md](payments.md)); real gateways and live travel
+providers are not built yet. This document records the controls in place now and the approach decided
 for later phases, so they are built the same way from day one.
 
 ## In place now
@@ -165,6 +166,37 @@ Details: [bookings.md](bookings.md).
 - The web app keeps traveller details in memory only (not in the URL or
   browser storage).
 
+### Payments (Phase 13)
+
+Details: [payments.md](payments.md).
+
+- Demo provider only: a simulator in the API process, no network calls, no
+  money, no card/bank/token fields anywhere (contracts, database or UI).
+  Every demo payment carries "Demo payment — no real money was charged.";
+  real-mode payments would carry none.
+- The amount and currency come from the booking's record; the client's amount
+  is only compared (`409 PAYMENT_AMOUNT_MISMATCH`). The client can't send a
+  status (strict schema), and only the provider's events move an attempt to
+  succeeded/failed/cancelled.
+- Demo scenarios (decline, pending…) are accepted only when the server enables
+  them (`PAYMENT_DEMO_SCENARIOS`, off in production by default, impossible with
+  any other provider).
+- No public callback can mark a payment successful: the demo provider has no
+  webhook route (`/payment-events/demo` is a 404), and webhook routes exist only
+  for providers that verify signatures over the raw body with timestamp
+  tolerance; unverified or malformed events are refused before storage.
+- Provider events are de-duplicated in `webhook_events`, applied only along
+  allowed transitions (no regression from final states), and stored without
+  raw bodies, signatures or personal data.
+- Ownership on every query (`user_id` on payments); others' payments answer 404. Session, CSRF, per-user write limits (`PAYMENT_RATE_LIMIT_MAX`) and
+  `Cache-Control: no-store` as for bookings.
+- `Idempotency-Key` per user + booking + operation; partial unique indexes
+  allow at most one in-progress and one successful payment per booking.
+- Payment rows can't be deleted and their amount, booking, provider and
+  reference can't change (triggers); status history is append-only.
+- Logs carry payment ids, statuses and scrubbed provider errors, never keys,
+  names or secrets (tested).
+
 ## Planned approach for later phases
 
 ### Authentication extensions
@@ -183,12 +215,14 @@ Details: [bookings.md](bookings.md).
 - Order totals are computed server-side in `bigint` minor units. The client never
   sends a price we trust.
 - `Idempotency-Key` required on payment and order creation, stored in
-  `idempotency_keys` with a request hash, as demo bookings already do (same key
+  `idempotency_keys` with a request hash, as demo bookings and payments already do (same key
   with a different body: `422 IDEMPOTENCY_KEY_REUSED`; still running: `409
 IDEMPOTENCY_IN_PROGRESS`).
 - PSP webhooks: verify the signature over the raw body, check timestamp tolerance,
-  store in `webhook_events` before processing, process in the worker, and treat the
-  webhook (not the browser redirect) as the source of truth.
+  store in `webhook_events` before processing, and treat the webhook (not the
+  browser redirect) as the source of truth. The boundary for this exists
+  (`PaymentProvider.verifyEvent`, `PaymentEventProcessor`, payments.md#events);
+  processing is in the API today, not the worker.
 - Refunds and status changes are written to `audit_logs`.
 
 ### Travel provider integrations

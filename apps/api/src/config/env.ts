@@ -109,6 +109,25 @@ export const envSchema = z.object({
   SEARCH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
   /** Booking creations and cancellations per signed-in user per minute (docs/bookings.md). */
   BOOKING_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+  // Payments (docs/payments.md#configuration).
+  /**
+   * The provider for new payments: `demo` (the simulator: no money moves) or
+   * `none` (payments off: new bookings are confirmed without a payment, as in
+   * Phase 12). Unset means `demo` in development and test, `none` in production.
+   */
+  PAYMENT_PROVIDER: z.preprocess(emptyToUndefined, z.enum(['none', 'demo']).optional()),
+  /**
+   * Let requests ask the demo simulator for an outcome (decline, pending…).
+   * Unset means on in development and test, off in production. Only valid
+   * with PAYMENT_PROVIDER=demo.
+   */
+  PAYMENT_DEMO_SCENARIOS: z.preprocess(emptyToUndefined, z.enum(['true', 'false']).optional()),
+  /** How long a booking waits for its payment before it expires. */
+  PAYMENT_WINDOW_MINUTES: z.coerce.number().int().min(5).max(1440).default(30),
+  /** How long the demo simulator's `pending` scenarios stay pending. */
+  PAYMENT_DEMO_PENDING_SECONDS: z.coerce.number().int().min(1).max(300).default(8),
+  /** Payment starts and cancellations per signed-in user per minute. */
+  PAYMENT_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   /**
    * Where search sessions live (docs/search.md#search-sessions). `redis` keeps
    * them across API restarts and instances; `memory` is per process and only
@@ -139,6 +158,16 @@ export function searchSessionStore(env: Env): 'redis' | 'memory' {
 }
 
 /** Whether demo providers are on, given the environment. */
+export function paymentProvider(env: Env): 'none' | 'demo' {
+  return env.PAYMENT_PROVIDER ?? (env.NODE_ENV === 'production' ? 'none' : 'demo');
+}
+
+export function demoPaymentScenariosEnabled(env: Env): boolean {
+  if (paymentProvider(env) !== 'demo') return false;
+  if (env.PAYMENT_DEMO_SCENARIOS !== undefined) return env.PAYMENT_DEMO_SCENARIOS === 'true';
+  return env.NODE_ENV !== 'production';
+}
+
 export function demoProvidersEnabled(env: Env): boolean {
   if (env.SEARCH_DEMO_PROVIDERS !== undefined) return env.SEARCH_DEMO_PROVIDERS === 'true';
   return env.NODE_ENV !== 'production';
@@ -169,6 +198,9 @@ function crossFieldIssues(env: Env): string[] {
         'SEARCH_SESSION_STORE: must be "redis" in production (set REDIS_URL); in-memory search sessions are for local development only',
       );
     }
+  }
+  if (env.PAYMENT_DEMO_SCENARIOS === 'true' && paymentProvider(env) !== 'demo') {
+    issues.push('PAYMENT_DEMO_SCENARIOS: only valid with PAYMENT_PROVIDER=demo');
   }
   if (env.SEARCH_SESSION_STORE === 'redis' && !env.REDIS_URL) {
     issues.push('SEARCH_SESSION_STORE: "redis" needs REDIS_URL');

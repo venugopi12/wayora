@@ -12,3 +12,10 @@ export const bookingKeys = {
     [...authKeys.account, 'bookings', 'list', view, page] as const,
   detail: (reference: string) => [...authKeys.account, 'bookings', 'detail', reference] as const,
 };
+
+/** Payments (Phase 13), also under `account`. */
+export const paymentKeys = {
+  detail: (id: string) => [...authKeys.account, 'payments', 'detail', id] as const,
+  forBooking: (reference: string) =>
+    [...authKeys.account, 'payments', 'booking', reference] as const,
+};

@@ -85,6 +85,14 @@ Demo bookings (details in [bookings.md](bookings.md#errors)):
 | `IDEMPOTENCY_IN_PROGRESS` | 409  | The same `Idempotency-Key` is still being processed     |
 | `IDEMPOTENCY_KEY_REUSED`  | 422  | The `Idempotency-Key` was used with a different body    |
 
+Payments (details in [payments.md](payments.md#errors)):
+
+| Code                      | HTTP | When                                              |
+| ------------------------- | ---- | ------------------------------------------------- |
+| `PAYMENT_NOT_ALLOWED`     | 409  | The booking can't take a payment now              |
+| `PAYMENT_AMOUNT_MISMATCH` | 409  | The amount or currency differs from the booking's |
+| `PAYMENT_NOT_CANCELLABLE` | 409  | The payment has already completed                 |
+
 ## Validation
 
 Handlers validate with `validateRequest`, which returns typed, parsed values and
@@ -136,7 +144,8 @@ Health endpoints are exempt from rate limiting and are not access-logged.
   API falls back to per-process memory counters: limiting continues, it is not disabled.
 - Behind a proxy, set `TRUST_PROXY` so client IPs are read correctly.
 - Extra limits: searches per IP (`SEARCH_RATE_LIMIT_MAX`), sign-in attempts
-  (docs/auth.md), and booking writes per signed-in user (`BOOKING_RATE_LIMIT_MAX`).
+  (docs/auth.md), booking writes per signed-in user (`BOOKING_RATE_LIMIT_MAX`) and
+  payment writes per signed-in user (`PAYMENT_RATE_LIMIT_MAX`).
 
 ## CORS
 
@@ -158,4 +167,5 @@ response headers: `X-Request-Id`, `RateLimit`, `RateLimit-Policy`, `Retry-After`
   remains the plan for large or fast-changing lists.
 - Mutating endpoints that create money-relevant state (bookings, orders, payments) must
   require an `Idempotency-Key` header, backed by the `idempotency_keys` table
-  (`POST /bookings` is the reference implementation: bookings.md#idempotency).
+  (`POST /bookings` and `POST /bookings/:reference/payments` are the reference
+  implementations: bookings.md#idempotency, payments.md#idempotency).

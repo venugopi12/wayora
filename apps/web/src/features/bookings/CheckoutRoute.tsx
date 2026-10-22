@@ -46,7 +46,7 @@ import { BookingPriceSummary } from './BookingPriceSummary';
 import { BookingSteps } from './BookingSteps';
 import { bookingKeys } from './keys';
 import { travelDates } from './format';
-import { confirmationPath, readStep, type CheckoutStep } from './paths';
+import { confirmationPath, payPath, readStep, type CheckoutStep } from './paths';
 
 /*
  * /book/:serviceType/:offerId?sid=&from=[&step=details|review]
@@ -346,7 +346,11 @@ function CheckoutFlow({
     onSuccess: (booking) => {
       queryClient.setQueryData(bookingKeys.detail(booking.reference), booking);
       void queryClient.invalidateQueries({ queryKey: bookingKeys.lists });
-      void navigate(confirmationPath(booking.reference), { replace: true });
+      // With a payment step, the booking waits for its demo payment.
+      void navigate(
+        booking.payment.canPay ? payPath(booking.reference) : confirmationPath(booking.reference),
+        { replace: true },
+      );
     },
     onError: (error, vars) => {
       const code = codeOf(error);
@@ -818,6 +822,10 @@ function ReviewStep({
             is made, and nothing is charged.
           </li>
           <li>The price is this demo offer&apos;s price, not a supplier guarantee.</li>
+          <li>
+            If a payment step follows, it is a demo payment: no card details are asked for and no
+            real money moves.
+          </li>
           <li>
             You can cancel it in My trips until the travel date. Cancelling only changes its status.
             This offer includes no cancellation terms, and nothing is refunded because nothing is

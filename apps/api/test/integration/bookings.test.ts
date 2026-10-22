@@ -57,7 +57,15 @@ function app(
   return buildTestApp({
     prisma: testPrisma(),
     // Most tests make many bookings quickly; the limit has its own test.
-    env: { ...LONG_SESSIONS, BOOKING_RATE_LIMIT_MAX: 1000, ...options.env },
+    // Payments off: these are the Phase 12 booking rules (bookings confirmed
+    // without a payment), which stay supported; the payment step is covered
+    // by payments.test.ts.
+    env: {
+      ...LONG_SESSIONS,
+      BOOKING_RATE_LIMIT_MAX: 1000,
+      PAYMENT_PROVIDER: 'none',
+      ...options.env,
+    },
     logger: options.logs ? pino({ level: 'info' }, options.logs.stream) : pino({ level: 'silent' }),
     ...(options.now ? { now: options.now } : {}),
   });
@@ -644,11 +652,13 @@ describe.skipIf(!TEST_DATABASE_URL)('demo bookings (integration, real PostgreSQL
 
     it('the lifecycle allows only the documented transitions; terminal states are final', () => {
       expect(TRANSITIONS).toEqual({
-        PENDING: ['CONFIRMED', 'FAILED', 'CANCELLED'],
+        PENDING: ['CONFIRMED', 'FAILED', 'CANCELLED', 'EXPIRED'],
         HELD: [],
         CONFIRMED: ['CANCELLED'],
         CANCELLED: [],
         FAILED: [],
+        // Phase 13: unpaid bookings expire; expiry is final.
+        EXPIRED: [],
       });
     });
   });

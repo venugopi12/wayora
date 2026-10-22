@@ -48,6 +48,13 @@ export const apiErrorCodeSchema = z.enum([
   'IDEMPOTENCY_KEY_REUSED',
   /** A request with this Idempotency-Key is still being processed. Retry shortly. */
   'IDEMPOTENCY_IN_PROGRESS',
+  // Payments (docs/payments.md#errors).
+  /** The booking can't take a payment now (paid, cancelled, expired, not required, or one is in progress). */
+  'PAYMENT_NOT_ALLOWED',
+  /** The amount or currency differs from what the booking costs. Review and pay again. */
+  'PAYMENT_AMOUNT_MISMATCH',
+  /** The payment is no longer pending, so it can't be cancelled. */
+  'PAYMENT_NOT_CANCELLABLE',
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

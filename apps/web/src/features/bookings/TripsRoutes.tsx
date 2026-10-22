@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, ChevronLeft, ChevronRight, Luggage, RotateCw, SearchX } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router';
+import { Link, Navigate, useParams, useSearchParams } from 'react-router';
 import {
   DEMO_BOOKING_NOTICE,
   bookingReferenceSchema,
@@ -33,14 +33,22 @@ import { Reveal, RevealGroup, RevealItem } from '@wayora/ui/motion';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { ApiClientError } from '../../lib/api-client';
 import { cancelBooking, getBooking, listBookings } from '../../services/bookings';
+import { listBookingPayments } from '../../services/payments';
 import { AccountShell, Panel } from '../account/AccountShell';
 import { serviceBySlug } from '../navigation/config';
 import { OfferDetails, offerHeading } from '../offers/OfferDetails';
-import { DemoBadge } from '../search/cards/shared';
+import { DemoBadge, money } from '../search/cards/shared';
 import { BookingPriceSummary } from './BookingPriceSummary';
-import { STATUS_LABEL, formatMoment, partyText, travelDates } from './format';
-import { bookingKeys } from './keys';
-import { tripPath } from './paths';
+import {
+  STATUS_LABEL,
+  bookingStatusLabel,
+  formatMoment,
+  partyText,
+  paymentStatusLabel,
+  travelDates,
+} from './format';
+import { bookingKeys, paymentKeys } from './keys';
+import { payPath, paymentPath, tripPath } from './paths';
 
 /*
  * /trips, /trips/:reference and /trips/:reference/confirmation
@@ -64,11 +72,14 @@ const EMPTY: Record<BookingView, { title: string; description: string }> = {
     title: 'No past trips',
     description: 'Demo bookings move here after their travel dates.',
   },
-  cancelled: { title: 'No cancelled bookings', description: 'Bookings you cancel are kept here.' },
+  cancelled: {
+    title: 'No cancelled bookings',
+    description: 'Bookings you cancel, and unpaid ones that expire, are kept here.',
+  },
 };
 
-export function StatusBadge({ status }: { status: BookingSummary['status'] }) {
-  const { label, tone } = STATUS_LABEL[status];
+export function StatusBadge({ booking }: { booking: Pick<BookingSummary, 'status' | 'payment'> }) {
+  const { label, tone } = bookingStatusLabel(booking);
   return (
     <Badge size="sm" tone={tone}>
       {label}
@@ -206,7 +217,7 @@ export function TripsRoute() {
   return (
     <AccountShell
       title="My trips"
-      description="Your demo bookings. Wayora keeps them for you, but none is a supplier reservation or ticket, and nothing was paid."
+      description="Your demo bookings. Wayora keeps them for you, but none is a supplier reservation or ticket, and demo payments charge no real money."
     >
       <Tabs value={view} onValueChange={setView}>
         <TabsList label="Trips" className="self-start rounded-lg bg-sunken p-1">
@@ -247,7 +258,7 @@ function TripCard({ booking }: { booking: BookingSummary }) {
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex flex-wrap items-center gap-2">
-          <StatusBadge status={booking.status} />
+          <StatusBadge booking={booking} />
           <span className="text-caption text-ink-secondary">{service.name}</span>
         </span>
         <span className="text-title group-hover:underline">{heading.title}</span>
@@ -265,7 +276,7 @@ function TripCard({ booking }: { booking: BookingSummary }) {
 
 // ─── Shared loading for one booking ──────────────────────────────────────
 
-function useBooking(reference: string | null) {
+export function useBooking(reference: string | null) {
   return useQuery({
     queryKey: bookingKeys.detail(reference ?? ''),
     queryFn: ({ signal }) => getBooking(reference!, signal),
@@ -274,7 +285,7 @@ function useBooking(reference: string | null) {
   });
 }
 
-function BookingNotFound() {
+export function BookingNotFound() {
   useDocumentTitle('Booking not found');
   return (
     <Container size="narrow" className="py-section-sm">
@@ -296,7 +307,7 @@ function BookingNotFound() {
   );
 }
 
-function BookingLoadState({ query }: { query: ReturnType<typeof useBooking> }) {
+export function BookingLoadState({ query }: { query: ReturnType<typeof useBooking> }) {
   if (query.isError) {
     const api = query.error instanceof ApiClientError ? query.error : null;
     if (api?.status === 404 || api?.code === 'VALIDATION_FAILED') return <BookingNotFound />;
@@ -332,7 +343,7 @@ function BookingLoadState({ query }: { query: ReturnType<typeof useBooking> }) {
   );
 }
 
-function referenceParam(value: string | undefined): string | null {
+export function referenceParam(value: string | undefined): string | null {
   const parsed = bookingReferenceSchema.safeParse(value ?? '');
   return parsed.success ? parsed.data : null;
 }
@@ -346,6 +357,23 @@ export function ConfirmationRoute() {
   if (reference === null) return <BookingNotFound />;
   if (!booking.data) return <BookingLoadState query={booking} />;
   const b = booking.data;
+  // Not confirmed yet: it is waiting for its demo payment. Decide on fresh
+  // data only (a cached copy may predate the payment that confirmed it).
+  if (b.status === 'pending' && b.payment.mode === 'demo' && booking.isFetching) {
+    return <BookingLoadState query={booking} />;
+  }
+  if (b.status === 'pending' && b.payment.mode === 'demo') {
+    return (
+      <Navigate
+        to={
+          b.payment.activePaymentId
+            ? paymentPath(b.reference, b.payment.activePaymentId)
+            : payPath(b.reference)
+        }
+        replace
+      />
+    );
+  }
   const heading = offerHeading(b.offer);
   const service = serviceBySlug[b.serviceType];
   return (
@@ -374,12 +402,19 @@ export function ConfirmationRoute() {
             Internal to Wayora: not a supplier, airline or hotel reference.
           </p>
         </div>
-        <StatusBadge status={b.status} />
+        <StatusBadge booking={b} />
       </Reveal>
 
-      <Alert tone="warning" role="none" title="No supplier reservation, ticket or payment">
-        {DEMO_BOOKING_NOTICE}
-      </Alert>
+      {b.payment.state === 'paid' ? (
+        <Alert tone="warning" role="none" title="No supplier reservation or ticket">
+          Paid with a demo payment: no real money was charged. Wayora saved the booking, but no
+          supplier reservation or ticket exists.
+        </Alert>
+      ) : (
+        <Alert tone="warning" role="none" title="No supplier reservation, ticket or payment">
+          {DEMO_BOOKING_NOTICE}
+        </Alert>
+      )}
 
       <Panel title="What you booked">
         <dl className="grid gap-x-8 gap-y-3 text-body-sm sm:grid-cols-[9rem_minmax(0,1fr)]">
@@ -436,7 +471,7 @@ function TripDetail({ booking }: { booking: Booking }) {
       />
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge status={booking.status} />
+          <StatusBadge booking={booking} />
           {booking.demo ? <DemoBadge /> : null}
           <span className="text-caption text-ink-secondary">{service.name}</span>
         </div>
@@ -449,8 +484,9 @@ function TripDetail({ booking }: { booking: Booking }) {
       </header>
       {cancelledNow ? (
         <Alert tone="success" title="Booking cancelled">
-          Only its status changed. No supplier was contacted, and nothing is refunded because
-          nothing was paid.
+          {booking.payment.state === 'refund-required'
+            ? 'Only its status changed. No supplier was contacted. Its demo payment would be owed back, but the demo provider can’t refund; no real money was charged.'
+            : 'Only its status changed. No supplier was contacted, and nothing is refunded because nothing was paid.'}
         </Alert>
       ) : null}
       <Alert tone="warning" role="none" title="Demo booking">
@@ -531,6 +567,7 @@ function TripDetail({ booking }: { booking: Booking }) {
             partyLabel={partyText(booking)}
             demo={booking.demo}
           />
+          <PaymentPanel booking={booking} />
           <CancelPanel booking={booking} onCancelled={() => setCancelledNow(true)} />
         </aside>
       </div>
@@ -576,7 +613,13 @@ function CancelPanel({ booking, onCancelled }: { booking: Booking; onCancelled: 
             </Button>
             <DialogContent
               title="Cancel this demo booking?"
-              description="Its status changes to cancelled. No supplier is contacted, and nothing is refunded because nothing was paid. This can't be undone."
+              description={
+                booking.payment.state === 'paid'
+                  ? 'Its status changes to cancelled. No supplier is contacted. Its demo payment would be owed back, but the demo provider can’t refund; no real money was charged. This can’t be undone.'
+                  : booking.payment.state === 'processing'
+                    ? 'Its status changes to cancelled, and the demo payment in progress is cancelled too. No supplier is contacted. This can’t be undone.'
+                    : 'Its status changes to cancelled. No supplier is contacted, and nothing is refunded because nothing was paid. This can’t be undone.'
+              }
               footer={
                 <>
                   <DialogClose asChild>
@@ -612,10 +655,99 @@ function CancelPanel({ booking, onCancelled }: { booking: Booking; onCancelled: 
         <p className="text-body-sm text-ink-secondary">
           {booking.status === 'cancelled'
             ? 'This booking is cancelled. It stays here, unchanged, for your records.'
-            : booking.status === 'failed'
-              ? 'This booking failed, so there is nothing to cancel.'
-              : 'This trip has started or ended, so it can’t be cancelled.'}
+            : booking.status === 'expired'
+              ? 'This booking expired before it was paid. Nothing was charged.'
+              : booking.status === 'failed'
+                ? 'This booking failed, so there is nothing to cancel.'
+                : 'This trip has started or ended, so it can’t be cancelled.'}
         </p>
+      )}
+    </section>
+  );
+}
+
+// ─── Payment panel (Phase 13) ────────────────────────────────────────────
+
+function PaymentPanel({ booking }: { booking: Booking }) {
+  const { payment } = booking;
+  const attempts = useQuery({
+    queryKey: paymentKeys.forBooking(booking.reference),
+    queryFn: ({ signal }) => listBookingPayments(booking.reference, signal),
+    enabled: payment.mode === 'demo',
+  });
+  const timeFormat = new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit' });
+  return (
+    <section
+      aria-labelledby="payment-heading"
+      className="flex flex-col gap-3 rounded-xl border border-line bg-card p-5 shadow-xs"
+    >
+      <h2 id="payment-heading" className="text-title">
+        Payment
+      </h2>
+      {payment.mode === 'none' ? (
+        <p className="text-body-sm text-ink-secondary">
+          No payment is taken on Wayora for this booking
+          {booking.price?.kind === 'range' ? ' (the fare is an estimate)' : ''}.
+        </p>
+      ) : (
+        <>
+          <p className="text-body-sm text-ink-secondary">
+            {payment.state === 'paid'
+              ? 'Paid with a demo payment. No real money was charged.'
+              : payment.state === 'processing'
+                ? 'A demo payment is in progress.'
+                : payment.state === 'unpaid'
+                  ? 'Waiting for a demo payment. It is confirmed once the payment succeeds.'
+                  : payment.state === 'refund-required'
+                    ? 'A demo payment completed after the booking was closed. A refund would be owed, but the demo provider can’t refund; no real money was charged.'
+                    : 'Not paid. This booking can no longer be paid; nothing was charged.'}
+          </p>
+          {payment.state === 'unpaid' && payment.dueAt ? (
+            <p className="text-body-sm text-ink-secondary">
+              Pay by{' '}
+              <time dateTime={payment.dueAt}>{timeFormat.format(new Date(payment.dueAt))}</time> or
+              it expires.
+            </p>
+          ) : null}
+          {payment.canPay && payment.amount ? (
+            <Button asChild>
+              <Link to={payPath(booking.reference)}>Pay {money(payment.amount)} (demo)</Link>
+            </Button>
+          ) : null}
+          {payment.activePaymentId ? (
+            <Button asChild variant="secondary">
+              <Link to={paymentPath(booking.reference, payment.activePaymentId)}>
+                View payment in progress
+              </Link>
+            </Button>
+          ) : null}
+          {attempts.data && attempts.data.items.length > 0 ? (
+            <ol
+              aria-label="Payment attempts"
+              className="flex flex-col gap-2 border-t border-line pt-3"
+            >
+              {attempts.data.items.map((a) => {
+                const status = paymentStatusLabel(a.status, a.demo);
+                return (
+                  <li
+                    key={a.id}
+                    className="flex flex-wrap items-center justify-between gap-2 text-body-sm"
+                  >
+                    <Link to={paymentPath(booking.reference, a.id)} className="underline">
+                      Attempt {a.attempt}
+                    </Link>
+                    <span className="flex items-center gap-2">
+                      <span className="numeric">{money(a.amount)}</span>
+                      <Badge size="sm" tone={status.tone}>
+                        {status.label}
+                      </Badge>
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : null}
+        </>
       )}
     </section>
   );

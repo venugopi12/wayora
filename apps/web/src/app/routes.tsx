@@ -55,7 +55,7 @@ const offers = () => import('../features/offers/routes');
 /** Sign-in and registration share one chunk; profile and travellers another. */
 const auth = () => import('../features/auth/routes');
 const account = () => import('../features/account/routes');
-/** Checkout, confirmation, My trips and booking details (Phase 12). */
+/** Checkout, confirmation, My trips, booking details (Phase 12) and demo payments (Phase 13). */
 const bookings = () => import('../features/bookings/routes');
 
 /** /sign-in (the pre-Phase 8 link) → /login, keeping any query string. */
@@ -96,7 +96,8 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *         ├─ /sign-in          redirects to /login
  *         ├─ RequireAuth       loader until /auth/session answers; else /login?redirect=
  *         │  └─ /profile, /profile/travellers, /book/:serviceType/:resultId (demo
- *         │     checkout), /trips, /trips/:reference, /trips/:reference/confirmation
+ *         │     checkout), /trips, /trips/:reference, /trips/:reference/confirmation,
+ *         │     /trips/:reference/pay, /trips/:reference/payments/:paymentId (demo payments)
  *         └─ *                 not-found page
  *
  * Future focused layouts (checkout, admin) become siblings of MarketingLayout
@@ -200,6 +201,14 @@ export function createRoutes({
                     {
                       path: `${ACCOUNT_PATHS.trips.slice(1)}/:reference/confirmation`,
                       lazy: async () => ({ Component: (await bookings()).ConfirmationRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.trips.slice(1)}/:reference/pay`,
+                      lazy: async () => ({ Component: (await bookings()).PayRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.trips.slice(1)}/:reference/payments/:paymentId`,
+                      lazy: async () => ({ Component: (await bookings()).PaymentStatusRoute }),
                     },
                   ],
                 },

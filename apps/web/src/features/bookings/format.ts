@@ -1,5 +1,5 @@
 import type { BadgeTone } from '@wayora/ui';
-import type { BookingStatus, BookingSummary } from '@wayora/contracts';
+import type { BookingStatus, BookingSummary, PaymentStatus } from '@wayora/contracts';
 import { bookingRequirementsFor } from '@wayora/contracts';
 
 const dayFormat = new Intl.DateTimeFormat('en-IN', {
@@ -40,5 +40,43 @@ export const STATUS_LABEL: Record<BookingStatus, { label: string; tone: BadgeTon
   pending: { label: 'Pending (demo)', tone: 'warning' },
   confirmed: { label: 'Demo confirmed', tone: 'success' },
   cancelled: { label: 'Cancelled', tone: 'neutral' },
+  expired: { label: 'Expired (not paid)', tone: 'neutral' },
   failed: { label: 'Failed', tone: 'danger' },
 };
+
+/** A booking's badge: a pending booking that waits for its demo payment says so. */
+export function bookingStatusLabel(booking: Pick<BookingSummary, 'status' | 'payment'>): {
+  label: string;
+  tone: BadgeTone;
+} {
+  if (booking.status === 'pending' && booking.payment.mode === 'demo') {
+    return booking.payment.state === 'processing'
+      ? { label: 'Demo payment processing', tone: 'warning' }
+      : { label: 'Awaiting demo payment', tone: 'warning' };
+  }
+  return STATUS_LABEL[booking.status];
+}
+
+/** Payment status wording. Success is always qualified as a demo where it is one. */
+export function paymentStatusLabel(
+  status: PaymentStatus,
+  demo: boolean,
+): { label: string; tone: BadgeTone } {
+  const d = demo ? ' (demo)' : '';
+  switch (status) {
+    case 'created':
+      return { label: `Starting${d}`, tone: 'warning' };
+    case 'pending':
+      return { label: `Processing${d}`, tone: 'warning' };
+    case 'succeeded':
+      return { label: demo ? 'Demo payment succeeded' : 'Paid', tone: 'success' };
+    case 'failed':
+      return { label: `Failed${d}`, tone: 'danger' };
+    case 'cancelled':
+      return { label: `Cancelled${d}`, tone: 'neutral' };
+    case 'refund_pending':
+      return { label: 'Refund processing', tone: 'warning' };
+    case 'refunded':
+      return { label: 'Refunded', tone: 'neutral' };
+  }
+}

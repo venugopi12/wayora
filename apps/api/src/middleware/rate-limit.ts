@@ -184,6 +184,8 @@ export function bookingWriteRateLimiter(config: {
   max: number;
   store?: Store;
   userIdOf: (res: Response) => string;
+  /** What the limit is about, in the 429 message (default: booking changes). */
+  subject?: string;
 }) {
   return rateLimit({
     windowMs: 60_000,
@@ -195,7 +197,7 @@ export function bookingWriteRateLimiter(config: {
     handler: (_req, res) => {
       sendError(res, 429, {
         code: 'RATE_LIMITED',
-        message: 'Too many booking changes in a short time. Wait a moment and try again.',
+        message: `Too many ${config.subject ?? 'booking changes'} in a short time. Wait a moment and try again.`,
       });
     },
   });

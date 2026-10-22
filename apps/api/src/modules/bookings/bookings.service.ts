@@ -8,11 +8,13 @@ import {
   searchResultSchema,
   type Booking,
   type BookingListQuery,
+  type BookingPayment,
   type BookingListResponse,
   type BookingStatus,
   type BookingSummary,
   type BookingView,
   type createBookingRequestSchema,
+  DEMO_PAYMENT_SCENARIOS,
   type OfferResponse,
   type SearchServiceType,
 } from '@wayora/contracts';
@@ -25,17 +27,28 @@ import {
 import { AppError } from '../../utils/errors.js';
 import type { Logger } from '../../utils/logger.js';
 import type { ProviderRegistry } from '../providers/registry.js';
+import type { PaymentsService } from '../payments/payments.service.js';
 import { pricesEqual, type CallContext, type SearchService } from '../search/search.service.js';
 import { IdempotencyService, requestHash } from './idempotency.js';
+import {
+  AWAITING_PAYMENT_NOTE,
+  DEMO_CANCELLATION_NOTE,
+  DEMO_CONFIRMATION_NOTE,
+  DEMO_PAID_CANCELLATION_NOTE,
+  TRANSITIONS,
+  lockBooking,
+  transitionBooking,
+} from './lifecycle.js';
+
+export { DEMO_CANCELLATION_NOTE, DEMO_CONFIRMATION_NOTE, TRANSITIONS } from './lifecycle.js';
 
 /*
  * Demo bookings (docs/bookings.md). Wayora records the booking and simulates
- * its confirmation; no supplier is contacted, nothing is ticketed or paid.
- * Payments (a later phase) attach bookings to an Order; this service stays
- * the owner of the booking lifecycle.
+ * its confirmation; no supplier is contacted and nothing is ticketed. Since
+ * Phase 13 a booking may first need a demo payment (docs/payments.md); this
+ * service stays the owner of the booking lifecycle (bookings/lifecycle.ts).
  */
 
-type Tx = Prisma.TransactionClient;
 export type CreateBookingInput = z.output<typeof createBookingRequestSchema>;
 
 const CATEGORY: Record<SearchServiceType, TravelCategory> = {
@@ -48,40 +61,19 @@ const CATEGORY: Record<SearchServiceType, TravelCategory> = {
   holidays: 'HOLIDAY_PACKAGE',
 };
 
-/**
- * The lifecycle, enforced here and by conditional updates (a status only
- * changes if it is still the one the rule was checked against):
- *   PENDING → CONFIRMED (system: the simulated demo confirmation)
- *   PENDING → FAILED    (system)
- *   PENDING | CONFIRMED → CANCELLED (the account holder, before travel)
- * CANCELLED and FAILED are final. HELD (a supplier hold) is reserved for real
- * suppliers and never used by demo bookings.
- */
-export const TRANSITIONS: Record<DbBookingStatus, readonly DbBookingStatus[]> = {
-  PENDING: ['CONFIRMED', 'FAILED', 'CANCELLED'],
-  HELD: [],
-  CONFIRMED: ['CANCELLED'],
-  CANCELLED: [],
-  FAILED: [],
-};
-
 const API_STATUS: Record<DbBookingStatus, BookingStatus> = {
   PENDING: 'pending',
   HELD: 'pending',
   CONFIRMED: 'confirmed',
   CANCELLED: 'cancelled',
   FAILED: 'failed',
+  EXPIRED: 'expired',
 };
 
 const ACTIVE: DbBookingStatus[] = ['PENDING', 'CONFIRMED'];
 
 /** Travel dates are local dates; every demo place is in India, so "today" is today in India. */
 export const BOOKING_CALENDAR_TIME_ZONE = 'Asia/Kolkata';
-
-export const DEMO_CONFIRMATION_NOTE =
-  'Demo confirmation (simulated): Wayora did not contact a supplier, issue a ticket or take payment.';
-export const DEMO_CANCELLATION_NOTE =
-  'Cancelled by you. Demo booking: no supplier was contacted, and nothing is refunded because nothing was paid.';
 
 /** WYD-XXXX-XXXX from the unambiguous alphabet, with a CSPRNG. */
 export function newBookingReference(): string {
@@ -109,12 +101,19 @@ const isUniqueViolation = (error: unknown) =>
 
 const NOT_FOUND_MESSAGE = "We couldn't find that booking.";
 
+const paymentsSelect = {
+  payments: {
+    select: { id: true, status: true, refundRequired: true },
+    orderBy: { attempt: 'desc' },
+  },
+} satisfies Prisma.BookingInclude;
 const bookingInclude = {
   travellers: { orderBy: { position: 'asc' } },
   events: { orderBy: [{ createdAt: 'asc' }, { fromStatus: { sort: 'asc', nulls: 'first' } }] },
+  ...paymentsSelect,
 } satisfies Prisma.BookingInclude;
 type BookingRow = Prisma.BookingGetPayload<{ include: typeof bookingInclude }>;
-type BookingSummaryRow = Prisma.BookingGetPayload<object>;
+type BookingSummaryRow = Prisma.BookingGetPayload<{ include: typeof paymentsSelect }>;
 
 export interface BookingsServiceOptions {
   prisma: PrismaClient;
@@ -124,6 +123,8 @@ export interface BookingsServiceOptions {
   now?: () => Date;
   /** Reference generator (tests inject collisions). */
   newReference?: () => string;
+  /** Payments (Phase 13). Without it, every booking is payment mode NONE (Phase 12 behaviour). */
+  payments?: PaymentsService;
 }
 
 export class BookingsService {
@@ -258,6 +259,10 @@ export class BookingsService {
     //    idempotency outcome: all in one transaction.
     const { startsOn, endsOn } = offerTravelDates(result);
     const price = result.price;
+    // How it is paid: a demo payment when payments are on and the price is an
+    // exact total; estimate ranges (cabs) can't be charged, so they are NONE.
+    const policy = this.options.payments?.policy;
+    const paymentMode = policy?.provider && price.kind === 'total' ? 'DEMO' : 'NONE';
     const snapshot: Snapshot = {
       v: 1,
       offer: result,
@@ -288,6 +293,9 @@ export class BookingsService {
               contactPhone: requirements.contactPhone === 'required' ? phone : null,
               currency: price.kind === 'total' ? price.total.currency : price.min.currency,
               totalAmountMinor: price.kind === 'total' ? BigInt(price.total.amountMinor) : null,
+              paymentMode,
+              paymentDueAt:
+                paymentMode === 'DEMO' ? new Date(now.getTime() + policy!.windowMs) : null,
               createdAt: now,
               travellers: {
                 create: input.travellers.map((t, position) => ({
@@ -303,16 +311,20 @@ export class BookingsService {
                   fromStatus: null,
                   toStatus: 'PENDING',
                   actorType: 'USER',
-                  note: 'Demo booking requested.',
+                  note: paymentMode === 'DEMO' ? AWAITING_PAYMENT_NOTE : 'Demo booking requested.',
                   createdAt: now,
                 },
               },
             },
           });
-          await this.transition(tx, booking.id, 'PENDING', 'CONFIRMED', {
-            actorType: 'SYSTEM',
-            note: DEMO_CONFIRMATION_NOTE,
-          });
+          // Without a payment step, the demo confirmation follows at once;
+          // with one, it waits for the demo payment (payments/events.ts).
+          if (paymentMode === 'NONE') {
+            await transitionBooking(tx, now, booking.id, 'PENDING', 'CONFIRMED', {
+              actorType: 'SYSTEM',
+              note: DEMO_CONFIRMATION_NOTE,
+            });
+          }
           await tx.auditLog.create({
             data: {
               actorType: 'USER',
@@ -325,6 +337,7 @@ export class BookingsService {
                 reference,
                 category: CATEGORY[result.serviceType],
                 provider: result.providerId,
+                paymentMode,
                 demo: true,
               },
             },
@@ -338,6 +351,7 @@ export class BookingsService {
               serviceType: result.serviceType,
               providerId: result.providerId,
               partySize: requirements.partySize,
+              paymentMode,
             },
           },
           'Demo booking created',
@@ -354,35 +368,11 @@ export class BookingsService {
     }
   }
 
-  /** Changes a status if the lifecycle allows it AND it is still `from` (no lost updates). */
-  private async transition(
-    tx: Tx,
-    bookingId: string,
-    from: DbBookingStatus,
-    to: DbBookingStatus,
-    event: { actorType: 'USER' | 'SYSTEM'; note: string },
-  ): Promise<boolean> {
-    if (!TRANSITIONS[from].includes(to)) return false;
-    const now = this.now();
-    const changed = await tx.booking.updateMany({
-      where: { id: bookingId, status: from },
-      data: {
-        status: to,
-        ...(to === 'CONFIRMED' ? { confirmedAt: now } : {}),
-        ...(to === 'CANCELLED' ? { cancelledAt: now } : {}),
-      },
-    });
-    if (changed.count !== 1) return false;
-    await tx.bookingStatusEvent.create({
-      data: { bookingId, fromStatus: from, toStatus: to, ...event, createdAt: now },
-    });
-    return true;
-  }
-
   // ─── Read ───────────────────────────────────────────────────────────────
 
   /** One booking of this user. Another user's booking is "not found", never "forbidden". */
   async get(userId: string, reference: string): Promise<Booking> {
+    await this.expireOverdue({ userId });
     const row = await this.prisma.booking.findFirst({
       where: { reference, userId },
       include: bookingInclude,
@@ -391,8 +381,13 @@ export class BookingsService {
     return this.present(row);
   }
 
+  /** Bookings past their payment window become EXPIRED before they are shown. */
+  private async expireOverdue(filter: { userId: string }): Promise<void> {
+    await this.options.payments?.expireOverdueBookings(filter);
+  }
+
   private viewWhere(view: BookingView, today: Date): Prisma.BookingWhereInput {
-    if (view === 'cancelled') return { status: { in: ['CANCELLED', 'FAILED'] } };
+    if (view === 'cancelled') return { status: { in: ['CANCELLED', 'FAILED', 'EXPIRED'] } };
     // Spelled out both ways (never NOT(...)): with SQL's three-valued logic a
     // booking without dates (metro) would otherwise fall out of both views.
     if (view === 'past') {
@@ -422,12 +417,14 @@ export class BookingsService {
     const view = query.view as BookingView;
     const page = Number(query.page);
     const pageSize = Number(query.pageSize);
+    await this.expireOverdue({ userId });
     const [rows, ...counts] = await this.prisma.$transaction([
       this.prisma.booking.findMany({
         where: { userId, ...this.viewWhere(view, today) },
         orderBy: order[view],
         skip: (page - 1) * pageSize,
         take: pageSize,
+        include: paymentsSelect,
       }),
       ...views.map((v) =>
         this.prisma.booking.count({ where: { userId, ...this.viewWhere(v, today) } }),
@@ -454,6 +451,7 @@ export class BookingsService {
     startsOn: Date | null;
   }): string | null {
     if (row.status === 'CANCELLED') return 'This booking is already cancelled.';
+    if (row.status === 'EXPIRED') return 'This booking expired before it was paid.';
     if (!TRANSITIONS[row.status].includes('CANCELLED')) {
       return "This booking can't be cancelled in its current state.";
     }
@@ -464,18 +462,35 @@ export class BookingsService {
   }
 
   async cancel(userId: string, reference: string, context: CallContext = {}): Promise<Booking> {
-    const row = await this.prisma.booking.findFirst({
+    await this.expireOverdue({ userId });
+    const found = await this.prisma.booking.findFirst({
       where: { reference, userId },
       select: { id: true, status: true, startsOn: true },
     });
-    if (!row) throw new AppError('NOT_FOUND', NOT_FOUND_MESSAGE);
-    const blocker = this.cancellationBlocker(row);
-    if (blocker) throw new AppError('BOOKING_NOT_CANCELLABLE', blocker);
+    if (!found) throw new AppError('NOT_FOUND', NOT_FOUND_MESSAGE);
+    const firstBlocker = this.cancellationBlocker(found);
+    if (firstBlocker) throw new AppError('BOOKING_NOT_CANCELLABLE', firstBlocker);
+    // A payment still in progress is cancelled first (best effort); if it
+    // settles anyway, the payment rules handle it (docs/payments.md#late-success).
+    await this.options.payments?.cancelActiveForBooking(found.id, context);
 
     await this.prisma.$transaction(async (tx) => {
-      const changed = await this.transition(tx, row.id, row.status, 'CANCELLED', {
+      await lockBooking(tx, found.id);
+      const row = await tx.booking.findUniqueOrThrow({
+        where: { id: found.id },
+        select: { id: true, status: true, startsOn: true },
+      });
+      const blocker = this.cancellationBlocker(row);
+      if (blocker) throw new AppError('BOOKING_NOT_CANCELLABLE', blocker);
+      // A paid demo booking: the payment would be owed back. The demo provider
+      // can't refund (nothing was taken), so it is flagged, never "refunded".
+      const paid = await tx.payment.updateMany({
+        where: { bookingId: row.id, status: 'SUCCEEDED' },
+        data: { refundRequired: true },
+      });
+      const changed = await transitionBooking(tx, this.now(), row.id, row.status, 'CANCELLED', {
         actorType: 'USER',
-        note: DEMO_CANCELLATION_NOTE,
+        note: paid.count > 0 ? DEMO_PAID_CANCELLATION_NOTE : DEMO_CANCELLATION_NOTE,
       });
       // Lost a race with another cancellation: report the state it ended in.
       if (!changed)
@@ -488,7 +503,7 @@ export class BookingsService {
           entityType: 'booking',
           entityId: row.id,
           requestId: context.requestId ?? null,
-          metadata: { reference, from: row.status, demo: true },
+          metadata: { reference, from: row.status, refundRequired: paid.count > 0, demo: true },
         },
       });
     });
@@ -523,6 +538,55 @@ export class BookingsService {
       endsOn: fromDate(row.endsOn),
       createdAt: row.createdAt.toISOString(),
       cancellable: this.cancellationBlocker(row) === null,
+      payment: this.presentPayment(row),
+    };
+  }
+
+  /** The money side of a booking (docs/payments.md#booking-and-payment). */
+  private presentPayment(row: BookingSummaryRow): BookingPayment {
+    const none: BookingPayment = {
+      mode: 'none',
+      state: 'not-required',
+      amount: null,
+      dueAt: null,
+      canPay: false,
+      activePaymentId: null,
+      demoScenarios: null,
+    };
+    if (row.paymentMode !== 'DEMO' || row.totalAmountMinor === null) return none;
+    const policy = this.options.payments?.policy;
+    const active = row.payments.find((p) => p.status === 'CREATED' || p.status === 'PENDING');
+    const paid = row.payments.find((p) =>
+      ['SUCCEEDED', 'REFUND_PENDING', 'REFUNDED'].includes(p.status),
+    );
+    const due = row.paymentDueAt;
+    const payable =
+      row.status === 'PENDING' &&
+      !active &&
+      !paid &&
+      due !== null &&
+      due.getTime() > this.now().getTime() &&
+      Boolean(policy?.provider);
+    const state: BookingPayment['state'] = row.payments.some((p) => p.refundRequired)
+      ? 'refund-required'
+      : paid
+        ? 'paid'
+        : active
+          ? 'processing'
+          : payable
+            ? 'unpaid'
+            : 'closed';
+    return {
+      mode: 'demo',
+      state,
+      amount: { amountMinor: row.totalAmountMinor.toString(), currency: row.currency },
+      dueAt: due?.toISOString() ?? null,
+      canPay: payable,
+      activePaymentId: active?.id ?? null,
+      demoScenarios:
+        payable && policy?.provider?.mode === 'DEMO' && policy.demoScenarios
+          ? [...DEMO_PAYMENT_SCENARIOS]
+          : null,
     };
   }
 

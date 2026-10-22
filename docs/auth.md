@@ -265,8 +265,9 @@ npm run test                       # everything; account integration tests are S
 
 The API's account integration tests (`apps/api/test/integration/`) run against
 a real PostgreSQL database and only when `TEST_DATABASE_URL` is set. They
-**truncate** `users`, `travellers`, `sessions`, `idempotency_keys` and
-`audit_logs` (and, by cascade, bookings) before each test, so they refuse
+**truncate** `users`, `travellers`, `sessions`, `idempotency_keys`,
+`audit_logs` and `webhook_events` (and, by cascade, bookings and payments)
+before each test, so they refuse
 to run unless the database name ends in `_test`. Never point them at
 development or production data.
 

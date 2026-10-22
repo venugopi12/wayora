@@ -9,6 +9,8 @@ import { ACCOUNT_PATHS } from '../navigation/config';
  *   /trips?view=&page=
  *   /trips/:reference
  *   /trips/:reference/confirmation
+ *   /trips/:reference/pay                      (payment review, Phase 13)
+ *   /trips/:reference/payments/:paymentId      (payment status)
  */
 
 export const BOOK_PATH = '/book/:serviceType/:resultId';
@@ -25,6 +27,9 @@ export function bookPath(
 
 export const tripPath = (reference: string) => `${ACCOUNT_PATHS.trips}/${reference}`;
 export const confirmationPath = (reference: string) => `${tripPath(reference)}/confirmation`;
+export const payPath = (reference: string) => `${tripPath(reference)}/pay`;
+export const paymentPath = (reference: string, paymentId: string) =>
+  `${tripPath(reference)}/payments/${paymentId}`;
 
 export type CheckoutStep = 'offer' | 'details' | 'review';
 export const CHECKOUT_STEPS: readonly { id: CheckoutStep; label: string }[] = [

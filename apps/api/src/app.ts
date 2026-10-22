@@ -4,7 +4,12 @@ import type { Store } from 'express-rate-limit';
 import helmet from 'helmet';
 import { API_V1_PREFIX, REQUEST_ID_HEADER } from '@wayora/contracts';
 import type { PrismaClient } from '@wayora/database';
-import { demoProvidersEnabled, type Env } from './config/env.js';
+import {
+  demoPaymentScenariosEnabled,
+  demoProvidersEnabled,
+  paymentProvider,
+  type Env,
+} from './config/env.js';
 import { requireTrustedOrigin } from './middleware/csrf.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { httpLogger } from './middleware/http-logger.js';
@@ -24,6 +29,13 @@ import { ProviderRegistry } from './modules/providers/registry.js';
 import { SearchService, type ResilienceOptions } from './modules/search/search.service.js';
 import { MemorySearchSessionStore, type SearchSessionStore } from './modules/search/sessions.js';
 import { UsersService } from './modules/users/users.service.js';
+import { PaymentsService } from './modules/payments/payments.service.js';
+import {
+  PAYMENT_EVENTS_PATH,
+  type RequestWithRawBody,
+} from './modules/payments/payments.routes.js';
+import { DemoPaymentProvider } from './modules/payments/providers/demo.js';
+import type { PaymentProvider } from './modules/payments/providers/types.js';
 import { v1Router, type AccountsRouterOptions } from './routes/v1.js';
 import type { DependencyCheck } from './services/health.js';
 import type { Logger } from './utils/logger.js';
@@ -59,6 +71,46 @@ export interface AppDependencies {
   searchResilience?: Partial<ResilienceOptions>;
   /** Where providers' required configuration is looked up (names only). Defaults to process.env. */
   providerConfig?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Payment providers. `policy` overrides the one chosen by env (tests use
+   * test-only providers); `extra` are providers existing payments or
+   * webhooks may name.
+   */
+  paymentProviders?: { policy?: PaymentProvider | null; extra?: readonly PaymentProvider[] };
+}
+
+/** Builds the payment service from env (exported for the server's background jobs). */
+export function createPaymentsService(
+  prisma: PrismaClient,
+  env: Env,
+  logger: Logger,
+  options: {
+    now?: () => Date;
+    providers?: { policy?: PaymentProvider | null; extra?: readonly PaymentProvider[] };
+  } = {},
+): PaymentsService {
+  const demo = new DemoPaymentProvider({
+    pendingMs: env.PAYMENT_DEMO_PENDING_SECONDS * 1000,
+    ...(options.now ? { now: options.now } : {}),
+  });
+  const chosen =
+    options.providers?.policy !== undefined
+      ? options.providers.policy
+      : paymentProvider(env) === 'demo'
+        ? demo
+        : null;
+  return new PaymentsService({
+    prisma,
+    logger: logger.child({ component: 'payments' }),
+    policy: {
+      provider: chosen,
+      demoScenarios: chosen?.mode === 'DEMO' && demoPaymentScenariosEnabled(env),
+      windowMs: env.PAYMENT_WINDOW_MINUTES * 60 * 1000,
+    },
+    // Existing demo payments stay readable even when payments are switched off.
+    providers: [demo, ...(options.providers?.extra ?? [])],
+    ...(options.now ? { now: options.now } : {}),
+  });
 }
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -94,6 +146,7 @@ export function createApp({
   searchSessions,
   searchResilience,
   providerConfig = process.env,
+  paymentProviders,
 }: AppDependencies): Express {
   const app = express();
 
@@ -120,7 +173,15 @@ export function createApp({
       maxAge: 600,
     }),
   );
-  app.use(express.json({ limit: '100kb' }));
+  app.use(
+    express.json({
+      limit: '100kb',
+      // Signed provider webhooks are verified over the exact bytes received.
+      verify: (req, _res, buf) => {
+        if (req.url?.startsWith(PAYMENT_EVENTS_PATH)) (req as RequestWithRawBody).rawBody = buf;
+      },
+    }),
+  );
   // CSRF: state-changing requests must come from an allowed origin.
   app.use(requireTrustedOrigin(env.CORS_ORIGIN));
 
@@ -133,7 +194,7 @@ export function createApp({
     }),
   );
 
-  let accounts: Omit<AccountsRouterOptions, 'bookings'> | undefined;
+  let accounts: Omit<AccountsRouterOptions, 'bookings' | 'payments' | 'logger'> | undefined;
   if (prisma) {
     const secure = env.NODE_ENV === 'production';
     const sessions = createSessionService(prisma, env, now);
@@ -185,9 +246,16 @@ export function createApp({
   });
   const searchStore = createRateLimitStore?.('search');
   const bookingStore = createRateLimitStore?.('bookings');
+  const paymentStore = createRateLimitStore?.('payments');
+  const payments = prisma
+    ? createPaymentsService(prisma, env, logger, {
+        ...(now ? { now } : {}),
+        ...(paymentProviders ? { providers: paymentProviders } : {}),
+      })
+    : undefined;
   // Bookings need the database and the search sessions their offers come from.
   const accountRoutes: AccountsRouterOptions | undefined =
-    accounts && prisma
+    accounts && prisma && payments
       ? {
           ...accounts,
           bookings: new BookingsService({
@@ -195,7 +263,16 @@ export function createApp({
             search,
             registry,
             logger,
+            payments,
             ...(now ? { now } : {}),
+          }),
+          payments,
+          logger,
+          paymentLimiter: bookingWriteRateLimiter({
+            max: env.PAYMENT_RATE_LIMIT_MAX,
+            subject: 'payment requests',
+            userIdOf: (res) => currentUser(res).id,
+            ...(paymentStore ? { store: paymentStore } : {}),
           }),
           bookingLimiter: bookingWriteRateLimiter({
             max: env.BOOKING_RATE_LIMIT_MAX,

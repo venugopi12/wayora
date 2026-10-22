@@ -3,8 +3,14 @@
 Signed-in users can book any priced demo offer in all seven categories
 (flights, hotels, trains, buses, metro, cabs, holidays), see it in **My trips**,
 and cancel it. These are **demo bookings**: Wayora stores them, but it contacts
-no supplier, reserves nothing, issues no ticket and takes no payment. There is
-no payment form anywhere, and no card data is accepted or stored.
+no supplier, reserves nothing, issues no ticket and takes no real payment.
+There is no card form anywhere, and no card data is accepted or stored.
+
+> **Since Phase 13** a booking with an exact price may first need a **demo
+> payment** (simulated, no money moves) before its demo confirmation; it then
+> starts `pending` and can `expire` if unpaid. The payment step, the
+> `booking.payment` field and the rules are in [payments.md](payments.md).
+> With `PAYMENT_PROVIDER=none`, everything below applies unchanged.
 
 What a demo booking deliberately does **not** have: a PNR, e-ticket, hotel
 confirmation code, supplier reference, ticket download or supplier document.
@@ -29,9 +35,11 @@ labels as internal to Wayora.
       "I understand this is a demo booking" checkbox. Nothing is sent until
       **Confirm demo booking**.
 4. `POST /api/v1/bookings` validates everything again on the server (below).
-5. `/trips/:reference/confirmation`: the reference, status "Demo confirmed",
+5. With a payment step (Phase 13): `/trips/:reference/pay`, then the
+   payment status page ([payments.md](payments.md#web)).
+6. `/trips/:reference/confirmation`: the reference, status "Demo confirmed",
    what was booked, the price, and the no-reservation/no-ticket/no-payment notice.
-6. `/trips` (My trips) lists it under Upcoming; `/trips/:reference` shows the
+7. `/trips` (My trips) lists it under Upcoming; `/trips/:reference` shows the
    details, history, and the cancel action.
 
 ### What each category asks for
@@ -58,15 +66,17 @@ the browser.
 
 ```
 pending ──(demo confirmation, simulated by Wayora)──▶ confirmed
+pending ──(payment mode demo: not paid in time)──▶ expired     (Phase 13)
 pending ──▶ failed
 pending | confirmed ──(you, before the travel date)──▶ cancelled
 ```
 
 - Transitions are server-side only (`TRANSITIONS` in
-  `apps/api/src/modules/bookings/bookings.service.ts`) and are applied with
+  `apps/api/src/modules/bookings/lifecycle.ts`, shared with payments) and are applied with
   `UPDATE … WHERE status = <from>`, so two racing changes can't both win.
-- Creation writes `pending` and immediately `confirmed` inside the same
-  transaction, with actor `SYSTEM` and the note "Demo confirmation (simulated):
+- Payment mode `none`: creation writes `pending` and immediately `confirmed`
+  inside the same transaction (payment mode `demo` waits for the payment;
+  [payments.md](payments.md#rules)), with actor `SYSTEM` and the note "Demo confirmation (simulated):
   Wayora did not contact a supplier, issue a ticket or take payment." It is
   labelled "Demo confirmed" everywhere.
 - `failed` exists for a future supplier step; nothing produces it today.
@@ -75,7 +85,9 @@ pending | confirmed ──(you, before the travel date)──▶ cancelled
   (inclusive), judged by the calendar in `Asia/Kolkata` (every demo place is in
   India). Metro bookings have no date and can always be cancelled. Cancelling
   only changes the status: no supplier is contacted and nothing is refunded,
-  because nothing was paid. Cancelled bookings are kept.
+  because nothing was paid (a booking paid with a demo payment has its payment
+  flagged "refund required"; the demo provider can't refund). Cancelled and
+  expired bookings are kept.
 - Every change appends a `booking_status_events` row (who, when, note) and an
   `audit_logs` row (`booking.created`, `booking.cancelled`).
 
@@ -132,10 +144,10 @@ phone → transaction.
 
 ### Booking (`bookingSchema`)
 
-`reference`, `status` (`pending|confirmed|cancelled|failed`), `demo` (always
+`reference`, `status` (`pending|confirmed|cancelled|expired|failed`), `demo` (always
 `true`), `serviceType`, `offer` (the offer as booked), `providerName`, `price`,
 `partySize`, `startsOn`, `endsOn` (local dates; null for metro), `createdAt`,
-`cancellable`, `travellers` (`firstName`, `lastName`, `type`), `contactPhone`,
+`cancellable`, `payment` (Phase 13, [payments.md](payments.md#rules)), `travellers` (`firstName`, `lastName`, `type`), `contactPhone`,
 `priceCheck` (`session` for demo offers: not rechecked with a supplier) and
 `history` (`status`, `at`, `by: you|wayora`, `note`). List items
 (`bookingSummarySchema`) omit names, phone and history. The list response has
@@ -319,7 +331,7 @@ navigation.
 
 ## Limitations
 
-- Demo only: no supplier reservation, ticket, payment or refund. Live offers
+- Demo only: no supplier reservation, ticket, real payment or refund. Live offers
   are refused for booking until a supplier booking step exists.
 - Demo offers are not rechecked with a supplier (`priceCheck: session`), and
   their availability isn't checked: the same demo offer can be booked many times.

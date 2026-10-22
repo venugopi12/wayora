@@ -380,8 +380,8 @@ function OfferPage({
                   </Link>
                 </Button>
                 <p className="text-caption text-ink-secondary">
-                  A demo booking: no supplier reservation, ticket or payment. You review everything
-                  before confirming.
+                  A demo booking: no supplier reservation, ticket or real payment. You review
+                  everything before confirming.
                 </p>
               </>
             ) : (

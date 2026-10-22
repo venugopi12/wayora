@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { personName } from './auth.js';
+import { moneySchema } from './money.js';
 import {
   isoDateSchema,
   offsetDateTimeSchema,
@@ -27,12 +28,22 @@ export const bookingReferenceSchema = z
   .regex(/^WYD-[23456789A-HJKMNP-Z]{4}-[23456789A-HJKMNP-Z]{4}$/, 'Not a valid booking reference.');
 
 /**
- * Lifecycle (server-enforced; docs/bookings.md#statuses):
+ * Lifecycle (server-enforced; docs/bookings.md#statuses, docs/payments.md):
  *   pending ──(demo confirmation, simulated)──▶ confirmed
+ *     • payment mode `none`: straight away
+ *     • payment mode `demo`: after a demo payment succeeds
+ *   pending ──(payment window passed, nothing paid)──▶ expired
  *   pending ──▶ failed            pending | confirmed ──(you, before travel)──▶ cancelled
- * `cancelled` and `failed` are final.
+ * `cancelled`, `expired` and `failed` are final. `confirmed` is always a demo
+ * confirmation: no supplier has reserved anything.
  */
-export const bookingStatusSchema = z.enum(['pending', 'confirmed', 'cancelled', 'failed']);
+export const bookingStatusSchema = z.enum([
+  'pending',
+  'confirmed',
+  'cancelled',
+  'expired',
+  'failed',
+]);
 export type BookingStatus = z.infer<typeof bookingStatusSchema>;
 
 export const passengerTypeSchema = z.enum(['adult', 'child', 'infant']);
@@ -224,6 +235,68 @@ export const bookingEventSchema = z.object({
 });
 export type BookingEvent = z.infer<typeof bookingEventSchema>;
 
+// ─── Payment side of a booking (Phase 13) ────────────────────────────────
+
+/**
+ * How a booking is paid (fixed when it is made):
+ * - `none`: nothing is paid on Wayora. Phase 12 bookings, bookings made while
+ *   payments are off, and estimate-priced offers (cab fares are ranges, so
+ *   there is no exact amount to take).
+ * - `demo`: a simulated payment is required before the demo confirmation.
+ *   No money moves; see DEMO_PAYMENT_NOTICE.
+ */
+export const bookingPaymentModeSchema = z.enum(['none', 'demo']);
+export type BookingPaymentMode = z.infer<typeof bookingPaymentModeSchema>;
+
+/**
+ * Outcomes the demo payment simulator can be asked for (only when the server
+ * enables demo scenarios; never with a real provider). The server's simulator
+ * decides the result; the client never sends a payment status.
+ * - `succeed`: approved at once
+ * - `decline`: declined at once
+ * - `pending`: pending, then approved a few seconds later
+ * - `pending-decline`: pending, then declined
+ */
+export const DEMO_PAYMENT_SCENARIOS = ['succeed', 'decline', 'pending', 'pending-decline'] as const;
+export const demoPaymentScenarioSchema = z.enum(DEMO_PAYMENT_SCENARIOS);
+export type DemoPaymentScenario = z.infer<typeof demoPaymentScenarioSchema>;
+
+/**
+ * The money side of a booking, for display and for deciding whether "Pay" is offered:
+ * - `not-required`: payment mode `none`
+ * - `unpaid`: payable now (a new attempt can start)
+ * - `processing`: an attempt is created or pending
+ * - `paid`: an attempt succeeded and the booking was confirmed
+ * - `refund-required`: an attempt succeeded after the booking was cancelled or
+ *   expired; the booking stays cancelled (see docs/payments.md#late-success)
+ * - `closed`: unpaid, and the booking can no longer be paid (cancelled, expired)
+ */
+export const bookingPaymentStateSchema = z.enum([
+  'not-required',
+  'unpaid',
+  'processing',
+  'paid',
+  'refund-required',
+  'closed',
+]);
+export type BookingPaymentState = z.infer<typeof bookingPaymentStateSchema>;
+
+export const bookingPaymentSchema = z.object({
+  mode: bookingPaymentModeSchema,
+  state: bookingPaymentStateSchema,
+  /** What is due, from the booking's own record (null when nothing is paid on Wayora). */
+  amount: moneySchema.nullable(),
+  /** Pay before this or the booking expires (null when nothing is due). */
+  dueAt: offsetDateTimeSchema.nullable(),
+  /** Whether a new payment attempt can be started now. */
+  canPay: z.boolean(),
+  /** The attempt in progress (created or pending), to resume watching it. */
+  activePaymentId: z.uuid().nullable(),
+  /** Demo scenarios this server accepts, or null (scenarios off, or not a demo payment). */
+  demoScenarios: z.array(demoPaymentScenarioSchema).nullable(),
+});
+export type BookingPayment = z.infer<typeof bookingPaymentSchema>;
+
 const bookingCore = {
   reference: bookingReferenceSchema,
   status: bookingStatusSchema,
@@ -243,6 +316,8 @@ const bookingCore = {
   createdAt: offsetDateTimeSchema,
   /** Whether you can cancel it now (status and travel date allow it). */
   cancellable: z.boolean(),
+  /** How it is paid, and where that stands (Phase 13). */
+  payment: bookingPaymentSchema,
 };
 
 /** One booking, as its owner sees it. */
@@ -261,9 +336,10 @@ export const bookingSummarySchema = z.object(bookingCore);
 export type BookingSummary = z.infer<typeof bookingSummarySchema>;
 
 /**
- * - `upcoming`: active bookings whose travel hasn't ended (and metro, which has no date),
+ * - `upcoming`: active bookings (confirmed, or pending payment) whose travel
+ *   hasn't ended (and metro, which has no date),
  * - `past`: active bookings whose travel has ended,
- * - `cancelled`: cancelled (and failed) bookings.
+ * - `cancelled`: cancelled, expired (never paid) and failed bookings.
  */
 export const bookingViewSchema = z.enum(['upcoming', 'past', 'cancelled']);
 export type BookingView = z.infer<typeof bookingViewSchema>;

@@ -34,11 +34,11 @@ type Tx = Prisma.TransactionClient;
 export type IdempotencyClaim<T> =
   { kind: 'proceed'; scope: string; key: string } | { kind: 'replay'; status: number; body: T };
 
-export function validateIdempotencyKey(value: string | undefined): string {
+export function validateIdempotencyKey(value: string | undefined, subject = 'booking'): string {
   if (!value) {
     throw new AppError(
       'BAD_REQUEST',
-      `Send an ${IDEMPOTENCY_KEY_HEADER} header (a new random value per booking attempt).`,
+      `Send an ${IDEMPOTENCY_KEY_HEADER} header (a new random value per ${subject} attempt).`,
     );
   }
   if (!KEY_PATTERN.test(value)) {
@@ -67,11 +67,16 @@ export function requestHash(value: unknown): string {
     .digest('hex');
 }
 
-const inProgress = () =>
-  new AppError(
-    'IDEMPOTENCY_IN_PROGRESS',
-    'This booking is already being created. Wait a moment, then check My trips.',
-  );
+/** User-facing wording per operation (bookings by default). */
+export interface IdempotencyMessages {
+  inProgress: string;
+  reused: string;
+}
+const BOOKING_MESSAGES: IdempotencyMessages = {
+  inProgress: 'This booking is already being created. Wait a moment, then check My trips.',
+  reused:
+    'This request key was already used for a different booking request. Start the booking again.',
+};
 
 const isUniqueViolation = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
@@ -92,7 +97,10 @@ export class IdempotencyService {
     userId: string;
     key: string;
     hash: string;
+    messages?: IdempotencyMessages;
   }): Promise<IdempotencyClaim<T>> {
+    const messages = input.messages ?? BOOKING_MESSAGES;
+    const inProgress = () => new AppError('IDEMPOTENCY_IN_PROGRESS', messages.inProgress);
     const scope = `${input.operation}:${input.userId}`;
     if (await this.insert(scope, input)) return { kind: 'proceed', scope, key: input.key };
 
@@ -105,10 +113,7 @@ export class IdempotencyService {
       throw inProgress();
     }
     if (existing.requestHash !== input.hash) {
-      throw new AppError(
-        'IDEMPOTENCY_KEY_REUSED',
-        'This request key was already used for a different booking request. Start the booking again.',
-      );
+      throw new AppError('IDEMPOTENCY_KEY_REUSED', messages.reused);
     }
     if (existing.status === 'COMPLETED' && existing.responseStatus !== null) {
       return { kind: 'replay', status: existing.responseStatus, body: existing.responseBody as T };
