@@ -1,7 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Clock, RotateCw, SearchX } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import type { SearchServiceType } from '@wayora/contracts';
+import type { ReactNode } from 'react';
+import type { SearchPrice, SearchServiceType } from '@wayora/contracts';
 import {
   Alert,
   Breadcrumbs,
@@ -16,7 +17,7 @@ import { ApiClientError } from '../../lib/api-client';
 import { fetchOffer, searchTravel } from '../../services/search';
 import { serviceBySlug } from '../navigation/config';
 import { readSearchParams } from '../search/params';
-import { DemoBadge, PriceBlock } from '../search/cards/shared';
+import { DemoBadge, PriceBlock, money } from '../search/cards/shared';
 import { OfferDetails, offerHeading } from './OfferDetails';
 import { offerPath, readOfferParams, resultsPathFor } from './paths';
 
@@ -117,6 +118,51 @@ function InvalidOfferLink() {
   );
 }
 
+/** What went wrong, as the offer page explains it (one state per API error code). */
+type OfferProblem =
+  | { kind: 'expired' }
+  | { kind: 'not-in-search' }
+  | { kind: 'bad-link'; mismatch: boolean }
+  | { kind: 'unavailable' }
+  | { kind: 'temporary'; message: string; requestId: string | null }
+  | { kind: 'failed'; requestId: string | null };
+
+/** Codes for failures that may pass if the visitor tries again later. */
+const TEMPORARY_CODES = new Set([
+  'PROVIDER_TIMEOUT',
+  'PROVIDER_UNAVAILABLE',
+  'SEARCH_FAILED',
+  'SERVICE_UNAVAILABLE',
+  'RATE_LIMITED',
+]);
+
+function problemFor(error: unknown): OfferProblem {
+  const api = error instanceof ApiClientError ? error : null;
+  switch (api?.code) {
+    case 'SEARCH_EXPIRED':
+      return { kind: 'expired' };
+    case 'OFFER_NOT_IN_SEARCH':
+      return { kind: 'not-in-search' };
+    case 'OFFER_NOT_FOUND':
+      return { kind: 'bad-link', mismatch: false };
+    case 'CATEGORY_MISMATCH':
+      return { kind: 'bad-link', mismatch: true };
+    case 'OFFER_UNAVAILABLE':
+      return { kind: 'unavailable' };
+  }
+  if (api && TEMPORARY_CODES.has(api.code)) {
+    return { kind: 'temporary', message: api.message, requestId: api.requestId };
+  }
+  return { kind: 'failed', requestId: api?.requestId ?? null };
+}
+
+const priceText = (price: SearchPrice | null) =>
+  !price
+    ? 'no price'
+    : price.kind === 'range'
+      ? `${money(price.min)} – ${money(price.max)}`
+      : money(price.total);
+
 function OfferPage({
   serviceType,
   resultId,
@@ -134,6 +180,7 @@ function OfferPage({
     queryKey: offerKeys.offer(serviceType, searchId ?? '', resultId),
     queryFn: ({ signal }) => fetchOffer(serviceType, searchId!, resultId, signal),
     enabled: searchId !== null,
+    // Never retried automatically: every retry is the visitor's choice.
     retry: false,
     staleTime: 60_000,
   });
@@ -151,77 +198,126 @@ function OfferPage({
     />
   );
 
-  const notFound =
-    searchId === null ||
-    (offer.isError && offer.error instanceof ApiClientError && offer.error.status === 404);
+  const problem: OfferProblem | null =
+    searchId === null ? { kind: 'expired' } : offer.isError ? problemFor(offer.error) : null;
+  const refreshProblem = refresh.isError ? problemFor(refresh.error) : null;
+  // After a refresh, the new search is the one that counts.
   const refreshMissed =
-    refresh.isError && refresh.error instanceof ApiClientError && refresh.error.status === 404;
+    refreshProblem?.kind === 'not-in-search' || refreshProblem?.kind === 'bad-link';
+  const goneAfterRefresh = refreshProblem?.kind === 'unavailable';
+
+  const backToResults = (
+    <Button asChild variant="secondary">
+      <Link to={resultsPath}>Back to results</Link>
+    </Button>
+  );
+  const refreshButton =
+    canRefresh && !refreshMissed && !goneAfterRefresh ? (
+      <Button onClick={() => refresh.mutate()} loading={refresh.isPending}>
+        <RotateCw aria-hidden="true" />
+        Refresh this offer
+      </Button>
+    ) : null;
+
+  const stateCard = (icon: ReactNode, title: string, description: string, actions: ReactNode) => (
+    <div className="rounded-xl border border-dashed border-line-strong bg-card">
+      <EmptyState
+        size="page"
+        icon={icon}
+        title={title}
+        description={description}
+        action={<div className="flex flex-col gap-3 sm:flex-row">{actions}</div>}
+      />
+    </div>
+  );
 
   let body;
-  if (notFound) {
+  if (problem && (refreshMissed || goneAfterRefresh)) {
+    body = stateCard(
+      <SearchX />,
+      goneAfterRefresh
+        ? 'This offer is no longer available'
+        : 'This offer is no longer in the results',
+      goneAfterRefresh
+        ? 'We ran the search again and the provider says this offer is gone. Have a look at the current results.'
+        : 'We ran the search again and this offer is not part of it any more. Have a look at the current results.',
+      backToResults,
+    );
+  } else if (problem?.kind === 'expired' || problem?.kind === 'not-in-search') {
+    const expired = problem.kind === 'expired';
     body = (
       <div className="flex flex-col gap-4">
-        <div className="rounded-xl border border-dashed border-line-strong bg-card">
-          <EmptyState
-            size="page"
-            icon={<Clock />}
-            title={
-              refreshMissed ? 'This offer is no longer in the results' : 'This offer has expired'
-            }
-            description={
-              refreshMissed
-                ? 'We ran the search again and this offer is not part of it any more. Have a look at the current results.'
-                : `Search results are kept for a few minutes, then they expire, so prices and times are never shown out of date.${canRefresh ? ' Refresh to run the same search again.' : ''}`
-            }
-            action={
-              <div className="flex flex-col gap-3 sm:flex-row">
-                {canRefresh && !refreshMissed ? (
-                  <Button onClick={() => refresh.mutate()} loading={refresh.isPending}>
-                    <RotateCw aria-hidden="true" />
-                    Refresh this offer
-                  </Button>
-                ) : null}
-                <Button asChild variant="secondary">
-                  <Link to={resultsPath}>Back to results</Link>
-                </Button>
-              </div>
-            }
-          />
-        </div>
-        {refresh.isError && !refreshMissed ? (
+        {stateCard(
+          <Clock />,
+          expired ? 'This offer has expired' : "This offer isn't part of that search",
+          (expired
+            ? 'Search results are kept for a few minutes, then they expire, so prices and times are never shown out of date.'
+            : 'The link points to a search that doesn’t contain this offer (it may come from a different search).') +
+            (canRefresh ? ' Refresh to run the same search again and look for it.' : ''),
+          <>
+            {refreshButton}
+            {backToResults}
+          </>,
+        )}
+        {refreshProblem && !refreshMissed && !goneAfterRefresh ? (
           <Alert tone="danger" title="We couldn't refresh this offer">
-            {refresh.error instanceof ApiClientError && refresh.error.code === 'SERVICE_UNAVAILABLE'
-              ? refresh.error.message
-              : 'Check your connection and try again.'}
+            {refreshProblem.kind === 'temporary'
+              ? refreshProblem.message
+              : refreshProblem.kind === 'expired'
+                ? 'The new search expired before we could read it. Please try again.'
+                : 'Check your connection and try again.'}
           </Alert>
         ) : null}
       </div>
     );
-  } else if (offer.isPending) {
-    body = <OfferSkeleton />;
-  } else if (offer.isError) {
+  } else if (problem?.kind === 'bad-link') {
+    body = stateCard(
+      <SearchX />,
+      problem.mismatch ? 'This link mixes up travel types' : "This offer link doesn't work",
+      problem.mismatch
+        ? `It doesn't lead to an offer in ${service.name}. Start a new search instead.`
+        : "It doesn't name an offer Wayora knows. Start a new search instead.",
+      <Button asChild>
+        <Link to={resultsPath}>Search {service.name.toLowerCase()}</Link>
+      </Button>,
+    );
+  } else if (problem?.kind === 'unavailable') {
+    body = stateCard(
+      <SearchX />,
+      'This offer is no longer available',
+      'The provider says this offer is gone. Have a look at the current results.',
+      backToResults,
+    );
+  } else if (problem) {
+    const temporary = problem.kind === 'temporary';
     body = (
       <ErrorState
-        title="We couldn't load this offer"
-        description="Check your connection and try again."
-        reference={
-          offer.error instanceof ApiClientError ? (offer.error.requestId ?? undefined) : undefined
-        }
+        title={temporary ? "We couldn't check this offer right now" : "We couldn't load this offer"}
+        description={temporary ? problem.message : 'Check your connection and try again.'}
+        reference={problem.requestId ?? undefined}
         action={
-          <Button
-            variant="secondary"
-            onClick={() => void offer.refetch()}
-            loading={offer.isFetching}
-          >
-            <RotateCw aria-hidden="true" />
-            Try again
-          </Button>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button
+              variant="secondary"
+              onClick={() => void offer.refetch()}
+              loading={offer.isFetching}
+            >
+              <RotateCw aria-hidden="true" />
+              Try again
+            </Button>
+            <Button asChild variant="ghost">
+              <Link to={resultsPath}>Back to results</Link>
+            </Button>
+          </div>
         }
       />
     );
+  } else if (!offer.data) {
+    body = <OfferSkeleton />;
   } else {
-    const { result, disclaimer, expiresAt } = offer.data;
+    const { result, disclaimer, expiresAt, validation } = offer.data;
     const demo = result.source === 'demo';
+    const until = <time dateTime={expiresAt}>{timeFormat.format(new Date(expiresAt))}</time>;
     body = (
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-2">
@@ -237,6 +333,12 @@ function OfferPage({
             {disclaimer}
           </Alert>
         ) : null}
+        {validation.status === 'price-changed' ? (
+          <Alert tone="warning" title="The price has changed">
+            When you searched it was {priceText(validation.previousPrice)}. The provider now quotes{' '}
+            {priceText(result.price)}.
+          </Alert>
+        ) : null}
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="flex min-w-0 flex-col gap-4">
             <OfferDetails result={result} />
@@ -247,18 +349,32 @@ function OfferPage({
           >
             <PriceBlock price={result.price} demo={demo} align="start" size="lg" />
             <p className="text-caption text-ink-secondary">
-              Shown for this search until{' '}
-              <time dateTime={expiresAt}>{timeFormat.format(new Date(expiresAt))}</time>.{' '}
-              {demo
-                ? 'Demo price: illustrative, not bookable.'
-                : 'Prices can change until a booking is confirmed.'}
+              {validation.status === 'session' ? (
+                demo ? (
+                  <>
+                    Demo price: illustrative, not bookable. Not rechecked with any supplier; shown
+                    for this search until {until}.
+                  </>
+                ) : (
+                  <>
+                    Shown for this search until {until}; not rechecked with the provider yet. Prices
+                    can change until a booking is confirmed.
+                  </>
+                )
+              ) : (
+                <>
+                  Checked with the provider at{' '}
+                  <time dateTime={validation.checkedAt!}>
+                    {timeFormat.format(new Date(validation.checkedAt!))}
+                  </time>
+                  . Prices can change until a booking is confirmed.
+                </>
+              )}
             </p>
             <p className="rounded-md bg-sunken px-3 py-2 text-body-sm text-ink-secondary">
               Booking isn&apos;t available on Wayora yet.
             </p>
-            <Button asChild variant="secondary">
-              <Link to={resultsPath}>Back to results</Link>
-            </Button>
+            {backToResults}
           </aside>
         </div>
       </div>
@@ -269,9 +385,7 @@ function OfferPage({
     <Container className="flex flex-col gap-6 py-section-sm">
       {crumbs}
       <BackToResults to={resultsPath} label={`Back to ${service.name.toLowerCase()} results`} />
-      {notFound || offer.isError || offer.isPending ? (
-        <h1 className="sr-only">{service.name} offer</h1>
-      ) : null}
+      {problem || !offer.data ? <h1 className="sr-only">{service.name} offer</h1> : null}
       {body}
     </Container>
   );

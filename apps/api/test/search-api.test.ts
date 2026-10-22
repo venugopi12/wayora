@@ -6,9 +6,16 @@ import {
   type SearchServiceType,
   offerResponseSchema,
 } from '@wayora/contracts';
-import { parseEnv } from '../src/config/env.js';
+import { parseEnv, searchSessionStore } from '../src/config/env.js';
 import { buildTestApp, validEnvSource } from './helpers.js';
-import { VALID_INPUTS, hotelResult, stubProvider, unavailable } from './search-support.js';
+import { MemorySearchSessionStore } from '../src/modules/search/sessions.js';
+import {
+  NO_RETRY,
+  VALID_INPUTS,
+  hotelResult,
+  stubProvider,
+  unavailable,
+} from './search-support.js';
 
 const ORIGIN = 'http://localhost:5173';
 const post = (app: ReturnType<typeof buildTestApp>, type: string, body: unknown) =>
@@ -99,31 +106,50 @@ describe('POST /api/v1/search/:serviceType', () => {
     );
   });
 
-  it('503s with a safe message when every provider fails', async () => {
-    const app = buildTestApp({
-      searchProviders: [
-        stubProvider('boom', { kind: 'throw', error: new Error('secret internal detail') }),
-      ],
-    });
-    const res = await post(app, 'hotels', bodyFor('hotels'));
-    expect(res.status).toBe(503);
+  it('maps total provider failure to a stable code, never the supplier error', async () => {
+    const failing = (error: unknown, options = {}) =>
+      buildTestApp({
+        searchProviders: [stubProvider('p', { kind: 'throw', error }, options)],
+        searchResilience: NO_RETRY,
+      });
+    const res = await post(
+      failing(new Error('secret internal detail at https://api.supplier.example/v1?key=abc')),
+      'hotels',
+      bodyFor('hotels'),
+    );
+    expect(res.status).toBe(502);
     expect(res.body.error).toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
+      code: 'SEARCH_FAILED',
       message: expect.stringMatching(/couldn't search hotels/),
     });
-    expect(JSON.stringify(res.body)).not.toContain('secret internal detail');
+    expect(JSON.stringify(res.body)).not.toMatch(/secret|supplier\.example|key=abc/);
+
+    const down = await post(failing(unavailable), 'hotels', bodyFor('hotels'));
+    expect(down.status).toBe(503);
+    expect(down.body.error.code).toBe('PROVIDER_UNAVAILABLE');
+    expect(JSON.stringify(down.body)).not.toContain('Supplier maintenance window');
+
+    const slow = buildTestApp({
+      searchProviders: [stubProvider('p', { kind: 'hang' }, { timeoutMs: 20 })],
+      searchResilience: NO_RETRY,
+    });
+    const timedOut = await post(slow, 'hotels', bodyFor('hotels'));
+    expect(timedOut.status).toBe(504);
+    expect(timedOut.body.error.code).toBe('PROVIDER_TIMEOUT');
   });
 
   it('demo providers are off in production unless explicitly enabled', async () => {
     const prod = { NODE_ENV: 'production' as const, CORS_ORIGIN: ['https://wayora.example'] };
-    const off = buildTestApp({ env: prod });
+    // Production needs an explicit session store (Redis in server.ts); memory stands in here.
+    const sessions = () => ({ searchSessions: new MemorySearchSessionStore() });
+    const off = buildTestApp({ env: prod, ...sessions() });
     const res = await request(off)
       .post('/api/v1/search/hotels')
       .set('Origin', 'https://wayora.example')
       .send(bodyFor('hotels'));
     expect(res.status).toBe(503);
     expect(res.body.error.message).toBe("Hotels search isn't available right now.");
-    const on = buildTestApp({ env: { ...prod, SEARCH_DEMO_PROVIDERS: 'true' } });
+    const on = buildTestApp({ env: { ...prod, SEARCH_DEMO_PROVIDERS: 'true' }, ...sessions() });
     expect(
       (
         await request(on)
@@ -132,6 +158,14 @@ describe('POST /api/v1/search/:serviceType', () => {
           .send(bodyFor('hotels'))
       ).status,
     ).toBe(200);
+  });
+
+  it('refuses to build a production app without an explicit session store', () => {
+    expect(() =>
+      buildTestApp({
+        env: { NODE_ENV: 'production', CORS_ORIGIN: ['https://wayora.example'] },
+      }),
+    ).toThrow(/Redis search-session store/);
   });
 
   it('honours SEARCH_DISABLED_PROVIDERS', async () => {
@@ -207,12 +241,76 @@ describe('GET /api/v1/providers', () => {
   });
 });
 
+describe('search session and resilience environment', () => {
+  const prod = {
+    ...validEnvSource,
+    NODE_ENV: 'production',
+    CORS_ORIGIN: 'https://wayora.example',
+    WEB_ORIGIN: 'https://wayora.example',
+  };
+
+  it('defaults: Redis sessions when REDIS_URL is set, 10-minute lifetime, bounded resilience', () => {
+    const env = parseEnv(validEnvSource);
+    expect(searchSessionStore(env)).toBe('redis');
+    expect(env).toMatchObject({
+      SEARCH_SESSION_TTL_SECONDS: 600,
+      SEARCH_DEADLINE_MS: 8000,
+      SEARCH_PROVIDER_MAX_ATTEMPTS: 2,
+      SEARCH_PROVIDER_RETRY_BASE_MS: 200,
+      SEARCH_BREAKER_FAILURE_THRESHOLD: 5,
+      SEARCH_BREAKER_COOLDOWN_SECONDS: 30,
+    });
+    expect(searchSessionStore(parseEnv({ ...validEnvSource, REDIS_URL: '' }))).toBe('memory');
+  });
+
+  it('production requires Redis sessions; memory is refused', () => {
+    expect(searchSessionStore(parseEnv(prod))).toBe('redis');
+    expect(() => parseEnv({ ...prod, REDIS_URL: '' })).toThrow(
+      /SEARCH_SESSION_STORE: must be "redis"/,
+    );
+    expect(() => parseEnv({ ...prod, SEARCH_SESSION_STORE: 'memory' })).toThrow(
+      /in-memory search sessions are for local development only/,
+    );
+    expect(() =>
+      parseEnv({ ...validEnvSource, REDIS_URL: '', SEARCH_SESSION_STORE: 'redis' }),
+    ).toThrow(/"redis" needs REDIS_URL/);
+    expect(
+      searchSessionStore(parseEnv({ ...validEnvSource, SEARCH_SESSION_STORE: 'memory' })),
+    ).toBe('memory');
+  });
+
+  it('validates bounds and accepts the old SEARCH_CACHE_TTL_SECONDS name', () => {
+    expect(
+      parseEnv({ ...validEnvSource, SEARCH_CACHE_TTL_SECONDS: '900' }).SEARCH_SESSION_TTL_SECONDS,
+    ).toBe(900);
+    expect(
+      parseEnv({
+        ...validEnvSource,
+        SEARCH_CACHE_TTL_SECONDS: '900',
+        SEARCH_SESSION_TTL_SECONDS: '120',
+      }).SEARCH_SESSION_TTL_SECONDS,
+    ).toBe(120);
+    for (const [key, value] of [
+      ['SEARCH_SESSION_TTL_SECONDS', '0'], // sessions can't be switched off any more
+      ['SEARCH_SESSION_TTL_SECONDS', '3600'],
+      ['SEARCH_DEADLINE_MS', '100'],
+      ['SEARCH_DEADLINE_MS', '20000'], // must end before the web client gives up (15 s)
+      ['SEARCH_PROVIDER_MAX_ATTEMPTS', '0'],
+      ['SEARCH_PROVIDER_MAX_ATTEMPTS', '9'],
+      ['SEARCH_BREAKER_FAILURE_THRESHOLD', '0'],
+      ['SEARCH_SESSION_STORE', 'disk'],
+    ]) {
+      expect(() => parseEnv({ ...validEnvSource, [key!]: value }), `${key}=${value}`).toThrow(key);
+    }
+  });
+});
+
 describe('search environment', () => {
   it('validates and defaults search settings', () => {
     const env = parseEnv(validEnvSource);
     expect(env).toMatchObject({
       SEARCH_RATE_LIMIT_MAX: 30,
-      SEARCH_CACHE_TTL_SECONDS: 600,
+      SEARCH_SESSION_TTL_SECONDS: 600,
       SEARCH_DISABLED_PROVIDERS: [],
     });
     expect(env.SEARCH_DEMO_PROVIDERS).toBeUndefined();
@@ -255,28 +353,87 @@ describe('GET /api/v1/search/:serviceType/sessions/:searchId/offer', () => {
     expect(res.body.data.result.id).toBe(last.id);
   });
 
-  it('404s for unknown or expired searches, unknown offers and the wrong category', async () => {
+  it('distinguishes expired searches, unknown offers, other searches and category mix-ups', async () => {
     let now = new Date();
-    const app = buildTestApp({ now: () => now, env: { SEARCH_CACHE_TTL_SECONDS: 60 } });
+    const app = buildTestApp({ now: () => now, env: { SEARCH_SESSION_TTL_SECONDS: 60 } });
+    const hotels = await post(app, 'hotels', bodyFor('hotels'));
+    const { searchId, results } = hotels.body.data;
+    const id = results[0].id as string;
+    const otherHotels = await post(app, 'hotels', {
+      ...bodyFor('hotels'),
+      destination: 'city:jaipur',
+    });
+    const flights = await post(app, 'flights', bodyFor('flights'));
+    const get = (type: string, sid: string, offer: string) =>
+      request(app).get(offerPath(type, sid, offer));
+    const expectError = async (
+      res: Promise<request.Response>,
+      status: number,
+      code: string,
+      message?: RegExp,
+    ) => {
+      const { status: actual, body } = await res;
+      expect([actual, body.error.code]).toEqual([status, code]);
+      if (message) expect(body.error.message).toMatch(message);
+    };
+
+    // The offer id itself: not Wayora's shape, or no such provider.
+    await expectError(get('hotels', searchId, 'nonsense'), 404, 'OFFER_NOT_FOUND');
+    await expectError(get('hotels', searchId, 'acme-hotels:r1'), 404, 'OFFER_NOT_FOUND');
+    // A flight offer requested as a hotel, and a hotel search asked for a flight offer.
+    const flightOffer = flights.body.data.results[0].id as string;
+    await expectError(get('hotels', searchId, flightOffer), 409, 'CATEGORY_MISMATCH');
+    await expectError(
+      get('flights', searchId, flightOffer),
+      409,
+      'CATEGORY_MISMATCH',
+      /search is for hotels, not flights/,
+    );
+    // A real offer from another search is not reachable through this one.
+    const jaipurOffer = otherHotels.body.data.results[0].id as string;
+    expect(results.map((r: { id: string }) => r.id)).not.toContain(jaipurOffer);
+    await expectError(
+      get('hotels', searchId, jaipurOffer),
+      404,
+      'OFFER_NOT_IN_SEARCH',
+      /isn't part of this search/,
+    );
+    await expectError(get('hotels', searchId, 'demo-hotels:nope'), 404, 'OFFER_NOT_IN_SEARCH');
+    // Unknown and expired searches.
+    await expectError(
+      get('hotels', '01890000-0000-7000-8000-000000000000', id),
+      410,
+      'SEARCH_EXPIRED',
+      /expired/,
+    );
+    expect((await get('hotels', searchId, id)).status).toBe(200);
+    now = new Date(now.getTime() + 61_000);
+    await expectError(get('hotels', searchId, id), 410, 'SEARCH_EXPIRED');
+  });
+
+  it('accepts no client prices: tampered query parameters are rejected, the price is the server copy', async () => {
+    const app = buildTestApp();
     const search = await post(app, 'hotels', bodyFor('hotels'));
     const { searchId, results } = search.body.data;
     const id = results[0].id as string;
-
-    const wrongType = await request(app).get(offerPath('flights', searchId, id));
-    expect(wrongType.status).toBe(404);
-    const unknownOffer = await request(app).get(offerPath('hotels', searchId, 'demo-hotels:nope'));
-    expect(unknownOffer.status).toBe(404);
-    expect(unknownOffer.body.error.message).toBe("That offer isn't part of this search.");
-    const unknownSearch = await request(app).get(
-      offerPath('hotels', '01890000-0000-7000-8000-000000000000', id),
-    );
-    expect(unknownSearch.status).toBe(404);
-    expect(unknownSearch.body.error.message).toMatch(/expired/);
-
-    now = new Date(now.getTime() + 61_000);
-    const expired = await request(app).get(offerPath('hotels', searchId, id));
-    expect(expired.status).toBe(404);
-    expect(expired.body.error.message).toMatch(/expired/);
+    for (const tamper of [
+      '&price=1',
+      '&amountMinor=100',
+      '&currency=USD',
+      '&offerRef=x',
+      '&providerId=demo-flights',
+    ]) {
+      const res = await request(app).get(`${offerPath('hotels', searchId, id)}${tamper}`);
+      expect(res.status, tamper).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_FAILED');
+    }
+    const res = await request(app).get(offerPath('hotels', searchId, id));
+    expect(res.body.data.result.price).toEqual(results[0].price);
+    expect(res.body.data.validation).toEqual({
+      status: 'session',
+      checkedAt: null,
+      previousPrice: null,
+    });
   });
 
   it('validates the category, search id and offer id', async () => {

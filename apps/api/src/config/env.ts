@@ -107,9 +107,34 @@ export const envSchema = z.object({
     ),
   /** Searches per client IP per minute (on top of RATE_LIMIT_MAX). */
   SEARCH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
-  /** How long a search is kept: reused for paging, sorting and filtering, and read by offer pages. */
-  SEARCH_CACHE_TTL_SECONDS: z.coerce.number().int().min(0).max(900).default(600),
+  /**
+   * Where search sessions live (docs/search.md#search-sessions). `redis` keeps
+   * them across API restarts and instances; `memory` is per process and only
+   * allowed outside production. Unset: `redis` when REDIS_URL is set, else `memory`.
+   */
+  SEARCH_SESSION_STORE: z.preprocess(emptyToUndefined, z.enum(['redis', 'memory']).optional()),
+  /**
+   * How long a search session lives: reused for paging, sorting and filtering,
+   * and read by offer pages. Offers are valid only within it. (Formerly
+   * SEARCH_CACHE_TTL_SECONDS, still accepted.)
+   */
+  SEARCH_SESSION_TTL_SECONDS: z.coerce.number().int().min(60).max(1800).default(600),
+  /** Overall time budget for one search or offer check, retries included. */
+  SEARCH_DEADLINE_MS: z.coerce.number().int().min(500).max(14_000).default(8_000),
+  /** Attempts per provider call (1 = no retry). Only transient failures of read operations are retried. */
+  SEARCH_PROVIDER_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(4).default(2),
+  /** Base delay for exponential backoff with full jitter between attempts. */
+  SEARCH_PROVIDER_RETRY_BASE_MS: z.coerce.number().int().min(0).max(2_000).default(200),
+  /** Consecutive failed calls that open a provider's circuit breaker. */
+  SEARCH_BREAKER_FAILURE_THRESHOLD: z.coerce.number().int().min(1).max(100).default(5),
+  /** How long an open breaker skips the provider before one trial call (half-open). */
+  SEARCH_BREAKER_COOLDOWN_SECONDS: z.coerce.number().int().min(1).max(600).default(30),
 });
+
+/** Which search-session store this configuration selects. */
+export function searchSessionStore(env: Env): 'redis' | 'memory' {
+  return env.SEARCH_SESSION_STORE ?? (env.REDIS_URL ? 'redis' : 'memory');
+}
 
 /** Whether demo providers are on, given the environment. */
 export function demoProvidersEnabled(env: Env): boolean {
@@ -135,6 +160,16 @@ function crossFieldIssues(env: Env): string[] {
     if (!env.WEB_ORIGIN.startsWith('https://')) {
       issues.push('WEB_ORIGIN: must use https:// in production');
     }
+    // Per-process sessions break offer pages behind a load balancer and on
+    // every restart, so production never falls back to memory.
+    if (searchSessionStore(env) !== 'redis') {
+      issues.push(
+        'SEARCH_SESSION_STORE: must be "redis" in production (set REDIS_URL); in-memory search sessions are for local development only',
+      );
+    }
+  }
+  if (env.SEARCH_SESSION_STORE === 'redis' && !env.REDIS_URL) {
+    issues.push('SEARCH_SESSION_STORE: "redis" needs REDIS_URL');
   }
   return issues;
 }
@@ -154,7 +189,12 @@ export class EnvValidationError extends Error {
 }
 
 /** Parses and validates environment variables. Throws EnvValidationError with actionable messages. */
-export function parseEnv(source: Record<string, string | undefined>): Env {
+export function parseEnv(input: Record<string, string | undefined>): Env {
+  // Accept the Phase 9/10 name for the session lifetime.
+  const source =
+    input.SEARCH_SESSION_TTL_SECONDS === undefined && input.SEARCH_CACHE_TTL_SECONDS !== undefined
+      ? { ...input, SEARCH_SESSION_TTL_SECONDS: input.SEARCH_CACHE_TTL_SECONDS }
+      : input;
   const result = envSchema.safeParse(source);
   if (result.success) {
     const issues = crossFieldIssues(result.data);

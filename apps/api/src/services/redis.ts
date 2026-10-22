@@ -29,6 +29,8 @@ export function createRedisConnection(url: string, logger: Logger): RedisConnect
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
     connectTimeout: 5_000,
+    // A hung Redis must not hold requests (rate limits, search sessions) open.
+    commandTimeout: 2_000,
     retryStrategy: (attempt) => Math.min(attempt * 500, 10_000),
   });
 

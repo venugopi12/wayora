@@ -15,8 +15,11 @@ import {
   type SearchProvider,
 } from '../src/modules/providers/provider.js';
 import { ProviderRegistry } from '../src/modules/providers/registry.js';
-import { type MemorySearchCache } from '../src/modules/search/cache.js';
-import { SearchService } from '../src/modules/search/search.service.js';
+import { SearchService, type ResilienceOptions } from '../src/modules/search/search.service.js';
+import {
+  MemorySearchSessionStore,
+  type SearchSessionStore,
+} from '../src/modules/search/sessions.js';
 
 /*
  * Test-only providers that simulate supplier behaviour (slow, failing,
@@ -177,20 +180,35 @@ export function stubProvider(
 
 export const unavailable = new ProviderError('unavailable', 'Supplier maintenance window.');
 
+/** No retries and a quiet breaker unless a test asks for them, so call counts stay obvious. */
+export const NO_RETRY: Partial<ResilienceOptions> = {
+  retry: { maxAttempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+  breaker: { failureThreshold: 1_000, cooldownMs: 1_000 },
+};
+
 export function serviceWith(
   providers: SearchProvider[],
   {
-    cache = null as MemorySearchCache | null,
+    sessions,
     concurrency,
     now,
-  }: { cache?: MemorySearchCache | null; concurrency?: number; now?: () => Date } = {},
+    resilience = NO_RETRY,
+    logger = silentLogger,
+  }: {
+    sessions?: SearchSessionStore;
+    concurrency?: number;
+    now?: () => Date;
+    resilience?: Partial<ResilienceOptions>;
+    logger?: typeof silentLogger;
+  } = {},
 ) {
   const registry = new ProviderRegistry({ demoEnabled: true });
   for (const p of providers) registry.register(p);
   return new SearchService({
     registry,
-    logger: silentLogger,
-    ...(cache ? { cache } : {}),
+    logger,
+    sessions: sessions ?? new MemorySearchSessionStore(200, now),
+    resilience,
     ...(concurrency ? { concurrency } : {}),
     ...(now ? { now } : {}),
   });

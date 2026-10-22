@@ -59,30 +59,43 @@ Docker Compose out of the box. `.env` files are git-ignored.
 
 ### `apps/api/.env`
 
-| Variable                         | Required | Default                     | Notes                                                                          |
-| -------------------------------- | -------- | --------------------------- | ------------------------------------------------------------------------------ |
-| `NODE_ENV`                       | no       | `development`               | `development` \| `test` \| `production`                                        |
-| `HOST` / `PORT`                  | no       | `0.0.0.0` / `4000`          |                                                                                |
-| `LOG_LEVEL`                      | no       | `info`                      | pino levels or `silent`                                                        |
-| `LOG_FORMAT`                     | no       | `json`                      | `pretty` for local dev (ignored in production)                                 |
-| `DATABASE_URL`                   | **yes**  |                             | `postgresql://…`. Essential dependency                                         |
-| `REDIS_URL`                      | no       | (disabled)                  | `redis://` or `rediss://`. Optional dependency                                 |
-| `CORS_ORIGIN`                    | **yes**  |                             | Comma-separated origins; `*` is rejected                                       |
-| `WEB_ORIGIN`                     | **yes**  |                             | Canonical web URL (future email links/redirects)                               |
-| `API_BASE_URL`                   | **yes**  |                             | Public API URL (future webhook callbacks)                                      |
-| `TRUST_PROXY`                    | no       | `false`                     | `true`, `false` or hop count behind a load balancer                            |
-| `RATE_LIMIT_WINDOW_MS`           | no       | `60000`                     |                                                                                |
-| `RATE_LIMIT_MAX`                 | no       | `120`                       | Requests per window per client IP                                              |
-| `HEALTH_CHECK_TIMEOUT_MS`        | no       | `1500`                      | Per-dependency probe timeout                                                   |
-| `SHUTDOWN_TIMEOUT_MS`            | no       | `10000`                     | Forced exit after this during shutdown                                         |
-| `SESSION_IDLE_TIMEOUT_HOURS`     | no       | `168`                       | Sign-out after this long without activity ([auth.md](auth.md))                 |
-| `SESSION_ABSOLUTE_TIMEOUT_HOURS` | no       | `720`                       | Maximum session length                                                         |
-| `AUTH_RATE_LIMIT_MAX`            | no       | `20`                        | Sign-in + registration attempts per IP per 15 min                              |
-| `LOGIN_FAILURES_PER_EMAIL_MAX`   | no       | `10`                        | Failed sign-ins per email per 15 min                                           |
-| `SEARCH_DEMO_PROVIDERS`          | no       | dev/test on, production off | Demo search fixtures ([search.md](search.md))                                  |
-| `SEARCH_DISABLED_PROVIDERS`      | no       | empty                       | Comma-separated provider ids to switch off                                     |
-| `SEARCH_RATE_LIMIT_MAX`          | no       | `30`                        | Searches per IP per minute                                                     |
-| `SEARCH_CACHE_TTL_SECONDS`       | no       | `600`                       | Search session lifetime (reuse while refining; offer pages); `0` disables both |
+| Variable                           | Required | Default                     | Notes                                                                                         |
+| ---------------------------------- | -------- | --------------------------- | --------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                         | no       | `development`               | `development` \| `test` \| `production`                                                       |
+| `HOST` / `PORT`                    | no       | `0.0.0.0` / `4000`          |                                                                                               |
+| `LOG_LEVEL`                        | no       | `info`                      | pino levels or `silent`                                                                       |
+| `LOG_FORMAT`                       | no       | `json`                      | `pretty` for local dev (ignored in production)                                                |
+| `DATABASE_URL`                     | **yes**  |                             | `postgresql://…`. Essential dependency                                                        |
+| `REDIS_URL`                        | no       | (disabled)                  | `redis://` or `rediss://`. Optional dependency                                                |
+| `CORS_ORIGIN`                      | **yes**  |                             | Comma-separated origins; `*` is rejected                                                      |
+| `WEB_ORIGIN`                       | **yes**  |                             | Canonical web URL (future email links/redirects)                                              |
+| `API_BASE_URL`                     | **yes**  |                             | Public API URL (future webhook callbacks)                                                     |
+| `TRUST_PROXY`                      | no       | `false`                     | `true`, `false` or hop count behind a load balancer                                           |
+| `RATE_LIMIT_WINDOW_MS`             | no       | `60000`                     |                                                                                               |
+| `RATE_LIMIT_MAX`                   | no       | `120`                       | Requests per window per client IP                                                             |
+| `HEALTH_CHECK_TIMEOUT_MS`          | no       | `1500`                      | Per-dependency probe timeout                                                                  |
+| `SHUTDOWN_TIMEOUT_MS`              | no       | `10000`                     | Forced exit after this during shutdown                                                        |
+| `SESSION_IDLE_TIMEOUT_HOURS`       | no       | `168`                       | Sign-out after this long without activity ([auth.md](auth.md))                                |
+| `SESSION_ABSOLUTE_TIMEOUT_HOURS`   | no       | `720`                       | Maximum session length                                                                        |
+| `AUTH_RATE_LIMIT_MAX`              | no       | `20`                        | Sign-in + registration attempts per IP per 15 min                                             |
+| `LOGIN_FAILURES_PER_EMAIL_MAX`     | no       | `10`                        | Failed sign-ins per email per 15 min                                                          |
+| `SEARCH_DEMO_PROVIDERS`            | no       | dev/test on, production off | Demo search fixtures ([search.md](search.md))                                                 |
+| `SEARCH_DISABLED_PROVIDERS`        | no       | empty                       | Comma-separated provider ids to switch off                                                    |
+| `SEARCH_RATE_LIMIT_MAX`            | no       | `30`                        | Searches per IP per minute                                                                    |
+| `SEARCH_SESSION_STORE`             | no       | `redis` if `REDIS_URL` set  | `redis` or `memory`; **production requires `redis`** ([search.md](search.md#search-sessions)) |
+| `SEARCH_SESSION_TTL_SECONDS`       | no       | `600`                       | 60–1800. Search session lifetime (old name `SEARCH_CACHE_TTL_SECONDS` accepted)               |
+| `SEARCH_DEADLINE_MS`               | no       | `8000`                      | Budget per search / offer check, retries included                                             |
+| `SEARCH_PROVIDER_MAX_ATTEMPTS`     | no       | `2`                         | Attempts per provider call (transient failures only)                                          |
+| `SEARCH_PROVIDER_RETRY_BASE_MS`    | no       | `200`                       | Backoff base (full jitter, cap 8×)                                                            |
+| `SEARCH_BREAKER_FAILURE_THRESHOLD` | no       | `5`                         | Consecutive failures that open a provider's circuit breaker                                   |
+| `SEARCH_BREAKER_COOLDOWN_SECONDS`  | no       | `30`                        | Open time before one trial call                                                               |
+
+**Redis and search.** Search sessions live in Redis whenever `REDIS_URL` is
+set (and must in production): they survive API restarts and are shared by
+every instance. Without Redis in local development the API keeps them in
+memory and logs a warning; if a configured Redis goes down, search answers
+503 rather than falling back. Expired sessions are removed by Redis itself
+(key TTLs); no cleanup job is needed.
 
 ### `apps/worker/.env`
 
@@ -162,9 +175,11 @@ on Ubuntu with Node 22 and a PostgreSQL 16 service container:
    `npm run db:migrate:check` (exit code 2 if the migrated schema and
    `schema.prisma` differ).
 4. `npm run lint`, `npm run format:check`, `npm run typecheck`.
-5. `npm test` with `TEST_DATABASE_URL` set, so the account integration suite
-   runs against PostgreSQL. With `CI` set, a missing `TEST_DATABASE_URL` fails
-   the suite instead of skipping it.
+5. `npm test` with `TEST_DATABASE_URL` and `TEST_REDIS_URL` set, so the
+   account integration suite runs against PostgreSQL and the search-session
+   suite against Redis (a Redis 7 service container). With `CI` set, a missing
+   `TEST_DATABASE_URL` or `TEST_REDIS_URL` fails those suites instead of
+   skipping them.
 6. `npm run build` (the web build also checks that no source maps or
    development-only routes end up in `apps/web/dist`).
 
@@ -176,6 +191,7 @@ With Docker running (`npm run infra:up`) and the test database created once
 ```bash
 export CI=true
 export TEST_DATABASE_URL=postgresql://wayora:wayora_local_dev_only@localhost:5432/wayora_test
+export TEST_REDIS_URL=redis://localhost:6379/15  # tests use a unique key prefix and delete only their keys
 export DATABASE_URL=$TEST_DATABASE_URL     # Prisma CLI target for the next two steps
 npm ci
 npm run db:migrate:deploy

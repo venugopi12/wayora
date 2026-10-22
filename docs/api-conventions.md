@@ -63,6 +63,19 @@ Never call `res.json()` with an ad-hoc shape.
 | `SERVICE_UNAVAILABLE` | 503  | A required dependency is down                                |
 | `INTERNAL_ERROR`      | 500  | Unexpected failure (logged with the request ID)              |
 
+Search and offers (details in [search.md](search.md#errors)):
+
+| Code                   | HTTP | When                                                     |
+| ---------------------- | ---- | -------------------------------------------------------- |
+| `SEARCH_EXPIRED`       | 410  | The search session expired, is unknown or unreadable     |
+| `OFFER_NOT_FOUND`      | 404  | The offer id can't be a Wayora offer                     |
+| `OFFER_NOT_IN_SEARCH`  | 404  | The offer isn't part of the named search                 |
+| `CATEGORY_MISMATCH`    | 409  | The category doesn't match the search or the offer       |
+| `OFFER_UNAVAILABLE`    | 410  | The provider reports the offer gone                      |
+| `PROVIDER_TIMEOUT`     | 504  | Providers didn't answer in time                          |
+| `PROVIDER_UNAVAILABLE` | 503  | Providers are unavailable (outage, open circuit breaker) |
+| `SEARCH_FAILED`        | 502  | Providers failed for other reasons                       |
+
 ## Validation
 
 Handlers validate with `validateRequest`, which returns typed, parsed values and

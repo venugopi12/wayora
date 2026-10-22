@@ -1,4 +1,4 @@
-# Travel search, results and offers (Phases 9–10)
+# Travel search, results and offers (Phases 9–11)
 
 One search engine for all seven categories (flights, hotels, trains, buses,
 metro, cabs, holiday packages), fed by **provider adapters** that translate
@@ -22,11 +22,13 @@ apps/web  features/search/*            form + URL state + results (React Query)
 apps/api  modules/search/search.routes.ts   validate with the category's contract
           modules/search/search.service.ts  orchestration (one implementation)
              ├─ ProviderRegistry            which providers are enabled for the category
-             ├─ concurrency.ts              bounded parallelism + per-provider timeouts
-             ├─ contract re-validation      every result, per provider
+             ├─ concurrency.ts              bounded parallelism + per-call timeouts
+             ├─ resilience.ts               deadline, retries with jitter, circuit breakers
+             ├─ errors.ts                   failures → stable client codes; log scrubbing
+             ├─ contract re-validation      every result, per provider (+ integrity.ts)
              ├─ merge + de-duplicate        by an adapter-supplied key
              ├─ refine.ts                   filters, sorting (all categories)
-             └─ cache.ts                    optional, in-memory, short-lived
+             └─ sessions.ts                 search sessions: Redis (memory in local dev)
           modules/providers/provider.ts     SearchProvider interface
           modules/providers/demo/*          seven demo adapters (fixtures)
 packages/contracts/src/search/*             requests, results, places, statuses
@@ -178,7 +180,7 @@ choices don't vanish as filters are applied (counts are of that set):
 | Method | Path                                                       | Notes                                                               |
 | ------ | ---------------------------------------------------------- | ------------------------------------------------------------------- |
 | POST   | `/api/v1/search/:serviceType`                              | `flights`, `hotels`, `trains`, `buses`, `metro`, `cabs`, `holidays` |
-| GET    | `/api/v1/search/:serviceType/sessions/:searchId/offer?id=` | One result of a stored search (offer pages, Phase 10)               |
+| GET    | `/api/v1/search/:serviceType/sessions/:searchId/offer?id=` | One validated offer of a stored search (offer pages)                |
 | GET    | `/api/v1/providers`                                        | Safe provider metadata (no credentials, URLs or config values)      |
 
 Public (no session; nothing user-specific), JSON only, 100 kB body limit,
@@ -187,14 +189,19 @@ limit (offer lookups count only against the general limit), the Phase 8
 `Origin` check on `POST`, `Cache-Control: no-store`. The category
 comes from the path; `serviceType` in the body is optional and must match.
 
-| Status | When                                                             |
-| ------ | ---------------------------------------------------------------- |
-| 200    | At least one provider answered (results may be empty or partial) |
-| 400    | `VALIDATION_FAILED` with per-field `details`                     |
-| 403    | Request from an origin not in `CORS_ORIGIN`                      |
-| 404    | Unknown category                                                 |
-| 429    | Search rate limit                                                |
-| 503    | No enabled provider for the category, or every provider failed   |
+| Status | When                                                                     |
+| ------ | ------------------------------------------------------------------------ |
+| 200    | At least one provider answered (results may be empty or partial)         |
+| 400    | `VALIDATION_FAILED` with per-field `details`                             |
+| 403    | Request from an origin not in `CORS_ORIGIN`                              |
+| 404    | Unknown category                                                         |
+| 429    | Search rate limit                                                        |
+| 502    | `SEARCH_FAILED`: every provider failed (errors, unusable data, or mixed) |
+| 503    | `PROVIDER_UNAVAILABLE`: every provider unavailable (incl. open breakers) |
+| 503    | `SERVICE_UNAVAILABLE`: no enabled provider, or the session store is down |
+| 504    | `PROVIDER_TIMEOUT`: every provider timed out                             |
+
+See [Errors](#errors) for every code and its wording.
 
 Example (real output, trimmed):
 
@@ -283,17 +290,177 @@ A validation failure:
 curl 'localhost:4000/api/v1/search/hotels/sessions/fba29176-b3af-4361-94ec-c2614d72e3d4/offer?id=demo-hotels%3Agoa-red-roof%2F2026-11-10%2F2026-11-13%2F1'
 ```
 
-returns `{ searchId, serviceType, result, disclaimer, generatedAt, expiresAt }`
-(`offerResponseSchema`) with the result exactly as the search returned it,
-read from the server's stored copy. `404` when the search has expired or is
-unknown ("This search has expired…"), when the id isn't in it, or when the
-category doesn't match; `400` for a malformed category, search id or offer id.
-The client never supplies a price or provider reference that the server
-trusts: it names a stored search and a result id, nothing more.
+returns `{ searchId, serviceType, result, disclaimer, generatedAt, expiresAt,
+validation }` (`offerResponseSchema`), read from the server's stored session.
+The query is strict: only `id`. Any other parameter (a price, currency,
+provider reference…) is a `400`; nothing the client sends about an offer is
+ever used. See [Offer validation](#offer-validation) for the checks and
+their error codes.
 
-This is **not** revalidation: the offer is the stored search result, not a
-fresh check with the provider. Every provider still declares `revalidate` and
-`book` as `unsupported` (visible in `GET /providers`).
+## Search sessions
+
+A search session is one completed provider round: the validated, normalized
+offers plus provider statuses and round warnings (no request data, nothing
+about the visitor). Paging, sorting and filtering within its lifetime re-read
+it instead of calling providers again, and offer pages read their offer from
+it, so the price a visitor sees is always the server's copy.
+
+**Storage: Redis** (`sessions.ts`, `RedisSearchSessionStore`), using the
+API's existing Redis client and `REDIS_URL`:
+
+| Key                                | Value                              | TTL       |
+| ---------------------------------- | ---------------------------------- | --------- |
+| `wayora:search:<searchId>`         | the session (versioned JSON)       | time left |
+| `wayora:search:reuse:<requestKey>` | `searchId` of the reusable session | the same  |
+
+- **Lifetime:** `SEARCH_SESSION_TTL_SECONDS` (60–1800, default **600**). Both
+  keys are written in one `MULTI` with `PX` = time until `expiresAt`, so Redis
+  removes them on its own; reads also check `expiresAt` (clock skew between
+  instances). Offers are valid only within this lifetime.
+- **Across restarts and instances:** any API process sharing the Redis reads
+  any session; a restart loses nothing while the TTL lasts.
+- **`searchId`:** a random UUID per provider round. Concurrent searches never
+  share one; identical requests reuse a complete round.
+- **Reuse:** only **complete** rounds (every provider answered) get a reuse
+  pointer, so "Try again" after a partial failure really asks again. The
+  request key is a SHA-256 of everything that changes provider answers
+  (category, route, dates, party, cabin/class, currency, each provider's
+  `id@version`); filters, sort and page are excluded.
+- **Every read is validated** against a schema (shared result contracts plus
+  the integrity rules below). Bad JSON, an unknown version, a wrong shape, a
+  mixed-currency price, a forged offer id or a mismatched `searchId` → the
+  entry is deleted, a warning is logged, and the session counts as missing
+  (`SEARCH_EXPIRED`).
+- **Redis unavailable:** commands fail fast (no offline queue, 2 s command
+  timeout); search and offer requests answer `503 SERVICE_UNAVAILABLE`
+  ("Search is temporarily unavailable…"), checked **before** providers are
+  called. There is **no fallback to process memory**: a session one instance
+  can't share would break offer pages behind a load balancer. The cause is
+  logged (scrubbed); clients never see Redis details.
+- **Store selection:** `SEARCH_SESSION_STORE=redis|memory`; unset means
+  `redis` when `REDIS_URL` is set. **Production refuses to start** unless it
+  resolves to `redis` with `REDIS_URL`. `memory` (`MemorySearchSessionStore`:
+  per process, 200 entries, least recently used evicted) is for local
+  development without Redis and for tests; the server logs a warning when it
+  is used.
+- **No database tables:** searches are public and short-lived.
+- **Size:** a session is the provider round (tens of results, typically well
+  under 100 kB). Readiness still treats Redis as non-essential: accounts keep
+  working without it; search reports 503.
+
+## Offer validation
+
+`GET …/sessions/:searchId/offer?id=` checks, in order:
+
+| #   | Check                                                                             | Failure                              |
+| --- | --------------------------------------------------------------------------------- | ------------------------------------ |
+| 1   | `id` has Wayora's shape `<providerId>:<offerRef>` and names a registered provider | `404 OFFER_NOT_FOUND`                |
+| 2   | that provider serves the requested category                                       | `409 CATEGORY_MISMATCH`              |
+| 3   | the session exists, is readable and hasn't expired                                | `410 SEARCH_EXPIRED`                 |
+| 4   | the session is for the requested category                                         | `409 CATEGORY_MISMATCH`              |
+| 5   | the offer is part of this session                                                 | `404 OFFER_NOT_IN_SEARCH`            |
+| 6   | the stored offer passes the integrity rules                                       | `410 SEARCH_EXPIRED` (logged)        |
+| 7   | revalidation, if the provider supports it (below)                                 | `410 OFFER_UNAVAILABLE`, `503`/`504` |
+
+- "Offer belonging to a different search" is `OFFER_NOT_IN_SEARCH`: offer ids
+  are stable across searches, so an id from search A is accepted through
+  search B only if B's own results contain it. Sessions are not indexed by
+  offer, so a well-formed id that never existed answers the same way.
+- **Integrity rules** (`integrity.ts`, plus the shared price schema), applied
+  when provider results are accepted **and** whenever a session is read:
+  category matches the search, `providerId` matches the adapter,
+  `id === providerId + ':' + offerRef`, one currency per price (total and
+  per-unit; range min and max), range not inverted, integer minor units.
+- **Never trusted from the client:** prices, discounts, totals, currencies,
+  provider references. The endpoint accepts none; the response is the stored
+  offer (or the provider's revalidated one).
+- `validation` in the response says how current the offer is:
+  `session` (as searched; not rechecked: all demo offers), `confirmed`
+  (rechecked now, unchanged, `checkedAt`), or `price-changed` (rechecked now;
+  `result.price` is the new price, `previousPrice` the one the search showed).
+
+## Provider revalidation
+
+Adapters may implement `revalidate(offer, { signal, now })` and declare
+`operations.revalidate: 'supported'`. It must be a read-only, idempotent
+supplier call by `offer.offerRef`. The answer is validated
+(`{ status: 'available', price } | { status: 'unavailable' }`):
+
+- same price (exact integer comparison) → `confirmed`,
+- different price in the **same currency**, valid for the contract →
+  `price-changed`; the session is updated (best effort) so the results page
+  shows the new price too,
+- `unavailable` → `410 OFFER_UNAVAILABLE`,
+- another currency, a float, a missing price or a malformed answer → refused
+  (`503 PROVIDER_UNAVAILABLE`), never shown,
+- timeout / failure → `504 PROVIDER_TIMEOUT` / `503 PROVIDER_UNAVAILABLE`,
+  through the same deadline, retries and breaker as search.
+
+**Today no adapter supports it:** all seven are demo fixtures and keep
+`revalidate: 'unsupported'`, so every offer is `validation.status: 'session'`
+and is valid only within the session lifetime. Wayora does **not** simulate
+repricing. The flow above is exercised by a test-only adapter
+(`apps/api/test/search-offers.test.ts`). **Real supplier revalidation is
+required before any booking or payment step.**
+
+## Errors
+
+All failures use the standard envelope `{ error: { code, message, requestId,
+details? } }`. Clients branch on `code`; `message` is Wayora's own wording.
+
+| Code                   | Status | When                                                               |
+| ---------------------- | ------ | ------------------------------------------------------------------ |
+| `SEARCH_EXPIRED`       | 410    | Session expired, unknown, or unreadable. Search again              |
+| `OFFER_NOT_FOUND`      | 404    | Offer id isn't Wayora's shape or names no registered provider      |
+| `OFFER_NOT_IN_SEARCH`  | 404    | Well-formed offer id that isn't in this session                    |
+| `CATEGORY_MISMATCH`    | 409    | Path category differs from the session's or the offer provider's   |
+| `OFFER_UNAVAILABLE`    | 410    | Provider reports the offer gone (revalidation)                     |
+| `PROVIDER_TIMEOUT`     | 504    | Every provider timed out (search), or the offer check did          |
+| `PROVIDER_UNAVAILABLE` | 503    | Every provider unavailable / breaker open; offer check failed      |
+| `SEARCH_FAILED`        | 502    | Every provider failed for other or mixed reasons                   |
+| `SERVICE_UNAVAILABLE`  | 503    | No enabled provider for the category, or the session store is down |
+
+`errors.ts` is the only place provider and store failures become these codes.
+**Nothing from a supplier reaches a client:** not its message, response body,
+status line, URL, credentials or stack; `ProviderError` messages are for
+logs only, and provider statuses carry fixed texts ("This provider took too
+long to answer." etc.). Server logs carry `requestId`, `providerId`,
+`operation`, outcome and the error's class plus a **scrubbed** message
+(`scrub()`: URLs keep scheme, host and path but lose user info and query
+strings; bearer/basic credentials and `key=value` pairs for secret-looking
+keys are masked; 300 characters max), on top of the logger's redaction
+paths.
+
+## Timeouts, retries and circuit breakers
+
+`resilience.ts`, applied to every provider call (search and revalidation):
+
+- **Deadline:** one budget per search or offer check
+  (`SEARCH_DEADLINE_MS`, default 8 000, max 14 000, below the web client's
+  15 s). Each attempt's limit is the provider's `timeoutMs`, cut to what is
+  left of the deadline; a provider that ignores its abort signal is still
+  abandoned at the limit.
+- **Retries:** only **transient** failures (timeouts; `ProviderError` with
+  `transient`, the default for `unavailable`) of **idempotent, read-only**
+  operations. Permanent errors (`ProviderError('error')`, e.g. bad
+  credentials or a rejected request) and unknown exceptions are never
+  retried; non-idempotent operations (none exist; booking will be one) are
+  never retried. Attempts: `SEARCH_PROVIDER_MAX_ATTEMPTS` (default 2, i.e. one
+  retry; max 4). Backoff: full jitter over `base × 2^(n-1)`, capped at
+  `8 × SEARCH_PROVIDER_RETRY_BASE_MS` (default base 200 ms). A retry is
+  skipped if the wait plus a meaningful attempt would pass the deadline.
+  Retries are logged with the attempt and delay.
+- **Circuit breaker per provider:** after
+  `SEARCH_BREAKER_FAILURE_THRESHOLD` (default 5) consecutive failed calls the
+  breaker **opens** and the provider is skipped instantly (status
+  `unavailable`) instead of costing every search a full timeout. After
+  `SEARCH_BREAKER_COOLDOWN_SECONDS` (default 30) it goes **half-open**: one
+  trial call; success **closes** it, failure reopens it. A call abandoned by
+  the client frees the trial slot. Breakers are per API process (each
+  instance learns from its own calls; they don't depend on Redis), and one
+  provider's breaker never affects another's.
+- **Partial results** are kept: failed providers become statuses, other
+  providers' results are returned.
 
 ## Adapters
 
@@ -305,19 +472,23 @@ interface SearchProvider {
   version: string; // part of the cache key; bump on mapping changes
   serviceTypes: SearchServiceType[];
   operations: { search; revalidate; book: 'supported' | 'unsupported' };
-  timeoutMs: number; // per search
+  timeoutMs: number; // per call (each attempt), within the deadline
   requiredConfig: string[]; // env var NAMES; provider disabled if any is missing
   search(request, { signal, now }): Promise<{ results: ProviderResult[] }>;
+  revalidate?(offer, { signal, now }): Promise<RevalidationOutcome>; // optional, read-only
 }
 ```
 
 - `ProviderResult` is a normalized result plus an optional `dedupeKey`
   (same underlying offer across providers). Omit it when no reliable key
   exists; such results are never merged.
-- Throw `ProviderError('unavailable' | 'error', safeMessage)` for failures
-  you understand; the message is shown to users. Any other exception becomes
-  a generic `error` status; only its class and message are logged, never
-  payloads.
+- Throw `ProviderError('unavailable' | 'error', message, { transient })` for
+  failures you understand. Mark only failures worth retrying soon as
+  `transient` (429, 502/503, dropped connections; default for
+  `unavailable`); bad credentials and rejected requests must not be. The
+  message is **logged (scrubbed), never shown**: clients get fixed wording.
+  Any other exception is a non-retried `error`; only its class and scrubbed
+  message are logged, never payloads.
 - Pass `signal` to outbound requests; it fires at `timeoutMs` or when the
   client goes away.
 - `singleCategoryProvider({...})` narrows the request type for one-category
@@ -333,59 +504,46 @@ queried.
 ## Orchestration
 
 For each request: validate → resolve enabled providers for the category →
-query them with **bounded concurrency** (4) and a **per-provider timeout**
-(a provider that ignores its abort signal is still abandoned at the limit) →
-validate every result against the category contract and check it claims the
-right `providerId` and `source` → merge in provider order and de-duplicate by
-`dedupeKey` (cheaper wins, same currency only) → filter → sort (see
+reuse a live complete session for the same request, or query providers with
+**bounded concurrency** (4) through the [resilience layer](#timeouts-retries-and-circuit-breakers)
+→ validate every result against the category contract, the adapter's
+`providerId`/`source` and the [integrity rules](#offer-validation) → merge in
+provider order and de-duplicate by `dedupeKey` (cheaper wins, same currency
+only) → store the round as a [session](#search-sessions) → filter → sort (see
 [Sorting](#sorting)) → page, and compute facets from the unfiltered round.
 
-- **Partial failure:** failed providers become statuses with safe messages
+- **Partial failure:** failed providers become statuses with fixed messages
   and a `PARTIAL_RESULTS` warning; other providers' results are returned.
-- **All providers failed:** `503 SERVICE_UNAVAILABLE` with a safe message,
-  never an empty "success".
+- **All providers failed:** `PROVIDER_TIMEOUT` (504), `PROVIDER_UNAVAILABLE`
+  (503) or `SEARCH_FAILED` (502) by cause, never an empty "success".
 - **Zero results** from healthy providers is a normal `200` with `empty`
   statuses.
 - **Malformed provider data:** invalid results are dropped and counted
   (`INVALID_PROVIDER_RESULTS`); a provider with only invalid results gets
   `error`.
-- No retries inside a search. The client's "Try again" re-runs it, and
-  failed rounds are never cached, so a retry really asks again.
-- Logs: category, `searchId`, per-provider status/count/duration, cache hit.
-  No request bodies, traveller details or supplier payloads.
-
-## Cache and sessions
-
-- **No database tables.** Searches are public and user-independent; offers
-  are read from in-memory search sessions, and nothing is booked, so nothing
-  is persisted.
-- **Search sessions:** an in-process, bounded (200 entries, least recently
-  used evicted) store of provider rounds, kept for
-  `SEARCH_CACHE_TTL_SECONDS` (default **600**, 10 minutes; `0` keeps nothing).
-  - _By `searchId`_: every round, complete or partial, until it expires.
-    Offer pages read results from here.
-  - _By request key_: only **complete** rounds (every provider answered) are
-    reused for an identical request, so paging, filtering and sorting within
-    the lifetime keep the same `searchId` without calling providers, while
-    "Try again" after a failure really asks again. The key is a SHA-256 of
-    everything that changes provider answers: category, route, dates, party,
-    cabin/class, currency, plus each provider's `id@version`; filters, sort
-    and page are excluded.
-  - Entries expire at `expiresAt` (shown on offer pages); bumping a provider
-    `version` changes the key. Stored data is never treated as availability.
-- Redis is **not** used for search; with several API instances each keeps its
-  own sessions, so an offer link served by another instance reports the
-  search as expired (and can be refreshed). A shared store can implement the
-  `SearchCache` interface later if real supplier calls make it worthwhile.
+- Failed rounds are stored (offers stay readable) but never reused, so the
+  client's "Try again" really asks again.
+- Logs: `requestId`, category, `searchId`, store, per-provider
+  status/count/duration, reuse, retries, breaker skips. No request bodies,
+  traveller details or supplier payloads.
 
 ## Configuration (`apps/api/.env`)
 
-| Variable                    | Default                                              | Notes                                                              |
-| --------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------ |
-| `SEARCH_DEMO_PROVIDERS`     | unset: on in development/test, **off in production** | `true`/`false` to override                                         |
-| `SEARCH_DISABLED_PROVIDERS` | empty                                                | Comma-separated provider ids, e.g. `demo-cabs`                     |
-| `SEARCH_RATE_LIMIT_MAX`     | `30`                                                 | Searches per IP per minute                                         |
-| `SEARCH_CACHE_TTL_SECONDS`  | `600`                                                | 0–900: search session lifetime; `0` disables reuse and offer pages |
+All validated at startup (`config/env.ts`); invalid values stop the API with
+an actionable message.
+
+| Variable                           | Default                                              | Notes                                                                         |
+| ---------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `SEARCH_DEMO_PROVIDERS`            | unset: on in development/test, **off in production** | `true`/`false` to override                                                    |
+| `SEARCH_DISABLED_PROVIDERS`        | empty                                                | Comma-separated provider ids, e.g. `demo-cabs`                                |
+| `SEARCH_RATE_LIMIT_MAX`            | `30`                                                 | Searches per IP per minute                                                    |
+| `SEARCH_SESSION_STORE`             | `redis` if `REDIS_URL` is set, else `memory`         | Production: must be `redis` (needs `REDIS_URL`)                               |
+| `SEARCH_SESSION_TTL_SECONDS`       | `600`                                                | 60–1800. Session lifetime; old name `SEARCH_CACHE_TTL_SECONDS` still accepted |
+| `SEARCH_DEADLINE_MS`               | `8000`                                               | 500–14000. Budget per search / offer check, retries included                  |
+| `SEARCH_PROVIDER_MAX_ATTEMPTS`     | `2`                                                  | 1–4. Attempts per provider call (transient failures only)                     |
+| `SEARCH_PROVIDER_RETRY_BASE_MS`    | `200`                                                | 0–2000. Backoff base; cap is 8×                                               |
+| `SEARCH_BREAKER_FAILURE_THRESHOLD` | `5`                                                  | 1–100. Consecutive failed calls that open a provider's breaker                |
+| `SEARCH_BREAKER_COOLDOWN_SECONDS`  | `30`                                                 | 1–600. Open time before one trial call                                        |
 
 With demo providers off and no live adapters (the production default), every
 category answers `503` "search isn't available right now", and the web page
@@ -474,16 +632,41 @@ also served from the client cache.
   policy, seat availability, intermediate stops, timetables, step-free access,
   luggage space, exclusions, day-by-day itinerary) are listed as "Not provided
   in this offer".
-- **Expired** (or no `sid`): "This offer has expired". **Refresh this offer**
-  re-runs the original search (from `from`) and looks the same id up in the
-  new session; if it's no longer there, the page says so. Network failures
-  have a retry. Invalid links show "This offer link isn't valid".
+- One state per API error code, each with a way forward:
+  - **Expired** (`SEARCH_EXPIRED`, or no `sid`) and **not part of that
+    search** (`OFFER_NOT_IN_SEARCH`): **Refresh this offer** re-runs the
+    original search (from `from`) and looks the same id up in the new
+    session; if it's no longer there, or the provider says it's gone, the
+    page says so. A refresh that fails (provider down, network) shows why and
+    can be tried again.
+  - **Link that can't work** (`OFFER_NOT_FOUND`, `CATEGORY_MISMATCH`): a
+    "Search <category>" button.
+  - **Gone** (`OFFER_UNAVAILABLE`): back to results.
+  - **Temporary** (`PROVIDER_TIMEOUT`, `PROVIDER_UNAVAILABLE`,
+    `SEARCH_FAILED`, `SERVICE_UNAVAILABLE`, `RATE_LIMITED`): the API's
+    message, the request reference, **Try again** and back to results.
+  - Network failures: "We couldn't load this offer" with **Try again**.
+  - Invalid route parameters: "This offer link isn't valid" (the page's
+    `<h1>`).
+- **Nothing retries on its own** (offer and search queries have
+  `retry: false`); every retry is a button press.
+- **How current the price is** (`validation`): demo offers say "Not
+  rechecked with any supplier; shown for this search until HH:MM"; a
+  confirmed offer says when it was checked; a changed price shows a "The
+  price has changed" alert with the old and new price.
 - **Back to results** (and the breadcrumb) return to the category path plus
   the preserved `from` query (search, filters, sort, page). `from` is only
   ever used as query parameters on that fixed path, so it can't redirect
   elsewhere. Browser Back works too.
 - No booking action exists; the page says "Booking isn't available on Wayora
   yet".
+
+### Expired results
+
+When the session's `expiresAt` passes (`useExpired`, device clock), the
+results page shows "These results have expired" (a polite status, not an
+alert) with **Refresh results**, which re-runs the same search (new session).
+Its offers could no longer be opened anyway; the server stays the authority.
 
 ### Demo labelling
 
@@ -502,20 +685,33 @@ show none of these (driven by `source` and `disclaimer`).
    adapter. Set `availability` only when the supplier reports it; never
    invent ratings or discounts. Provide a `dedupeKey` only if it is reliable.
 3. Call only the supplier's fixed, configured endpoint (never URLs from
-   requests), pass `signal`, and throw `ProviderError` with safe messages.
+   requests), pass `signal`, and throw `ProviderError` with the right `kind`
+   and `transient` flag (messages are logged, scrubbed, never shown).
 4. Add its credentials to `apps/api/.env` (server only, never `VITE_*`) and
    register it in `app.ts` alongside or instead of `DEMO_PROVIDERS`.
 5. Test it with recorded, sanitized fixtures; the search service tests show how
    to simulate timeouts and failures with test-only providers.
-6. Before taking bookings: implement `revalidate` (price/availability check
-   by `offerRef`), persist offers server-side, and add a revalidation
-   endpoint. None exists yet.
+6. Implement `revalidate` (read-only price/availability check by
+   `offerRef`) and declare `revalidate: 'supported'`; the offer endpoint then
+   rechecks every offer it serves (see [Provider revalidation](#provider-revalidation)).
+7. Set `timeoutMs` to the supplier's realistic latency and review the
+   deadline, retry and breaker settings for it.
+
+**Still needed before real bookings** (not in this phase): supplier
+contracts and credentials in a secrets manager; revalidation immediately
+before payment, with an explicit price-change confirmation step; a booking
+operation that is never retried blindly (idempotency keys, Phase 1
+`idempotency_keys`); persistence of priced offers and orders (database, not
+Redis); supplier webhooks; per-supplier egress allow-lists; currency
+conversion rules; and load testing of the breaker and retry settings against
+real latencies.
 
 ## Tests
 
 ```bash
 npm run test --workspace @wayora/contracts   # request/result validation
-npm run test --workspace @wayora/api         # providers, orchestration, API
+npm run test --workspace @wayora/api         # providers, orchestration, sessions, offers, API
+TEST_REDIS_URL=redis://localhost:6379/15 npm run test --workspace @wayora/api   # + real Redis
 npm run test --workspace @wayora/web         # results, filters, URL state, offer pages
 ```
 
@@ -539,6 +735,27 @@ npm run test --workspace @wayora/web         # results, filters, URL state, offe
   (beyond the page, unknown/expired/wrong category, validation, partial
   rounds readable but not reused, not rate-limited), facets independent of
   filters.
+- Sessions (`search-sessions.test.ts`, fake Redis with a controllable clock):
+  key names and TTLs, nothing about the request stored, restart and second
+  instance, expiry, missing sessions, concurrent searches, malformed and
+  tampered entries (deleted and logged), Redis down (503, no fallback, no
+  details, providers not called), failed writes, clock skew; memory store
+  expiry and eviction. `search-sessions-redis.test.ts` repeats the restart,
+  TTL (`PTTL`, real expiry), cross-instance concurrency and unreachable-Redis
+  cases against a real Redis when `TEST_REDIS_URL` is set (unique key prefix,
+  cleaned up; required in CI).
+- Offers (`search-offers.test.ts`): revalidation confirmed / price changed
+  (session updated) / unavailable / timeout / invalid answers; supplier
+  errors with credentials, URLs and bodies never reach responses or logs
+  (logs keep `requestId` and `providerId`); scrubbing; exact price
+  comparison. `search-api.test.ts`: every offer error code in order, tampered
+  query parameters rejected, `validation` on demo offers, error codes for
+  total failure, production store guard, environment rules.
+- Resilience (`search-resilience.test.ts`): backoff bounds, transient vs
+  permanent vs unknown errors, non-idempotent never retried, per-attempt
+  timeout and deadline, no backoff past the deadline, abort during backoff,
+  breaker closed → open → half-open → closed/open with a fake clock, trial
+  slot release, provider isolation, retries logged with the request id.
 - Web (`search.test.tsx`, `search-filters.test.ts`, `offers.test.tsx`): every
   service page; validation, submission, summary, edit/cancel focus;
   restoration of search, filters and sort; invalid links and tidied
@@ -549,20 +766,26 @@ npm run test --workspace @wayora/web         # results, filters, URL state, offe
   filter sheet; a card per category; URL codec units; offer pages from cards
   and back with context, server price, category details and "not provided"
   fields, invalid links, expiry and refresh, refresh miss, network retry,
-  `from` safety.
+  `from` safety; Phase 11: an error state per offer code, no automatic
+  retries, refresh failures, demo "not rechecked" note, changed and
+  confirmed prices, provider-failure messages on results, expired results
+  with refresh.
 
 ## Limitations and future work
 
-- Demo data only; no live suppliers, revalidation, offer persistence or
-  booking. Offer pages show stored search results, not re-checked offers.
+- Demo data only; no live suppliers, so no real revalidation (the flow
+  exists and is tested with a test-only adapter), no booking.
 - The place directory is a fixed list sized to the demo; no free-text place
   search or geocoding (metro and cabs don't accept coordinates).
 - No currency conversion: demo prices are INR; other display currencies show
   a "not converted" note.
 - Metro has no timetable (journey times are estimates, no departure times).
-- Search sessions are per process and in memory: a restart, or an offer link
-  served by another API instance, reports the search as expired (refresh
-  works). Sessions last 10 minutes by default.
+- Sessions need Redis outside local development; if Redis is down, search
+  answers 503 (by design, no in-memory fallback).
+- `OFFER_NOT_IN_SEARCH` can't tell "from another live search" from "never
+  existed" (sessions aren't indexed by offer).
+- Circuit breakers are per API process, not shared between instances.
+- The "results expired" notice uses the device clock.
 - Facets and filters cover the fields the contracts have; there are no
   ratings, images, accessibility or baggage data, so no filters or details
   for them.

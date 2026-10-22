@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { SearchResult } from '@wayora/contracts';
+import { utcDateFromToday, type SearchResult } from '@wayora/contracts';
 import { offerPath, resultsPathFor } from '../src/features/offers/paths';
 import { installFakeSearchApi, searchResponse } from './fake-search-api';
 import { renderRoute } from './render';
@@ -67,6 +67,67 @@ describe('opening an offer', () => {
     expect(price).not.toHaveTextContent('₹1');
     expect(price).toHaveTextContent('Booking isn’t available on Wayora yet.'.replace('’', "'"));
     expect(screen.queryByRole('button', { name: /book|reserve|pay/i })).toBeNull();
+  });
+});
+
+describe('how current an offer is', () => {
+  it('demo offers say they are not rechecked and valid for this search only', async () => {
+    const { url } = withSession([hotel]);
+    renderRoute(url(hotel));
+    const price = await screen.findByRole('complementary', { name: 'Price' });
+    expect(price).toHaveTextContent(
+      /Demo price: illustrative, not bookable\. Not rechecked with any supplier; shown for this search until/,
+    );
+  });
+
+  it('a changed price: the new price, the old one, and a clear notice', async () => {
+    const { api, url } = withSession([hotel]);
+    const newPrice = {
+      kind: 'total' as const,
+      total: { amountMinor: '1450000', currency: 'INR' },
+      perUnit: null,
+    };
+    api.nextOffer({
+      kind: 'transform',
+      transform: (offer) => ({
+        ...offer,
+        result: { ...offer.result, price: newPrice },
+        validation: {
+          status: 'price-changed',
+          checkedAt: '2026-10-22T10:32:00+05:30',
+          previousPrice: offer.result.price,
+        },
+      }),
+    });
+    renderRoute(url(hotel));
+    const title = await screen.findByText('The price has changed');
+    const alert = title.closest('[role="alert"]');
+    expect(alert).toHaveTextContent(
+      /When you searched it was ₹[\d,]+\. The provider now quotes ₹14,500\./,
+    );
+    expect(screen.getByRole('complementary', { name: 'Price' })).toHaveTextContent('₹14,500');
+    expect(screen.getByRole('complementary', { name: 'Price' })).toHaveTextContent(
+      /Checked with the provider at/,
+    );
+  });
+
+  it('a confirmed offer says when it was checked', async () => {
+    const { api, url } = withSession([hotel]);
+    api.nextOffer({
+      kind: 'transform',
+      transform: (offer) => ({
+        ...offer,
+        validation: {
+          status: 'confirmed',
+          checkedAt: '2026-10-22T10:32:00+05:30',
+          previousPrice: null,
+        },
+      }),
+    });
+    renderRoute(url(hotel));
+    const price = await screen.findByRole('complementary', { name: 'Price' });
+    expect(price).toHaveTextContent(/Checked with the provider at \d{2}:\d{2}/);
+    expect(screen.queryByText('The price has changed')).toBeNull();
   });
 });
 
@@ -208,6 +269,89 @@ describe('offers that cannot be shown', () => {
     });
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Casa Lagoa (demo)' }),
+    ).toBeInTheDocument();
+  });
+
+  it('an offer that is not part of the named search: says so and offers a refresh', async () => {
+    const hotelsSearch = `to=city%3Agoa&checkin=${DATE}&checkout=${utcDateFromToday(23)}&rooms=1&adults=2`;
+    const { url } = withSession([hotel], hotelsSearch);
+    const stranger = { ...hotel, id: 'demo-hotels:elsewhere', offerRef: 'elsewhere' };
+    renderRoute(url(stranger));
+    expect(await screen.findByText("This offer isn't part of that search")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Refresh this offer' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['OFFER_NOT_FOUND', 404, "This offer link doesn't work"],
+    ['CATEGORY_MISMATCH', 409, 'This link mixes up travel types'],
+  ])('%s: a link that cannot work leads to a new search', async (code, status, title) => {
+    const { api, url } = withSession([hotel]);
+    api.nextOffer({ kind: 'error', status, code, message: 'x' });
+    renderRoute(url(hotel));
+    expect(await screen.findByText(title)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Search hotels' })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^\/hotels/),
+    );
+    expect(screen.queryByRole('button', { name: 'Refresh this offer' })).toBeNull();
+  });
+
+  it('OFFER_UNAVAILABLE: the provider says the offer is gone', async () => {
+    const { api, url } = withSession([hotel]);
+    api.nextOffer({
+      kind: 'error',
+      status: 410,
+      code: 'OFFER_UNAVAILABLE',
+      message: 'This offer is no longer available.',
+    });
+    renderRoute(url(hotel));
+    expect(await screen.findByText('This offer is no longer available')).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('link', { name: /Back to( hotels)? results/ }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('a temporary provider failure shows its message and retries only when asked', async () => {
+    const { api, url } = withSession([hotel]);
+    api.nextOffer({
+      kind: 'error',
+      status: 504,
+      code: 'PROVIDER_TIMEOUT',
+      message: "The provider didn't confirm this offer in time. Please try again.",
+    });
+    renderRoute(url(hotel));
+    expect(await screen.findByText("We couldn't check this offer right now")).toBeInTheDocument();
+    expect(
+      screen.getByText("The provider didn't confirm this offer in time. Please try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/req-offer-1/)).toBeInTheDocument(); // reference for support
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(api.offerCalls).toHaveLength(1); // no automatic retries
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    });
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Casa Lagoa (demo)' }),
+    ).toBeInTheDocument();
+    expect(api.offerCalls).toHaveLength(2);
+  });
+
+  it('a refresh that hits a provider failure says so, and can be tried again', async () => {
+    const result = flight('CDA 101', 370, 5420);
+    const api = installFakeSearchApi({ kind: 'ok', response: searchResponse([result]) });
+    api.next({
+      kind: 'error',
+      status: 503,
+      code: 'PROVIDER_UNAVAILABLE',
+      message: 'Flights providers are unavailable right now. Please try again in a few minutes.',
+    });
+    renderRoute(offerPath('flights', result.id, '01890000-0000-7000-8000-00000000dead', SEARCH));
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh this offer' }));
+    expect(await screen.findByText("We couldn't refresh this offer")).toBeInTheDocument();
+    expect(screen.getByText(/providers are unavailable right now/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh this offer' }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Bengaluru to Delhi' }),
     ).toBeInTheDocument();
   });
 

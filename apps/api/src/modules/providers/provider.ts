@@ -1,8 +1,10 @@
 import type {
   ProviderKind,
   ProviderOperation,
+  SearchPrice,
   SearchRequest,
   SearchRequestFor,
+  SearchResult,
   SearchResultFor,
   SearchServiceType,
 } from '@wayora/contracts';
@@ -41,6 +43,13 @@ export interface ProviderSearchOutput {
 
 export type OperationSupport = Record<ProviderOperation, 'supported' | 'unsupported'>;
 
+/**
+ * A provider's current answer for one offer (docs/search.md#provider-revalidation).
+ * `price` is the price the supplier quotes now, in the offer's currency.
+ */
+export type RevalidationOutcome =
+  { status: 'available'; price: SearchPrice | null } | { status: 'unavailable' };
+
 export interface SearchProvider {
   /** Stable identifier, used in result ids and logs. Never change it once live. */
   readonly id: string;
@@ -51,26 +60,48 @@ export interface SearchProvider {
   readonly version: string;
   readonly serviceTypes: readonly SearchServiceType[];
   /**
-   * What this provider can do. Only `search` is used today; revalidation and
-   * booking are declared `unsupported` until an adapter implements them.
+   * What this provider can do. `revalidate` is used only when declared
+   * `supported` AND `revalidate()` is implemented; booking is not part of
+   * the platform yet.
    */
   readonly operations: OperationSupport;
-  /** Per-search time limit. */
+  /** Time limit per call (each attempt), within the overall search deadline. */
   readonly timeoutMs: number;
   /** Names (never values) of the configuration this provider needs. */
   readonly requiredConfig: readonly string[];
   search(request: SearchRequest, context: ProviderSearchContext): Promise<ProviderSearchOutput>;
+  /**
+   * Asks the supplier for the current state of one offer it issued (by
+   * `offer.offerRef`). Must be a read-only, idempotent call: it may be retried.
+   * The response is validated before use. Demo adapters don't implement it.
+   */
+  revalidate?(offer: SearchResult, context: ProviderSearchContext): Promise<RevalidationOutcome>;
 }
 
-/** Thrown by adapters for failures they understand; the message is shown to users as-is. */
+/**
+ * Thrown by adapters for failures they understand.
+ *
+ * - `kind`: `unavailable` (outage, maintenance, rate-limited) or `error`.
+ * - `transient`: whether trying again soon may succeed (timeouts at the
+ *   supplier, 429/502/503, dropped connections). Defaults to true for
+ *   `unavailable`, false for `error`. Permanent failures (bad credentials,
+ *   a request the supplier rejects) must stay non-transient: they are never
+ *   retried.
+ *
+ * The message is for server logs only (and scrubbed there): clients always
+ * get Wayora's own fixed wording, never supplier text.
+ */
 export class ProviderError extends Error {
+  readonly transient: boolean;
+
   constructor(
     readonly kind: 'unavailable' | 'error',
-    readonly safeMessage: string,
-    options: { cause?: unknown } = {},
+    message: string,
+    options: { cause?: unknown; transient?: boolean } = {},
   ) {
-    super(safeMessage, options);
+    super(message, { cause: options.cause });
     this.name = 'ProviderError';
+    this.transient = options.transient ?? kind === 'unavailable';
   }
 }
 

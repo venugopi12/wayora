@@ -1,4 +1,4 @@
-import { Router, type RequestHandler } from 'express';
+import { Router, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import { searchRequestSchemas, searchServiceTypeSchema } from '@wayora/contracts';
 import { AppError } from '../../utils/errors.js';
@@ -21,6 +21,18 @@ const offerQuerySchema = z
   })
   .strict();
 
+/** Aborts when the client disconnects before the response is sent. */
+function abortOnClose(res: Response): AbortController {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) controller.abort();
+  });
+  return controller;
+}
+
+const requestIdOf = (res: Response): string | undefined =>
+  typeof res.locals.requestId === 'string' ? res.locals.requestId : undefined;
+
 /**
  * POST /search/:serviceType   flights | hotels | trains | buses | metro | cabs | holidays
  *
@@ -38,13 +50,26 @@ export function searchRouter(service: SearchService, limiter?: RequestHandler): 
    * it isn't counted against the search rate limit (the general API limit
    * still applies).
    */
-  router.get('/:serviceType/sessions/:searchId/offer', (req, res) => {
+  router.get('/:serviceType/sessions/:searchId/offer', async (req, res) => {
+    // Strict query: the client names the offer and nothing else. Prices,
+    // currencies or provider references in the URL are rejected, never used.
     const { params, query } = validateRequest(req, {
       params: offerParamsSchema,
       query: offerQuerySchema,
     });
+    const controller = abortOnClose(res);
+    let offer;
+    try {
+      offer = await service.offer(params.serviceType, params.searchId, query.id, {
+        signal: controller.signal,
+        requestId: requestIdOf(res),
+      });
+    } catch (error) {
+      if (controller.signal.aborted) return; // nobody is waiting for an answer
+      throw error;
+    }
     res.setHeader('Cache-Control', 'no-store');
-    sendData(res, service.offer(params.serviceType, params.searchId, query.id));
+    sendData(res, offer);
   });
 
   router.post('/:serviceType', ...searchLimit, async (req, res) => {
@@ -77,14 +102,14 @@ export function searchRouter(service: SearchService, limiter?: RequestHandler): 
     });
 
     // Stop provider work if the client goes away (e.g. a newer search replaced this one).
-    const controller = new AbortController();
-    res.on('close', () => {
-      if (!res.writableFinished) controller.abort();
-    });
+    const controller = abortOnClose(res);
 
     let response;
     try {
-      response = await service.search(request, controller.signal);
+      response = await service.search(request, {
+        signal: controller.signal,
+        requestId: requestIdOf(res),
+      });
     } catch (error) {
       if (controller.signal.aborted) return; // nobody is waiting for an answer
       throw error;

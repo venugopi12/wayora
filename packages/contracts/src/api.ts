@@ -22,6 +22,23 @@ export const apiErrorCodeSchema = z.enum([
   'RATE_LIMITED',
   'SERVICE_UNAVAILABLE',
   'INTERNAL_ERROR',
+  // Search and offers (docs/search.md#errors).
+  /** The search session is gone: expired, never existed, or unreadable. Search again. */
+  'SEARCH_EXPIRED',
+  /** The offer id doesn't name an offer any Wayora provider could have issued. */
+  'OFFER_NOT_FOUND',
+  /** A well-formed offer that isn't part of the named search (e.g. it belongs to another search). */
+  'OFFER_NOT_IN_SEARCH',
+  /** The travel category in the request doesn't match the search or the offer. */
+  'CATEGORY_MISMATCH',
+  /** The provider reports the offer is no longer available (revalidation). */
+  'OFFER_UNAVAILABLE',
+  /** Providers didn't answer in time. Safe to retry. */
+  'PROVIDER_TIMEOUT',
+  /** Providers are unavailable right now (outage, maintenance, circuit open). Retry later. */
+  'PROVIDER_UNAVAILABLE',
+  /** Providers failed for another reason (errors, unusable data). */
+  'SEARCH_FAILED',
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

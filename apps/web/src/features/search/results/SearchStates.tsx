@@ -1,5 +1,5 @@
 import { RotateCw, SearchX, SlidersHorizontal } from 'lucide-react';
-import { Button, EmptyState, ErrorState, Skeleton } from '@wayora/ui';
+import { Alert, Button, EmptyState, ErrorState, Skeleton } from '@wayora/ui';
 import { ApiClientError } from '../../../lib/api-client';
 
 /** Placeholder cards shaped like result cards, so nothing jumps when results arrive. */
@@ -81,6 +81,35 @@ export function SearchEmptyState({
   );
 }
 
+/** Wording per error code for a failed search (docs/search.md#errors). */
+function searchErrorCopy(error: unknown): { title: string; description: string } {
+  const api = error instanceof ApiClientError ? error : null;
+  if (!api || api.code === 'NETWORK_ERROR' || api.code === 'TIMEOUT') {
+    return {
+      title: "We couldn't reach Wayora",
+      description: 'Check your connection and try again.',
+    };
+  }
+  switch (api.code) {
+    case 'PROVIDER_TIMEOUT':
+      return { title: 'Providers are taking too long', description: api.message };
+    case 'PROVIDER_UNAVAILABLE':
+      return { title: 'Providers are unavailable right now', description: api.message };
+    case 'SEARCH_FAILED':
+      return { title: "The search didn't complete", description: api.message };
+    case 'SERVICE_UNAVAILABLE':
+      return { title: 'Search is unavailable right now', description: api.message };
+    case 'RATE_LIMITED':
+    case 'VALIDATION_FAILED':
+      return { title: "The search didn't complete", description: api.message };
+    default:
+      return {
+        title: "The search didn't complete",
+        description: 'Something went wrong on our side. Please try again.',
+      };
+  }
+}
+
 /** A failed search: what happened, in plain words, and a working retry. */
 export function SearchErrorState({
   error,
@@ -91,26 +120,12 @@ export function SearchErrorState({
   onRetry: () => void;
   retrying: boolean;
 }) {
-  const api = error instanceof ApiClientError ? error : null;
-  const unavailable = api?.code === 'SERVICE_UNAVAILABLE';
-  const network = !api || api.code === 'NETWORK_ERROR' || api.code === 'TIMEOUT';
+  const { title, description } = searchErrorCopy(error);
   return (
     <ErrorState
-      title={
-        unavailable
-          ? 'Search is unavailable right now'
-          : network
-            ? "We couldn't reach Wayora"
-            : "The search didn't complete"
-      }
-      description={
-        network
-          ? 'Check your connection and try again.'
-          : unavailable || api.code === 'RATE_LIMITED' || api.code === 'VALIDATION_FAILED'
-            ? api.message
-            : 'Something went wrong on our side. Please try again.'
-      }
-      reference={api?.requestId ?? undefined}
+      title={title}
+      description={description}
+      reference={error instanceof ApiClientError ? (error.requestId ?? undefined) : undefined}
       action={
         <Button variant="secondary" onClick={onRetry} loading={retrying}>
           <RotateCw aria-hidden="true" />
@@ -118,5 +133,35 @@ export function SearchErrorState({
         </Button>
       }
     />
+  );
+}
+
+/**
+ * Results whose search session has expired: offers can no longer be opened
+ * from them. Refreshing runs the same search again (new session).
+ */
+export function ExpiredResultsNotice({
+  onRefresh,
+  refreshing,
+}: {
+  onRefresh: () => void;
+  refreshing: boolean;
+}) {
+  return (
+    <Alert
+      tone="warning"
+      // Appears on its own when time passes, not after an action: announce politely.
+      role="status"
+      title="These results have expired"
+      action={
+        <Button size="sm" variant="secondary" onClick={onRefresh} loading={refreshing}>
+          <RotateCw aria-hidden="true" />
+          Refresh results
+        </Button>
+      }
+    >
+      Prices and times may have changed since you searched. Refresh to search again with the same
+      details.
+    </Alert>
   );
 }

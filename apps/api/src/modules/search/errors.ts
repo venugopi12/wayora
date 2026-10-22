@@ -1,0 +1,113 @@
+import type { ProviderOutcome, ProviderStatus } from '@wayora/contracts';
+import { AppError } from '../../utils/errors.js';
+import { ProviderError } from '../providers/provider.js';
+import { TimeoutError } from './concurrency.js';
+import { CircuitOpenError } from './resilience.js';
+
+/*
+ * The single place where provider and storage failures become what clients
+ * see (docs/search.md#errors). Clients get stable codes and Wayora's own
+ * wording; supplier messages, response bodies, URLs, credentials and
+ * Redis/database details stay on the server, and even there they are
+ * scrubbed before logging.
+ */
+
+type FailedOutcome = Exclude<ProviderOutcome, 'success' | 'empty'>;
+
+/** Fixed, user-facing text per provider outcome (shown in provider statuses). */
+export const PROVIDER_STATUS_MESSAGES: Record<FailedOutcome | 'invalid', string> = {
+  timeout: 'This provider took too long to answer.',
+  unavailable: 'This provider is unavailable right now.',
+  error: 'This provider could not complete the search.',
+  invalid: 'This provider returned results Wayora could not use.',
+};
+
+/** How a failed provider call is reported. */
+export function outcomeOf(error: unknown): FailedOutcome {
+  if (error instanceof TimeoutError) return 'timeout';
+  if (error instanceof CircuitOpenError) return 'unavailable';
+  if (error instanceof ProviderError) return error.kind;
+  return 'error';
+}
+
+/** The error for a search where no provider answered, by what went wrong. */
+export function searchFailedError(
+  categoryName: string,
+  statuses: readonly ProviderStatus[],
+): AppError {
+  const outcomes = new Set(statuses.map((s) => s.status));
+  const lower = categoryName.toLowerCase();
+  if (outcomes.size === 1 && outcomes.has('timeout')) {
+    return new AppError(
+      'PROVIDER_TIMEOUT',
+      `${categoryName} providers took too long to answer. Please try again.`,
+    );
+  }
+  if (outcomes.size === 1 && outcomes.has('unavailable')) {
+    return new AppError(
+      'PROVIDER_UNAVAILABLE',
+      `${categoryName} providers are unavailable right now. Please try again in a few minutes.`,
+    );
+  }
+  return new AppError(
+    'SEARCH_FAILED',
+    `We couldn't search ${lower} right now. Please try again in a moment.`,
+  );
+}
+
+/** The error for an offer check (revalidation) that failed. */
+export function revalidationFailedError(outcome: FailedOutcome | 'invalid'): AppError {
+  if (outcome === 'timeout') {
+    return new AppError(
+      'PROVIDER_TIMEOUT',
+      "The provider didn't confirm this offer in time. Please try again.",
+    );
+  }
+  return new AppError(
+    'PROVIDER_UNAVAILABLE',
+    "We couldn't check this offer with the provider right now. Please try again in a few minutes.",
+  );
+}
+
+export const STORE_UNAVAILABLE_MESSAGE =
+  'Search is temporarily unavailable. Please try again in a moment.';
+
+const MAX_LOGGED_MESSAGE = 300;
+
+/**
+ * Removes credentials and noise from text that may come from a supplier
+ * (error messages often embed request URLs, keys or tokens):
+ * - URLs keep scheme, host and path; user info and query strings go,
+ * - `key=value` / `key: value` pairs for secret-looking keys are masked,
+ * - bearer/basic credentials are masked (before key/value pairs, so a
+ *   masked `Authorization:` key can't shield the token that follows),
+ * - the result is truncated.
+ */
+export function scrub(text: string): string {
+  return (
+    text
+      .replace(
+        /\b(https?:\/\/)(?:[^\s/@]+@)?([^\s/?#]+)([^\s?#]*)(\?[^\s#]*)?(#\S*)?/gi,
+        (_m, scheme: string, host: string, path: string, query?: string) =>
+          `${scheme}${host}${path}${query ? '?[REDACTED]' : ''}`,
+      )
+      // Auth schemes first, so `Authorization: Bearer <token>` loses the token.
+      .replace(/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 [REDACTED]')
+      .replace(
+        /\b(api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|token|password|passwd|pwd|signature|sig|session|cookie|authorization)\b(["']?\s*[:=]\s*["']?)[^\s"'&,;}]+/gi,
+        '$1$2[REDACTED]',
+      )
+      .slice(0, MAX_LOGGED_MESSAGE)
+  );
+}
+
+/** A failure as it may be logged: class, scrubbed message, and a code if one exists. */
+export function errorForLog(error: unknown): { name: string; message: string; code?: string } {
+  if (!(error instanceof Error)) return { name: 'NonError', message: scrub(String(error)) };
+  const code = (error as { code?: unknown }).code;
+  return {
+    name: error.name,
+    message: scrub(error.message),
+    ...(typeof code === 'string' ? { code: scrub(code) } : {}),
+  };
+}

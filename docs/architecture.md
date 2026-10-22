@@ -96,10 +96,10 @@ fast and hermetic. `server.ts` owns connections, listening and graceful shutdown
 
 ### Dependencies: essential vs optional
 
-| Dependency | API           | Worker        | When down                                                                                                                         |
-| ---------- | ------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| PostgreSQL | **essential** | (later)       | Readiness 503; data endpoints fail with errors                                                                                    |
-| Redis      | optional      | **essential** | API: readiness `degraded`, rate limiting falls back to memory. Worker: reconnects and logs, processes nothing until Redis returns |
+| Dependency | API           | Worker        | When down                                                                                                                                                                                       |
+| ---------- | ------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PostgreSQL | **essential** | (later)       | Readiness 503; data endpoints fail with errors                                                                                                                                                  |
+| Redis      | optional      | **essential** | API: readiness `degraded`, rate limiting falls back to memory, **search answers 503** (sessions live in Redis; no fallback). Worker: reconnects and logs, processes nothing until Redis returns |
 
 The API starts even if PostgreSQL is down at boot (liveness stays 200, readiness 503) so orchestrators can restart dependencies independently. Redis commands fail
 fast (no offline queue) so a Redis outage never stalls HTTP requests.

@@ -306,6 +306,23 @@ export const searchResponseSchema = z.object({
 export type SearchResponse = z.infer<typeof searchResponseSchema>;
 
 /**
+ * How current an offer is (docs/search.md#offer-validation).
+ *
+ * - `session`: exactly as the provider returned it in this search; not
+ *   rechecked with the supplier (demo providers, or suppliers without a
+ *   revalidation API). Valid for this search until `expiresAt` only.
+ * - `confirmed`: the provider rechecked it just now (`checkedAt`); unchanged.
+ * - `price-changed`: the provider rechecked it and the price is different.
+ *   `result.price` is the new price, `previousPrice` the one the search showed.
+ */
+export const offerValidationSchema = z.object({
+  status: z.enum(['session', 'confirmed', 'price-changed']),
+  checkedAt: offsetDateTimeSchema.nullable(),
+  previousPrice: searchPriceSchema.nullable(),
+});
+export type OfferValidation = z.infer<typeof offerValidationSchema>;
+
+/**
  * One offer from a search session (GET /search/:serviceType/sessions/:searchId/offer).
  * Always read from the server's copy of the search, never from client data.
  */
@@ -316,6 +333,7 @@ export const offerResponseSchema = z.object({
   disclaimer: z.string().nullable(),
   generatedAt: offsetDateTimeSchema,
   expiresAt: offsetDateTimeSchema,
+  validation: offerValidationSchema,
 });
 export type OfferResponse = z.infer<typeof offerResponseSchema>;
 

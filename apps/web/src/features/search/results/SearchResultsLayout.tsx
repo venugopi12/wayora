@@ -4,6 +4,7 @@ import { cn } from '@wayora/ui';
 import { ResultCard } from '../cards';
 import { SEARCH_CONFIG } from '../config';
 import { PAGE_PARAM, SORT_PARAM, activeFilterChips, clearAllFilters, readSort } from '../filters';
+import { useExpired } from '../useExpired';
 import { useSearchResults } from '../useSearchResults';
 import { offerPath } from '../../offers/paths';
 import { ActiveFilterChips } from './ActiveFilterChips';
@@ -11,7 +12,12 @@ import { FilterPanel, activeFilterCount, type ParamUpdate } from './FilterPanel'
 import { MobileFilterDrawer } from './MobileFilterDrawer';
 import { ProviderStatusNotice } from './ProviderStatusNotice';
 import { SearchPagination } from './SearchPagination';
-import { SearchEmptyState, SearchErrorState, SearchLoadingSkeleton } from './SearchStates';
+import {
+  ExpiredResultsNotice,
+  SearchEmptyState,
+  SearchErrorState,
+  SearchLoadingSkeleton,
+} from './SearchStates';
 import { SortControl } from './SortControl';
 
 export interface ParamOptions {
@@ -49,6 +55,8 @@ export function SearchResultsLayout({
   });
   const clearFilters = () => onParams(clearAllFilters(serviceType));
   const updating = search.isFetching && search.isPlaceholderData;
+  // After the session's lifetime its offers can't be opened: say so and offer a refresh.
+  const expired = useExpired(response?.expiresAt);
   const [one, many] = config.noun;
 
   let status = '';
@@ -92,6 +100,12 @@ export function SearchResultsLayout({
     const { page, totalPages, totalResults } = response.pagination;
     body = (
       <div className="flex flex-col gap-4">
+        {expired ? (
+          <ExpiredResultsNotice
+            onRefresh={() => void search.refetch()}
+            refreshing={search.isFetching}
+          />
+        ) : null}
         <ProviderStatusNotice
           response={response}
           onRetry={() => void search.refetch()}

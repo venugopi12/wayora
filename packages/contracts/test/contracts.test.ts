@@ -51,6 +51,24 @@ describe('API envelopes', () => {
     expect(parsed.data).toHaveLength(7);
   });
 
+  it('includes the search and offer error codes clients branch on', () => {
+    for (const code of [
+      'SEARCH_EXPIRED',
+      'OFFER_NOT_FOUND',
+      'OFFER_NOT_IN_SEARCH',
+      'CATEGORY_MISMATCH',
+      'OFFER_UNAVAILABLE',
+      'PROVIDER_TIMEOUT',
+      'PROVIDER_UNAVAILABLE',
+      'SEARCH_FAILED',
+    ]) {
+      expect(
+        apiErrorEnvelopeSchema.safeParse({ error: { code, message: 'x', requestId: 'r' } }).success,
+        code,
+      ).toBe(true);
+    }
+  });
+
   it('rejects an error envelope with an unknown code', () => {
     const result = apiErrorEnvelopeSchema.safeParse({
       error: { code: 'TEAPOT', message: 'x', requestId: 'r' },

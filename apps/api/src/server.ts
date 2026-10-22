@@ -3,9 +3,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPrismaClient } from '@wayora/database';
 import { createApp, createSessionService } from './app.js';
-import { EnvValidationError, parseEnv, type Env } from './config/env.js';
+import { EnvValidationError, parseEnv, searchSessionStore, type Env } from './config/env.js';
 import { loadEnvFile } from './config/load-env-file.js';
 import { ResilientRedisStore } from './middleware/rate-limit.js';
+import { RedisSearchSessionStore, type SearchSessionStore } from './modules/search/sessions.js';
 import type { DependencyCheck } from './services/health.js';
 import { createRedisConnection, type RedisConnection } from './services/redis.js';
 import { createLogger } from './utils/logger.js';
@@ -60,11 +61,27 @@ async function main(): Promise<void> {
     },
   ];
 
+  // Search sessions: Redis whenever it is configured (always in production,
+  // enforced by config/env.ts), so sessions survive restarts and are shared by
+  // every instance. Memory only for local development without Redis.
+  let searchSessions: SearchSessionStore | undefined;
+  if (searchSessionStore(env) === 'redis' && redis) {
+    searchSessions = new RedisSearchSessionStore(
+      redis.client,
+      logger.child({ component: 'search-sessions' }),
+    );
+  } else {
+    logger.warn(
+      'Search sessions are kept in process memory (development only): they are lost on restart and not shared between instances',
+    );
+  }
+
   const app = createApp({
     env,
     logger,
     healthChecks,
     prisma,
+    ...(searchSessions ? { searchSessions } : {}),
     ...(redis
       ? {
           rateLimitStore: new ResilientRedisStore(redis.client, logger),

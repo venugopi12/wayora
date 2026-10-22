@@ -234,6 +234,64 @@ describe('result states', () => {
     expect(screen.getByText('Check your connection and try again.')).toBeInTheDocument();
   });
 
+  it.each([
+    [
+      504,
+      'PROVIDER_TIMEOUT',
+      'Providers are taking too long',
+      'Flights providers took too long to answer. Please try again.',
+    ],
+    [
+      503,
+      'PROVIDER_UNAVAILABLE',
+      'Providers are unavailable right now',
+      'Flights providers are unavailable right now. Please try again in a few minutes.',
+    ],
+    [
+      502,
+      'SEARCH_FAILED',
+      "The search didn't complete",
+      "We couldn't search flights right now. Please try again in a moment.",
+    ],
+  ])(
+    'explains a %s %s failure and never retries on its own',
+    async (status, code, title, message) => {
+      const api = installFakeSearchApi({ kind: 'ok', response: flightResponse() });
+      api.next({ kind: 'error', status, code, message });
+      renderRoute(FLIGHT_URL);
+      expect(await screen.findByText(title)).toBeInTheDocument();
+      expect(screen.getByText(message)).toBeInTheDocument();
+      // Retrying is the visitor's choice: nothing is sent again until they ask.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(api.calls).toHaveLength(1);
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      expect(await resultsList()).toBeInTheDocument();
+      expect(api.calls).toHaveLength(2);
+    },
+  );
+
+  it('says when the results have expired, and refreshes them with the same search', async () => {
+    const api = installFakeSearchApi({ kind: 'ok', response: flightResponse() });
+    // This session ends a moment after the results arrive.
+    api.next({
+      kind: 'ok',
+      response: searchResponse(flights(), { expiresAt: new Date(Date.now() + 150).toISOString() }),
+    });
+    renderRoute(FLIGHT_URL);
+    await resultsList();
+    expect(screen.queryByText('These results have expired')).toBeNull();
+    const title = await screen.findByText('These results have expired', {}, { timeout: 2_000 });
+    // Announced politely (status), since it appears with time, not after an action.
+    const notice = title.closest('[role="status"]') as HTMLElement;
+    expect(notice).not.toBeNull();
+    expect(notice).toHaveTextContent('Prices and times may have changed since you searched.');
+    fireEvent.click(within(notice).getByRole('button', { name: 'Refresh results' }));
+    await waitFor(() => expect(screen.queryByText('These results have expired')).toBeNull());
+    expect(api.calls).toHaveLength(2);
+    expect(api.calls[1]!.body).toEqual(api.calls[0]!.body); // the same search again
+    expect(await resultsList()).toBeInTheDocument();
+  });
+
   it('keeps partial results, names the provider that failed, and retries', async () => {
     const failed: ProviderStatus = {
       providerId: 'other',

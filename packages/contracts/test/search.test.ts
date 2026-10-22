@@ -319,7 +319,32 @@ describe('search results and response', () => {
     ).toThrow();
   });
 
-  it('accepts an offer lookup response', () => {
+  it('rejects prices that mix currencies or invert a range', () => {
+    const perUnitUsd = {
+      ...hotel,
+      price: {
+        kind: 'total',
+        total: { amountMinor: '1200000', currency: 'INR' },
+        perUnit: { amount: { amountMinor: '600000', currency: 'USD' }, unit: 'night' },
+      },
+    };
+    expect(searchResultSchema.safeParse(perUnitUsd).success).toBe(false);
+    const range = (min: string, minCurrency: string, max: string) => ({
+      ...hotel,
+      price: {
+        kind: 'range',
+        min: { amountMinor: min, currency: minCurrency },
+        max: { amountMinor: max, currency: 'INR' },
+      },
+    });
+    expect(searchResultSchema.safeParse(range('50000', 'INR', '70000')).success).toBe(true);
+    expect(searchResultSchema.safeParse(range('50000', 'USD', '70000')).success).toBe(false);
+    // Compared as exact integers: '9' < '10' even though the strings sort the other way.
+    expect(searchResultSchema.safeParse(range('9', 'INR', '10')).success).toBe(true);
+    expect(searchResultSchema.safeParse(range('70000', 'INR', '50000')).success).toBe(false);
+  });
+
+  it('accepts an offer lookup response with its validation status', () => {
     const offer = {
       searchId: '01890000-0000-7000-8000-000000000001',
       serviceType: 'hotels',
@@ -327,8 +352,24 @@ describe('search results and response', () => {
       disclaimer: 'Demo data',
       generatedAt: '2026-11-10T04:30:00+00:00',
       expiresAt: '2026-11-10T04:40:00+00:00',
+      validation: { status: 'session', checkedAt: null, previousPrice: null },
     };
     expect(offerResponseSchema.parse(offer)).toEqual(offer);
+    const changed = {
+      ...offer,
+      validation: {
+        status: 'price-changed',
+        checkedAt: '2026-11-10T04:35:00+00:00',
+        previousPrice: hotel.price,
+      },
+    };
+    expect(offerResponseSchema.parse(changed)).toEqual(changed);
+    expect(
+      offerResponseSchema.safeParse({
+        ...offer,
+        validation: { ...offer.validation, status: 'live' },
+      }).success,
+    ).toBe(false);
   });
 });
 

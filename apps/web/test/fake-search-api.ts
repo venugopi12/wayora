@@ -3,6 +3,7 @@ import {
   DEMO_DATA_DISCLAIMER,
   offerResponseSchema,
   searchResponseSchema,
+  type OfferResponse,
   type ProviderStatus,
   type SearchFacets,
   type SearchResponse,
@@ -24,6 +25,10 @@ export interface SearchCall {
   body: Record<string, unknown>;
   signal: AbortSignal | undefined;
 }
+
+type OfferReply =
+  | { kind: 'error'; status: number; code: string; message: string }
+  | { kind: 'transform'; transform: (offer: OfferResponse) => OfferResponse };
 
 type Reply =
   | { kind: 'ok'; response: SearchResponse }
@@ -55,6 +60,7 @@ export function searchResponse(
     total,
     facets,
     searchId = newSearchId(),
+    expiresAt = '2030-01-01T10:10:00Z',
   }: {
     statuses?: ProviderStatus[];
     page?: number;
@@ -62,6 +68,8 @@ export function searchResponse(
     total?: number;
     facets?: SearchFacets;
     searchId?: string;
+    /** When the session ends (far in the future unless a test needs it to pass). */
+    expiresAt?: string;
   } = {},
 ): SearchResponse {
   const totalResults = total ?? results.length;
@@ -83,7 +91,7 @@ export function searchResponse(
         : []),
     ],
     generatedAt: '2026-10-21T10:00:00Z',
-    expiresAt: '2030-01-01T10:10:00Z',
+    expiresAt,
     facets:
       facets ??
       (flights.length === results.length
@@ -98,6 +106,7 @@ export function installFakeSearchApi(
   const calls: SearchCall[] = [];
   const offerCalls: string[] = [];
   const queue: { reply: Reply; gate?: Promise<void> }[] = [];
+  const offerQueue: OfferReply[] = [];
   /** Searches the fake has answered, by searchId (like the API's session store). */
   const sessions = new Map<string, SearchResponse>();
   let defaultResponse = defaultReply;
@@ -110,31 +119,38 @@ export function installFakeSearchApi(
     if (offer && (init?.method ?? 'GET') === 'GET') {
       const id = url.searchParams.get('id') ?? '';
       offerCalls.push(`${offer[1]}|${decodeURIComponent(offer[2]!)}|${id}`);
+      const error = (status: number, code: string, message: string) =>
+        json(status, { error: { code, message, requestId: 'req-offer-1' } });
+      const queued = offerQueue.shift();
+      if (queued?.kind === 'error') return error(queued.status, queued.code, queued.message);
+      // Same order of checks as the API (docs/search.md#offer-validation).
       const session = sessions.get(decodeURIComponent(offer[2]!));
-      if (!session || session.serviceType !== offer[1]) {
-        return json(404, {
-          error: { code: 'NOT_FOUND', message: 'This search has expired.', requestId: 'req-1' },
-        });
+      if (!session) {
+        return error(
+          410,
+          'SEARCH_EXPIRED',
+          'This search has expired. Search again to see current results.',
+        );
+      }
+      if (session.serviceType !== offer[1]) {
+        return error(409, 'CATEGORY_MISMATCH', `This search is for ${session.serviceType}.`);
       }
       const result = session.results.find((r) => r.id === id);
       if (!result) {
-        return json(404, {
-          error: {
-            code: 'NOT_FOUND',
-            message: "That offer isn't part of this search.",
-            requestId: 'req-1',
-          },
-        });
+        return error(404, 'OFFER_NOT_IN_SEARCH', "That offer isn't part of this search.");
       }
-      const data = offerResponseSchema.parse({
+      const data: OfferResponse = offerResponseSchema.parse({
         searchId: session.searchId,
         serviceType: session.serviceType,
         result,
         disclaimer: result.source === 'demo' ? DEMO_DATA_DISCLAIMER : null,
         generatedAt: session.generatedAt,
         expiresAt: session.expiresAt,
+        validation: { status: 'session', checkedAt: null, previousPrice: null },
       });
-      return json(200, { data, meta: { requestId: 'req-1' } });
+      const body =
+        queued?.kind === 'transform' ? offerResponseSchema.parse(queued.transform(data)) : data;
+      return json(200, { data: body, meta: { requestId: 'req-1' } });
     }
 
     const match = /^\/api\/v1\/search\/([a-z]+)$/.exec(url.pathname);
@@ -173,6 +189,10 @@ export function installFakeSearchApi(
     /** Change the reply used when nothing is queued. */
     setDefault(reply: Reply) {
       defaultResponse = reply;
+    },
+    /** Queue the reply for the next offer request (an API error, or a change to the answer). */
+    nextOffer(reply: OfferReply) {
+      offerQueue.push(reply);
     },
     /** Queue the reply for the next search request. */
     next(reply: Reply) {

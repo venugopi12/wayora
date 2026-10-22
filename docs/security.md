@@ -105,14 +105,31 @@ Details: [search.md](search.md).
   used as query parameters on a fixed path, so it can't cause open redirects.
 - Strict per-category validation before any provider runs; per-IP search rate
   limit; 100 kB bodies; the `Origin` check applies to `POST /search`.
-- Providers run with bounded concurrency and hard time limits; every result is
-  re-validated against the contract and the provider's identity; one failing
-  provider can't fail or hang the search. No retries inside a search.
+- Providers run with bounded concurrency, per-call time limits inside one
+  deadline, retries only for transient failures of read-only calls (backoff
+  with jitter) and a circuit breaker per provider; every result is
+  re-validated against the contract, the provider's identity and integrity
+  rules (offer id = provider + reference, one currency per price); one
+  failing provider can't fail or hang the search.
+- Search sessions (Phase 11) live in Redis with a TTL and hold only offers and
+  provider statuses: no request data, nothing about the visitor, no secrets.
+  Every read is schema-validated; tampered or corrupted entries are deleted,
+  never served. Production refuses in-memory sessions; a Redis outage is a
+  503, not a silent fallback.
+- Offer lookups accept only a search id and an offer id (strict query: a
+  price, currency or provider reference in the URL is a 400) and check the
+  session, category and membership before returning the server's copy; see
+  [search.md](search.md#offer-validation).
+- Clients get stable codes and Wayora's own wording for provider and storage
+  failures; supplier messages, bodies, URLs, credentials, stacks and Redis or
+  database details never reach a response. Logs get a scrubbed class and
+  message with `requestId` and `providerId` (URLs lose credentials and query
+  strings; tokens, keys and passwords are masked).
 - No outbound URLs from requests; adapters call only their configured endpoint.
   Credentials stay in API env (never `VITE_*`); `GET /providers` exposes no
   configuration values.
-- Logs carry category, status, counts and durations only: no request bodies,
-  traveller details or supplier payloads.
+- Logs carry category, status, counts, durations, retries and breaker
+  decisions only: no request bodies, traveller details or supplier payloads.
 - Demo providers are off in production unless `SEARCH_DEMO_PROVIDERS=true`, so
   fixtures can't pass for live inventory by accident; fault simulation exists
   only in test code.

@@ -2,7 +2,7 @@
 #
 # Runs on every push to main and every pull request:
 #   install → Prisma engine check → migrations + drift check (PostgreSQL)
-#   → lint → format → typecheck → tests (incl. DB integration) → build.
+#   → lint → format → typecheck → tests (incl. PostgreSQL and Redis integration) → build.
 #
 # Run the same steps locally: see docs/SETUP.md#continuous-integration.
 name: CI
@@ -42,11 +42,24 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 12
+      # Search sessions (docs/search.md#search-sessions). The tests use their own
+      # key prefix and delete only their keys.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
 
     env:
       CI: 'true'
       # Used by the API integration tests (they fail rather than skip when CI is set).
       TEST_DATABASE_URL: postgresql://wayora:wayora_ci_only@localhost:5432/wayora_test
+      # Used by the Redis search-session tests (they fail rather than skip when CI is set).
+      TEST_REDIS_URL: redis://localhost:6379/15
       # Used by the Prisma CLI (migrate deploy, migrate diff) via database/prisma.config.ts.
       DATABASE_URL: postgresql://wayora:wayora_ci_only@localhost:5432/wayora_test
       # No Prisma telemetry or update checks from CI.

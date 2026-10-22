@@ -54,6 +54,12 @@ export class ProviderRegistry {
       .map((r) => r.provider);
   }
 
+  /** A registered provider by id (enabled or not), for validating offer ids. */
+  find(providerId: string): { provider: SearchProvider; enabled: boolean } | undefined {
+    const registration = this.registrations.find((r) => r.provider.id === providerId);
+    return registration && { provider: registration.provider, enabled: registration.enabled };
+  }
+
   /** Safe metadata for GET /providers: no configuration values, URLs or credentials. */
   describe(): ProviderInfo[] {
     return this.registrations.map(({ provider, enabled, disabledReason }) => ({

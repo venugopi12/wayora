@@ -110,19 +110,38 @@ export const DEPARTURE_WINDOW_HOURS: Record<DepartureWindow, readonly [number, n
  * share one currency; providers never mix currencies inside a price.
  */
 export const searchPriceSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('total'),
-    total: moneySchema,
-    /** Per traveller, per night or per passenger, as `unit` says. */
-    perUnit: z
-      .object({ amount: moneySchema, unit: z.enum(['traveller', 'adult', 'night', 'passenger']) })
-      .nullable(),
-  }),
-  z.object({
-    kind: z.literal('range'),
-    min: moneySchema,
-    max: moneySchema,
-  }),
+  z
+    .object({
+      kind: z.literal('total'),
+      total: moneySchema,
+      /** Per traveller, per night or per passenger, as `unit` says. */
+      perUnit: z
+        .object({ amount: moneySchema, unit: z.enum(['traveller', 'adult', 'night', 'passenger']) })
+        .nullable(),
+    })
+    .refine((p) => !p.perUnit || p.perUnit.amount.currency === p.total.currency, {
+      message: 'A price must use one currency throughout.',
+      path: ['perUnit', 'amount', 'currency'],
+    }),
+  z
+    .object({
+      kind: z.literal('range'),
+      min: moneySchema,
+      max: moneySchema,
+    })
+    .refine((p) => p.min.currency === p.max.currency, {
+      message: 'A price must use one currency throughout.',
+      path: ['max', 'currency'],
+    })
+    // Exact integer comparison of minor units (never floats).
+    .refine(
+      (p) =>
+        p.min.currency !== p.max.currency || BigInt(p.min.amountMinor) <= BigInt(p.max.amountMinor),
+      {
+        message: 'A price range must not end below its start.',
+        path: ['max', 'amountMinor'],
+      },
+    ),
 ]);
 export type SearchPrice = z.infer<typeof searchPriceSchema>;
 

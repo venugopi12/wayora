@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { DEMO_DATA_DISCLAIMER, searchResponseSchema } from '@wayora/contracts';
 import { ProviderError } from '../src/modules/providers/provider.js';
-import { MemorySearchCache } from '../src/modules/search/cache.js';
+import { MemorySearchSessionStore } from '../src/modules/search/sessions.js';
 import {
   mapWithConcurrency,
   withTimeout,
   TimeoutError,
 } from '../src/modules/search/concurrency.js';
-import { cacheKey } from '../src/modules/search/search.service.js';
+import { requestKey } from '../src/modules/search/search.service.js';
 import { AppError } from '../src/utils/errors.js';
 import {
   hotelResult,
@@ -69,7 +69,8 @@ describe('search orchestration', () => {
     expect(response.results.map((r) => r.id)).toEqual(['good:a']);
     expect(response.providerStatuses.map((s) => [s.providerId, s.status, s.message])).toEqual([
       ['good', 'success', null],
-      ['down', 'unavailable', 'Supplier maintenance window.'],
+      // Fixed wording: the adapter's own message ('Supplier maintenance window.') stays in logs.
+      ['down', 'unavailable', 'This provider is unavailable right now.'],
       ['broken', 'error', 'This provider could not complete the search.'],
       ['slow', 'timeout', 'This provider took too long to answer.'],
     ]);
@@ -80,15 +81,26 @@ describe('search orchestration', () => {
     );
   });
 
-  it('all providers fail: a safe 503 error, not an empty success', async () => {
-    const service = serviceWith([
-      stubProvider('down', { kind: 'throw', error: unavailable }),
-      stubProvider('slow', { kind: 'hang' }, { timeoutMs: 20 }),
-    ]);
-    const error = await service.search(hotelsRequest()).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(AppError);
-    expect(error).toMatchObject({ code: 'SERVICE_UNAVAILABLE', status: 503 });
-    expect((error as Error).message).toMatch(/couldn't search hotels right now/);
+  it('all providers fail: a stable error code by cause, not an empty success', async () => {
+    const failure = async (...providers: Parameters<typeof serviceWith>[0]) =>
+      (await serviceWith(providers)
+        .search(hotelsRequest())
+        .catch((e: unknown) => e)) as AppError;
+    const slow = (id: string) => stubProvider(id, { kind: 'hang' }, { timeoutMs: 20 });
+    const down = (id: string) => stubProvider(id, { kind: 'throw', error: unavailable });
+
+    expect(await failure(slow('a'), slow('b'))).toMatchObject({
+      code: 'PROVIDER_TIMEOUT',
+      status: 504,
+    });
+    expect(await failure(down('a'), down('b'))).toMatchObject({
+      code: 'PROVIDER_UNAVAILABLE',
+      status: 503,
+    });
+    const mixed = await failure(down('a'), slow('b'));
+    expect(mixed).toBeInstanceOf(AppError);
+    expect(mixed).toMatchObject({ code: 'SEARCH_FAILED', status: 502 });
+    expect(mixed.message).toMatch(/couldn't search hotels right now/);
   });
 
   it('zero results from healthy providers is a successful, empty search', async () => {
@@ -259,7 +271,10 @@ describe('search orchestration', () => {
     let clock = new Date('2026-10-21T08:00:00Z');
     const now = () => clock;
     const provider = ok('p1', hotelResult('p1', 'a', 5000), hotelResult('p1', 'b', 3000));
-    const service = serviceWith([provider], { cache: new MemorySearchCache(10, now), now });
+    const service = serviceWith([provider], {
+      sessions: new MemorySearchSessionStore(10, now),
+      now,
+    });
     const first = await service.search(hotelsRequest());
     const second = await service.search(hotelsRequest({ sortBy: 'price-asc', page: 1 }));
     expect(provider.calls).toBe(1);
@@ -268,8 +283,8 @@ describe('search orchestration', () => {
     // A different party size is a different search.
     await service.search(hotelsRequest({ adults: 3, rooms: 1 }));
     expect(provider.calls).toBe(2);
-    // Expired after the TTL (2 minutes by default).
-    clock = new Date(clock.getTime() + 121_000);
+    // Expired after the session lifetime (10 minutes by default).
+    clock = new Date(clock.getTime() + 601_000);
     const third = await service.search(hotelsRequest());
     expect(provider.calls).toBe(3);
     expect(third.searchId).not.toBe(first.searchId);
@@ -279,7 +294,7 @@ describe('search orchestration', () => {
       error: new ProviderError('unavailable', 'Down.'),
     });
     const partial = serviceWith([ok('p2', hotelResult('p2', 'a', 1)), flaky], {
-      cache: new MemorySearchCache(10, now),
+      sessions: new MemorySearchSessionStore(10, now),
       now,
     });
     await partial.search(hotelsRequest());
@@ -287,26 +302,26 @@ describe('search orchestration', () => {
     expect(flaky.calls).toBe(2); // partial rounds are not cached, so a retry really retries
   });
 
-  it('cache keys separate everything that changes provider answers', () => {
+  it('request keys separate everything that changes provider answers', () => {
     const providers = [ok('p1')];
-    const base = cacheKey(hotelsRequest(), providers);
+    const base = requestKey(hotelsRequest(), providers);
     expect(
-      cacheKey(
+      requestKey(
         hotelsRequest({ sortBy: 'price-asc', page: 2, filters: { amenities: ['pool'] } }),
         providers,
       ),
     ).toBe(base);
-    expect(cacheKey(hotelsRequest({ currency: 'USD' }), providers)).not.toBe(base);
-    expect(cacheKey(hotelsRequest({ children: 1 }), providers)).not.toBe(base);
-    expect(cacheKey(hotelsRequest({ destination: 'city:jaipur' }), providers)).not.toBe(base);
-    expect(cacheKey(hotelsRequest(), [{ ...providers[0]!, version: '2' }])).not.toBe(base);
+    expect(requestKey(hotelsRequest({ currency: 'USD' }), providers)).not.toBe(base);
+    expect(requestKey(hotelsRequest({ children: 1 }), providers)).not.toBe(base);
+    expect(requestKey(hotelsRequest({ destination: 'city:jaipur' }), providers)).not.toBe(base);
+    expect(requestKey(hotelsRequest(), [{ ...providers[0]!, version: '2' }])).not.toBe(base);
   });
 
   it('stops when the caller aborts', async () => {
     const controller = new AbortController();
     const pending = serviceWith([
       stubProvider('slow', { kind: 'results', results: [], delayMs: 100 }),
-    ]).search(hotelsRequest(), controller.signal);
+    ]).search(hotelsRequest(), { signal: controller.signal });
     controller.abort(new Error('client went away'));
     await expect(pending).rejects.toThrow('client went away');
   });

@@ -16,8 +16,8 @@ import { SessionService } from './modules/auth/session.service.js';
 import { DEMO_PROVIDERS } from './modules/providers/demo/index.js';
 import type { SearchProvider } from './modules/providers/provider.js';
 import { ProviderRegistry } from './modules/providers/registry.js';
-import { MemorySearchCache, type SearchCache } from './modules/search/cache.js';
-import { SearchService } from './modules/search/search.service.js';
+import { SearchService, type ResilienceOptions } from './modules/search/search.service.js';
+import { MemorySearchSessionStore, type SearchSessionStore } from './modules/search/sessions.js';
 import { UsersService } from './modules/users/users.service.js';
 import { v1Router, type AccountsRouterOptions } from './routes/v1.js';
 import type { DependencyCheck } from './services/health.js';
@@ -44,8 +44,14 @@ export interface AppDependencies {
    * live adapters are added here (docs/search.md#adding-a-supplier).
    */
   searchProviders?: readonly SearchProvider[];
-  /** Search cache. Defaults to a bounded in-memory cache; `null` disables caching. */
-  searchCache?: SearchCache | null;
+  /**
+   * Where search sessions live. The server passes the Redis store
+   * (server.ts); without one, a per-process memory store is used, which
+   * production refuses (docs/search.md#search-sessions).
+   */
+  searchSessions?: SearchSessionStore;
+  /** Overrides for search resilience (tests: clock, jitter). Defaults come from env. */
+  searchResilience?: Partial<ResilienceOptions>;
   /** Where providers' required configuration is looked up (names only). Defaults to process.env. */
   providerConfig?: Readonly<Record<string, string | undefined>>;
 }
@@ -80,7 +86,8 @@ export function createApp({
   prisma,
   now,
   searchProviders = DEMO_PROVIDERS,
-  searchCache,
+  searchSessions,
+  searchResilience,
   providerConfig = process.env,
 }: AppDependencies): Express {
   const app = express();
@@ -141,15 +148,29 @@ export function createApp({
     isConfigured: (name) => Boolean(providerConfig[name]),
   });
   for (const provider of searchProviders) registry.register(provider);
-  const ttlMs = env.SEARCH_CACHE_TTL_SECONDS * 1000;
+  if (!searchSessions && env.NODE_ENV === 'production') {
+    // config/env.ts already refuses this; never fall back to memory silently.
+    throw new Error('Production needs the Redis search-session store (searchSessions).');
+  }
   const search = new SearchService({
     registry,
     logger,
-    resultTtlMs: ttlMs,
+    sessions: searchSessions ?? new MemorySearchSessionStore(200, now),
+    sessionTtlMs: env.SEARCH_SESSION_TTL_SECONDS * 1000,
     ...(now ? { now } : {}),
-    ...(searchCache === null || ttlMs === 0
-      ? {}
-      : { cache: searchCache ?? new MemorySearchCache(200, now) }),
+    resilience: {
+      deadlineMs: env.SEARCH_DEADLINE_MS,
+      retry: {
+        maxAttempts: env.SEARCH_PROVIDER_MAX_ATTEMPTS,
+        baseDelayMs: env.SEARCH_PROVIDER_RETRY_BASE_MS,
+        maxDelayMs: env.SEARCH_PROVIDER_RETRY_BASE_MS * 8,
+      },
+      breaker: {
+        failureThreshold: env.SEARCH_BREAKER_FAILURE_THRESHOLD,
+        cooldownMs: env.SEARCH_BREAKER_COOLDOWN_SECONDS * 1000,
+      },
+      ...searchResilience,
+    },
   });
   const searchStore = createRateLimitStore?.('search');
 
