@@ -39,6 +39,15 @@ export const apiErrorCodeSchema = z.enum([
   'PROVIDER_UNAVAILABLE',
   /** Providers failed for another reason (errors, unusable data). */
   'SEARCH_FAILED',
+  // Bookings (docs/bookings.md#errors).
+  /** The price differs from the one the visitor accepted (changed, or tampered). Review and confirm again. */
+  'PRICE_CHANGED',
+  /** The booking's status or travel date doesn't allow cancelling it. */
+  'BOOKING_NOT_CANCELLABLE',
+  /** This Idempotency-Key was already used with a different request. Use a new key. */
+  'IDEMPOTENCY_KEY_REUSED',
+  /** A request with this Idempotency-Key is still being processed. Retry shortly. */
+  'IDEMPOTENCY_IN_PROGRESS',
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

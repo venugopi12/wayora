@@ -144,7 +144,7 @@ export function ServiceSearchRoute({ slug }: { slug: TravelCategorySlug }) {
         <Alert tone="warning" role="none" title="Demo data only">
           Results come from Wayora&apos;s built-in sample data, not from airlines, hotels or other
           travel providers. Prices, times and services are illustrative, availability isn&apos;t
-          checked, and nothing can be booked yet.
+          checked, and bookings are demo bookings: no real reservation, ticket or payment.
         </Alert>
         {discover?.destination ? (
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-body-sm text-ink-secondary">

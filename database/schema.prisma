@@ -71,6 +71,15 @@ enum BookingStatus {
   @@map("booking_status")
 }
 
+/// Passenger types where a fare distinguishes them (flights).
+enum PassengerType {
+  ADULT
+  CHILD
+  INFANT
+
+  @@map("passenger_type")
+}
+
 enum BookingItemStatus {
   ACTIVE
   CANCELLED
@@ -129,6 +138,7 @@ model User {
   travellers Traveller[]
   orders     Order[]
   sessions   Session[]
+  bookings   Booking[]
 
   @@index([status])
   @@map("users")
@@ -183,15 +193,15 @@ model Traveller {
 /// The customer-facing purchase. One order can contain bookings across
 /// categories (e.g. a flight + a hotel) and is the unit of payment.
 model Order {
-  id                String      @id @default(uuid(7)) @db.Uuid
+  id               String      @id @default(uuid(7)) @db.Uuid
   /// Human-friendly, customer-visible reference, e.g. WY-7KQ2-M9XD.
-  reference         String      @unique @db.VarChar(32)
-  userId            String      @map("user_id") @db.Uuid
-  status            OrderStatus @default(DRAFT)
-  currency          String      @db.Char(3)
-  totalAmountMinor  BigInt      @default(0) @map("total_amount_minor")
-  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  reference        String      @unique @db.VarChar(32)
+  userId           String      @map("user_id") @db.Uuid
+  status           OrderStatus @default(DRAFT)
+  currency         String      @db.Char(3)
+  totalAmountMinor BigInt      @default(0) @map("total_amount_minor")
+  createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Restrict)
   bookings Booking[]
@@ -201,28 +211,96 @@ model Order {
   @@map("orders")
 }
 
-/// A single supplier reservation within an order (one per provider booking).
+/// A reservation of one offer (Phase 12: demo bookings; docs/bookings.md).
+///
+/// Demo bookings (`isDemo`) are created and confirmed by Wayora alone: no
+/// supplier reservation, ticket or payment exists, so `providerReference` stays
+/// null. The offer is kept as an immutable snapshot; a trigger rejects changes
+/// to it and to the other booked facts. Payments later attach bookings to an
+/// `Order` (the unit of payment), hence the optional `orderId`.
 model Booking {
   id                String         @id @default(uuid(7)) @db.Uuid
-  orderId           String         @map("order_id") @db.Uuid
+  /// Customer-visible reference, e.g. WYD-7KQ2-M9XD ("WYD": Wayora demo booking).
+  reference         String         @unique @db.VarChar(32)
+  userId            String         @map("user_id") @db.Uuid
+  orderId           String?        @map("order_id") @db.Uuid
   category          TravelCategory
   status            BookingStatus  @default(PENDING)
-  /// Provider identifier, e.g. "amadeus". Null until a provider is chosen.
+  /// Simulated booking: no supplier reservation, ticket or payment.
+  isDemo            Boolean        @map("is_demo")
+  /// Provider identifier, e.g. "demo-flights".
   provider          String?        @db.VarChar(64)
-  /// Provider-side reference (PNR, confirmation number).
+  /// Provider-side reference (PNR, confirmation number). Never set for demo bookings.
   providerReference String?        @map("provider_reference") @db.VarChar(128)
+  /// The search session the offer came from (sessions expire; kept for support).
+  searchId          String?        @map("search_id") @db.Uuid
+  /// The offer as booked: validated contract JSON (see docs/bookings.md#snapshot).
+  offerSnapshot     Json           @map("offer_snapshot")
+  /// People the booked price covers.
+  partySize         Int            @map("party_size")
+  /// Local travel dates from the offer; null where it has none (metro).
+  startsOn          DateTime?      @map("starts_on") @db.Date
+  endsOn            DateTime?      @map("ends_on") @db.Date
+  /// E.164 mobile number, only for categories that need one (cabs).
+  contactPhone      String?        @map("contact_phone") @db.VarChar(16)
   currency          String         @db.Char(3)
-  totalAmountMinor  BigInt         @default(0) @map("total_amount_minor")
+  /// The booked total. Null when the offer's price is an estimate range (cabs);
+  /// the range is in the snapshot.
+  totalAmountMinor  BigInt?        @map("total_amount_minor")
+  confirmedAt       DateTime?      @map("confirmed_at") @db.Timestamptz(3)
+  cancelledAt       DateTime?      @map("cancelled_at") @db.Timestamptz(3)
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  order Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  items BookingItem[]
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  order      Order?               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items      BookingItem[]
+  travellers BookingTraveller[]
+  events     BookingStatusEvent[]
 
   @@unique([provider, providerReference])
   @@index([orderId])
   @@index([category, status])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, status, startsOn])
   @@map("bookings")
+}
+
+/// A named person on a booking, copied from the booking form (immutable).
+/// Not linked to saved travellers: editing a saved traveller never changes a booking.
+model BookingTraveller {
+  id        String         @id @default(uuid(7)) @db.Uuid
+  bookingId String         @map("booking_id") @db.Uuid
+  /// Order on the booking (0-based), as the form listed them.
+  position  Int            @db.SmallInt
+  /// Only for fares that distinguish passenger types (flights).
+  type      PassengerType?
+  firstName String         @map("first_name") @db.VarChar(100)
+  lastName  String         @map("last_name") @db.VarChar(100)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, position])
+  @@map("booking_travellers")
+}
+
+/// Append-only status history of a booking (a trigger blocks UPDATE and DELETE).
+model BookingStatusEvent {
+  id         String         @id @default(uuid(7)) @db.Uuid
+  bookingId  String         @map("booking_id") @db.Uuid
+  /// Null for the event that created the booking.
+  fromStatus BookingStatus? @map("from_status")
+  toStatus   BookingStatus  @map("to_status")
+  actorType  AuditActorType @map("actor_type")
+  /// Plain-words explanation, e.g. that a demo confirmation contacted no supplier.
+  note       String?        @db.VarChar(255)
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, createdAt])
+  @@map("booking_status_events")
 }
 
 /// A priced line within a booking (a seat, a room-night, a fare component).

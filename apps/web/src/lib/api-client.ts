@@ -31,6 +31,8 @@ export interface RequestOptions<T extends z.ZodType> {
   schema: T;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Extra request headers (e.g. `Idempotency-Key`). Never put credentials here. */
+  headers?: Record<string, string>;
   /** Non-2xx statuses whose body is still a success envelope (e.g. 503 from readiness). */
   acceptStatuses?: number[];
   /**
@@ -84,6 +86,7 @@ export function createApiClient(
         schema,
         signal,
         timeoutMs = 10_000,
+        headers = {},
         acceptStatuses = [],
         reportsSessionEnd = true,
       },
@@ -100,6 +103,7 @@ export function createApiClient(
           signal: combined,
           credentials,
           headers: {
+            ...headers,
             Accept: 'application/json',
             ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           },

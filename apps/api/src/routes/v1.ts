@@ -1,5 +1,7 @@
 import { Router, type RequestHandler } from 'express';
 import { authRouter, type AuthRouterOptions } from '../modules/auth/auth.routes.js';
+import { bookingsRouter } from '../modules/bookings/bookings.routes.js';
+import type { BookingsService } from '../modules/bookings/bookings.service.js';
 import { catalogRouter } from '../modules/catalog/catalog.routes.js';
 import { providersRouter } from '../modules/providers/providers.routes.js';
 import type { ProviderRegistry } from '../modules/providers/registry.js';
@@ -14,11 +16,14 @@ export interface AccountsRouterOptions {
   loadSession: RequestHandler;
   auth: AuthRouterOptions;
   users: UsersService;
+  bookings: BookingsService;
+  /** Per-user limit on booking writes (create, cancel). */
+  bookingLimiter?: RequestHandler;
 }
 
 export interface V1RouterOptions {
   health: HealthRouterOptions;
-  /** Auth, profile and travellers; mounted only when a database is configured. */
+  /** Auth, profile, travellers and bookings; mounted only when a database is configured. */
   accounts?: AccountsRouterOptions;
   search: { service: SearchService; registry: ProviderRegistry; limiter?: RequestHandler };
 }
@@ -34,9 +39,10 @@ export function v1Router(options: V1RouterOptions): Router {
   router.use('/search', searchRouter(options.search.service, options.search.limiter));
   router.use('/providers', providersRouter(options.search.registry));
   if (options.accounts) {
-    const { loadSession, auth, users } = options.accounts;
+    const { loadSession, auth, users, bookings, bookingLimiter } = options.accounts;
     router.use('/auth', loadSession, authRouter(auth));
     router.use('/users', loadSession, usersRouter(users));
+    router.use('/bookings', loadSession, bookingsRouter(bookings, bookingLimiter));
   }
   return router;
 }

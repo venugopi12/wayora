@@ -83,11 +83,20 @@ export const flightItinerarySchema = z.object({
   ...timedLeg,
 });
 
+/** The party a flight offer is priced for (from the search; the price covers all of them). */
+export const flightPassengersSchema = z.object({
+  adults: z.number().int().min(1),
+  children: z.number().int().min(0),
+  infants: z.number().int().min(0),
+});
+export type FlightPassengers = z.infer<typeof flightPassengersSchema>;
+
 export const flightResultSchema = z.object({
   serviceType: z.literal('flights'),
   ...resultBase,
   cabinClass: cabinClassSchema,
   itineraries: z.array(flightItinerarySchema).min(1).max(2),
+  passengers: flightPassengersSchema,
 });
 
 // ─── Hotels ───────────────────────────────────────────────────────────────
@@ -168,20 +177,27 @@ export const metroResultSchema = z.object({
 
 // ─── Cabs ─────────────────────────────────────────────────────────────────
 
-export const cabResultSchema = z.object({
-  serviceType: z.literal('cabs'),
-  ...resultBase,
-  vehicleType: vehicleTypeSchema,
-  /** Generic description, e.g. "Sedan (Dzire-size)"; no specific car is promised. */
-  vehicleLabel: z.string().min(1),
-  capacity: z.number().int().positive(),
-  pickup: pointSchema,
-  dropoff: pointSchema,
-  pickupAt: offsetDateTimeSchema,
-  distanceKm: z.number().positive(),
-  /** Estimated drive time in normal traffic. */
-  durationMinutes: z.number().int().positive(),
-});
+export const cabResultSchema = z
+  .object({
+    serviceType: z.literal('cabs'),
+    ...resultBase,
+    vehicleType: vehicleTypeSchema,
+    /** Generic description, e.g. "Sedan (Dzire-size)"; no specific car is promised. */
+    vehicleLabel: z.string().min(1),
+    capacity: z.number().int().positive(),
+    pickup: pointSchema,
+    dropoff: pointSchema,
+    pickupAt: offsetDateTimeSchema,
+    distanceKm: z.number().positive(),
+    /** Estimated drive time in normal traffic. */
+    durationMinutes: z.number().int().positive(),
+    /** Passengers the ride was searched for (never more than the vehicle seats). */
+    passengers: z.number().int().positive(),
+  })
+  .refine((cab) => cab.passengers <= cab.capacity, {
+    message: 'A ride can’t carry more passengers than it has seats.',
+    path: ['passengers'],
+  });
 
 // ─── Holidays ─────────────────────────────────────────────────────────────
 

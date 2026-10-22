@@ -184,7 +184,7 @@ export function RegisterRoute() {
     <div className="flex flex-col gap-8">
       <AuthHeading
         title="Create your account"
-        lead="Save the people you travel with, so their details are ready when booking opens."
+        lead="Save the people you travel with, so their details are ready for demo bookings."
       />
       <FormMessage message={formError} />
       <form
@@ -226,8 +226,8 @@ export function RegisterRoute() {
           {isSubmitting ? 'Creating your account…' : 'Create account'}
         </Button>
         <p className="text-caption text-ink-secondary">
-          Wayora is a preview: there&apos;s no booking or payment yet. Read how account details are
-          handled in the{' '}
+          Wayora is a preview: bookings are demos, with no real reservation or payment. Read how
+          account details are handled in the{' '}
           <Link to={INFO_PATHS.privacy} className="underline underline-offset-2">
             draft privacy policy
           </Link>

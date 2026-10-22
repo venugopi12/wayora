@@ -83,7 +83,9 @@ describe('catalog', () => {
     expect(new Set(slugs).size).toBe(7);
     expect(TRAVEL_CATEGORIES.every((c) => c.availability === 'beta')).toBe(true);
     expect(DEMO_SEARCH_NOTICE).toMatch(/demo search/i);
-    expect(DEMO_SEARCH_NOTICE).toMatch(/nothing can be booked/i);
+    expect(DEMO_SEARCH_NOTICE).toMatch(
+      /demo bookings only: no real reservation, ticket or payment/i,
+    );
   });
 
   it('describes only what exists today: sample search, never booking features', () => {

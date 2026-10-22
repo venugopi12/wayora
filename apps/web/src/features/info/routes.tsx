@@ -92,19 +92,20 @@ export function AboutRoute() {
           aren&apos;t converted);
         </li>
         <li>
-          <Link to={ACCOUNT_PATHS.register}>create an account</Link> and save the people you travel
-          with, ready for when booking opens.
+          <Link to={ACCOUNT_PATHS.register}>create an account</Link>, save the people you travel
+          with, and make demo bookings that you can review and cancel in My trips.
         </li>
       </ul>
       <p>
         Search results are demo data from Wayora&apos;s own sample fixtures, not from travel
-        providers: their prices and times are illustrative, availability isn&apos;t checked, and
-        nothing can be booked. No ratings or reviews are shown anywhere.
+        providers: their prices and times are illustrative and availability isn&apos;t checked.
+        Bookings are demo bookings: Wayora saves them, but no supplier reservation, ticket or
+        payment is made. No ratings or reviews are shown anywhere.
       </p>
       <h2>How it will grow</h2>
       <p>
-        Services open one at a time, each with its own booking flow and real travel providers. Until
-        then, every search page labels its results as demo data.
+        Real booking opens one service at a time, with real travel providers and payment. Until
+        then, every search page labels its results as demo data, and every booking as a demo.
       </p>
     </ContentPage>
   );
@@ -115,8 +116,10 @@ const FAQ: { q: string; a: ReactNode }[] = [
     q: 'Can I book travel on Wayora?',
     a: (
       <>
-        Not yet. Each service page has a demo search so you can try planning, but its results are
-        sample data and nothing can be reserved or paid for. Booking opens one service at a time.
+        Only as a demo. Each service page has a demo search, and you can book any of its offers as a
+        demo booking (you need an account). Wayora saves the booking in My trips, but no supplier
+        reservation, ticket or payment is made, and nothing is charged. Real booking opens one
+        service at a time.
       </>
     ),
   },
@@ -183,7 +186,7 @@ export function HelpRoute() {
         <Card padding="md" className="flex flex-col gap-2">
           <h2 className="text-label text-ink">Contacting Wayora</h2>
           <p className="text-body-sm text-ink-secondary">
-            There&apos;s no support contact yet. One will be added before booking opens, when
+            There&apos;s no support contact yet. One will be added before real booking opens, when
             there&apos;s something to support.
           </p>
         </Card>
@@ -250,8 +253,8 @@ export function PrivacyRoute() {
       notice={
         <DraftNotice>
           A privacy policy will be written and reviewed by qualified legal counsel before Wayora
-          launches booking or opens accounts to the public. Until then, this page only describes
-          what the preview does today. Nothing here is a legal commitment.
+          launches real booking or opens accounts to the public. Until then, this page only
+          describes what the preview does today. Nothing here is a legal commitment.
         </DraftNotice>
       }
       aside={
@@ -270,7 +273,14 @@ export function PrivacyRoute() {
           <strong>Accounts, if you create one.</strong> Wayora stores your name, email address and a
           one-way hash of your password (Argon2id; the password itself is never stored or logged),
           plus any travellers you save: names and, optionally, date of birth and nationality. No
-          passport or ID numbers, and no payment details: nothing can be booked or paid for.
+          passport or ID numbers, and no payment details: nothing can be paid for.
+        </li>
+        <li>
+          <strong>Demo bookings, if you make one.</strong> Wayora stores the booking: a copy of the
+          offer as you booked it (including its demo price), the names of the people on it, a mobile
+          number only for demo cab bookings, its status history, and a record of when it was made or
+          cancelled. No supplier receives any of it. A retention period hasn&apos;t been set yet;
+          demo bookings can&apos;t be deleted from the app yet.
         </li>
         <li>
           <strong>Sign-in sessions.</strong> For each sign-in, Wayora records when the session
@@ -328,7 +338,8 @@ export function TermsRoute() {
       notice={
         <DraftNotice>
           Terms and conditions will be written and reviewed by qualified legal counsel before Wayora
-          launches booking or accounts. This page is a placeholder and is not an agreement.
+          launches real booking. This page is a placeholder and is not an agreement. Demo bookings
+          follow the short demo terms shown, and accepted, when you make one.
         </DraftNotice>
       }
       aside={

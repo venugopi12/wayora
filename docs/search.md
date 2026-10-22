@@ -3,13 +3,14 @@
 One search engine for all seven categories (flights, hotels, trains, buses,
 metro, cabs, holiday packages), fed by **provider adapters** that translate
 between suppliers and Wayora's shared contracts. Today every adapter is a
-**demo provider** serving fixed fixtures. Nothing is live, priced by a
-supplier, or bookable.
+**demo provider** serving fixed fixtures. Nothing is live or priced by a
+supplier; offers can only be booked as demo bookings ([bookings.md](bookings.md)).
 
 > **Demo data.** All search results come from Wayora's built-in sample
 > fixtures. Carriers, trains, bus operators, hotels and packages are fictional
 > and named "Demo"/"(demo)". Prices and times are illustrative, availability
-> is never checked, and nothing can be booked. The API says so in every
+> is never checked, and bookings are demo bookings only (no reservation,
+> ticket or payment). The API says so in every
 > response (`disclaimer`, a `DEMO_DATA` warning, `source: "demo"` on every
 > result), and the web app shows it on every page and card.
 
@@ -401,7 +402,8 @@ supplier call by `offer.offerRef`. The answer is validated
 and is valid only within the session lifetime. Wayora does **not** simulate
 repricing. The flow above is exercised by a test-only adapter
 (`apps/api/test/search-offers.test.ts`). **Real supplier revalidation is
-required before any booking or payment step.**
+required before any real booking or payment step.** Demo bookings (Phase 12,
+[bookings.md](bookings.md)) use the session copy and are labelled as such.
 
 ## Errors
 
@@ -444,8 +446,9 @@ paths.
   `transient`, the default for `unavailable`) of **idempotent, read-only**
   operations. Permanent errors (`ProviderError('error')`, e.g. bad
   credentials or a rejected request) and unknown exceptions are never
-  retried; non-idempotent operations (none exist; booking will be one) are
-  never retried. Attempts: `SEARCH_PROVIDER_MAX_ATTEMPTS` (default 2, i.e. one
+  retried; non-idempotent operations are never retried (demo booking creation
+  is not a provider call; it is protected by an idempotency key instead,
+  [bookings.md](bookings.md#idempotency)). Attempts: `SEARCH_PROVIDER_MAX_ATTEMPTS` (default 2, i.e. one
   retry; max 4). Backoff: full jitter over `base × 2^(n-1)`, capped at
   `8 × SEARCH_PROVIDER_RETRY_BASE_MS` (default base 200 ms). A retry is
   skipped if the wait plus a meaningful attempt would pass the deadline.
@@ -658,8 +661,10 @@ also served from the client cache.
   the preserved `from` query (search, filters, sort, page). `from` is only
   ever used as query parameters on that fixed path, so it can't redirect
   elsewhere. Browser Back works too.
-- No booking action exists; the page says "Booking isn't available on Wayora
-  yet".
+- Priced demo offers show **Book this demo offer**, a link to the demo
+  checkout carrying only ids (`/book/:serviceType/:resultId?sid=&from=`;
+  [bookings.md](bookings.md)). Live or unpriced offers say why they can't be
+  booked.
 
 ### Expired results
 
@@ -673,7 +678,7 @@ Its offers could no longer be opened anyway; the server stays the authority.
 Every results page has a "Demo data only" notice and a "Demo search" badge;
 the provider notice names the demo providers; every card has a "Demo data"
 badge, "Demo total"/"Demo estimate, not a quote" price labels and "Demo
-offer: not bookable"; offer pages repeat the disclaimer. Live results would
+offer: demo booking only."; offer pages repeat the disclaimer. Live results would
 show none of these (driven by `source` and `disclaimer`).
 
 ## Adding a real supplier
@@ -697,12 +702,12 @@ show none of these (driven by `source` and `disclaimer`).
 7. Set `timeoutMs` to the supplier's realistic latency and review the
    deadline, retry and breaker settings for it.
 
-**Still needed before real bookings** (not in this phase): supplier
+**Still needed before real bookings** (demo bookings exist since Phase 12;
+real ones need): supplier
 contracts and credentials in a secrets manager; revalidation immediately
-before payment, with an explicit price-change confirmation step; a booking
-operation that is never retried blindly (idempotency keys, Phase 1
-`idempotency_keys`); persistence of priced offers and orders (database, not
-Redis); supplier webhooks; per-supplier egress allow-lists; currency
+before payment, with an explicit price-change confirmation step; a supplier
+booking call that is never retried blindly (the demo flow's idempotency keys
+are the model); orders and payments; supplier webhooks; per-supplier egress allow-lists; currency
 conversion rules; and load testing of the breaker and retry settings against
 real latencies.
 
@@ -774,7 +779,8 @@ npm run test --workspace @wayora/web         # results, filters, URL state, offe
 ## Limitations and future work
 
 - Demo data only; no live suppliers, so no real revalidation (the flow
-  exists and is tested with a test-only adapter), no booking.
+  exists and is tested with a test-only adapter); bookings are demo bookings
+  ([bookings.md](bookings.md)).
 - The place directory is a fixed list sized to the demo; no free-text place
   search or geocoding (metro and cabs don't accept coordinates).
 - No currency conversion: demo prices are INR; other display currencies show

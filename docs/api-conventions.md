@@ -76,6 +76,15 @@ Search and offers (details in [search.md](search.md#errors)):
 | `PROVIDER_UNAVAILABLE` | 503  | Providers are unavailable (outage, open circuit breaker) |
 | `SEARCH_FAILED`        | 502  | Providers failed for other reasons                       |
 
+Demo bookings (details in [bookings.md](bookings.md#errors)):
+
+| Code                      | HTTP | When                                                    |
+| ------------------------- | ---- | ------------------------------------------------------- |
+| `PRICE_CHANGED`           | 409  | The price the visitor accepted isn't the server's price |
+| `BOOKING_NOT_CANCELLABLE` | 409  | Already cancelled, failed, or the trip has started      |
+| `IDEMPOTENCY_IN_PROGRESS` | 409  | The same `Idempotency-Key` is still being processed     |
+| `IDEMPOTENCY_KEY_REUSED`  | 422  | The `Idempotency-Key` was used with a different body    |
+
 ## Validation
 
 Handlers validate with `validateRequest`, which returns typed, parsed values and
@@ -126,12 +135,16 @@ Health endpoints are exempt from rate limiting and are not access-logged.
 - Counters live in Redis so limits hold across API instances. If Redis is down the
   API falls back to per-process memory counters: limiting continues, it is not disabled.
 - Behind a proxy, set `TRUST_PROXY` so client IPs are read correctly.
+- Extra limits: searches per IP (`SEARCH_RATE_LIMIT_MAX`), sign-in attempts
+  (docs/auth.md), and booking writes per signed-in user (`BOOKING_RATE_LIMIT_MAX`).
 
 ## CORS
 
 Only origins listed in `CORS_ORIGIN` receive CORS headers. Credentials are allowed
 for those origins (ready for cookie sessions). Allowed request headers:
-`Content-Type`, `Authorization`, `Idempotency-Key`, `X-Request-Id`.
+`Content-Type`, `Authorization`, `Idempotency-Key`, `X-Request-Id`. Exposed
+response headers: `X-Request-Id`, `RateLimit`, `RateLimit-Policy`, `Retry-After`,
+`Idempotent-Replayed`.
 
 ## Conventions for new endpoints
 
@@ -139,7 +152,10 @@ for those origins (ready for cookie sessions). Allowed request headers:
 - JSON fields: camelCase. Timestamps: ISO 8601 UTC strings (`2026-10-20T03:15:45.636Z`).
 - Money: `{ "amountMinor": "149950", "currency": "INR" }`, an integer string in minor
   units plus an ISO 4217 code (`moneySchema`). Never floats.
-- Lists (from the first paginated endpoint): cursor pagination with
-  `?cursor=&limit=` and `meta.nextCursor`.
-- Mutating endpoints that create money-relevant state (orders, payments) must accept an
-  `Idempotency-Key` header, backed by the `idempotency_keys` table.
+- Lists: search results and bookings use numbered pages (`?page=&pageSize=`,
+  with a `pagination` object), because their UIs page by number and the lists
+  are small per user. Cursor pagination (`?cursor=&limit=`, `meta.nextCursor`)
+  remains the plan for large or fast-changing lists.
+- Mutating endpoints that create money-relevant state (bookings, orders, payments) must
+  require an `Idempotency-Key` header, backed by the `idempotency_keys` table
+  (`POST /bookings` is the reference implementation: bookings.md#idempotency).

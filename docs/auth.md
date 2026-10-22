@@ -53,7 +53,8 @@ email normalization, password policy). The API validates with them; the web
 forms use the same schemas through React Hook Form, so rules can't drift.
 
 Frontend (`apps/web/src/`): `features/auth/` (provider, guards, redirect
-validation, forms), `features/account/` (profile, travellers),
+validation, forms), `features/account/` (profile, travellers; the account
+navigation also links to My trips, `features/bookings/`, docs/bookings.md),
 `features/navigation/AccountAction.tsx` (header menu and drawer states),
 `components/layout/AuthLayout.tsx`, `services/account.ts`.
 
@@ -192,7 +193,8 @@ API on the same registrable domain, or behind the web origin.
 
 pino redacts `authorization`, `cookie`, `set-cookie`, and any `password`,
 `confirmPassword`, `currentPassword`, `token`, `sessionToken` or `tokenHash`
-field. Request bodies are never logged; request logs contain method, path,
+field, and (since Phase 12) `travellers`, `firstName`, `lastName`,
+`contactPhone`, `phone` and `dateOfBirth`. Request bodies are never logged; request logs contain method, path,
 status, user-agent and request id only.
 
 ## Environment variables
@@ -263,7 +265,8 @@ npm run test                       # everything; account integration tests are S
 
 The API's account integration tests (`apps/api/test/integration/`) run against
 a real PostgreSQL database and only when `TEST_DATABASE_URL` is set. They
-**truncate** `users`, `travellers` and `sessions` before each test, so they refuse
+**truncate** `users`, `travellers`, `sessions`, `idempotency_keys` and
+`audit_logs` (and, by cascade, bookings) before each test, so they refuse
 to run unless the database name ends in `_test`. Never point them at
 development or production data.
 

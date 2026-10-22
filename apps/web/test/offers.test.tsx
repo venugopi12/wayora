@@ -65,7 +65,10 @@ describe('opening an offer', () => {
     expect(price).toHaveTextContent('₹23,400');
     expect(price).toHaveTextContent('₹7,800 per night');
     expect(price).not.toHaveTextContent('₹1');
-    expect(price).toHaveTextContent('Booking isn’t available on Wayora yet.'.replace('’', "'"));
+    // Booking is a link to the checkout: it carries ids only, never a price.
+    const book = within(price).getByRole('link', { name: 'Book this demo offer' });
+    expect(book.getAttribute('href')).toMatch(/^\/book\/hotels\//);
+    expect(book.getAttribute('href')).not.toMatch(/price|amount|23400/i);
     expect(screen.queryByRole('button', { name: /book|reserve|pay/i })).toBeNull();
   });
 });
@@ -76,7 +79,7 @@ describe('how current an offer is', () => {
     renderRoute(url(hotel));
     const price = await screen.findByRole('complementary', { name: 'Price' });
     expect(price).toHaveTextContent(
-      /Demo price: illustrative, not bookable\. Not rechecked with any supplier; shown for this search until/,
+      /Demo price: illustrative, not a supplier guarantee\. Not rechecked with any supplier; shown for this search until/,
     );
   });
 

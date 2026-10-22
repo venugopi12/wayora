@@ -13,9 +13,10 @@ export const travelCategorySlugSchema = z.enum([
 export type TravelCategorySlug = z.infer<typeof travelCategorySlugSchema>;
 
 /**
- * - `planned` – no search or booking yet.
+ * - `planned` – no search or demo booking yet.
  * - `beta`    – demo search only: results come from Wayora's built-in sample
- *               providers, prices are illustrative, nothing can be booked.
+ *               providers, prices are illustrative; bookings are demo bookings
+ *               (no real reservation, ticket or payment).
  * - `live`    – real supplier inventory and booking (no category is live yet).
  */
 export const categoryAvailabilitySchema = z.enum(['planned', 'beta', 'live']);
@@ -45,7 +46,7 @@ export const categoryParamsSchema = z.object({
 
 /** Shown wherever a `beta` category is offered, so demo search is never mistaken for booking. */
 export const DEMO_SEARCH_NOTICE =
-  'Demo search: sample results with illustrative prices. Nothing can be booked yet.';
+  'Demo search: sample results with illustrative prices. Demo bookings only: no real reservation, ticket or payment.';
 
 /**
  * Source of truth for the catalog. Served by the API and bundled into the web

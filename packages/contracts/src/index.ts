@@ -1,5 +1,6 @@
 export * from './api.js';
 export * from './auth.js';
+export * from './bookings.js';
 export * from './catalog.js';
 export * from './destination.js';
 export * from './health.js';

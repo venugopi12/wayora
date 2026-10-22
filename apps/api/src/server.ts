@@ -6,6 +6,7 @@ import { createApp, createSessionService } from './app.js';
 import { EnvValidationError, parseEnv, searchSessionStore, type Env } from './config/env.js';
 import { loadEnvFile } from './config/load-env-file.js';
 import { ResilientRedisStore } from './middleware/rate-limit.js';
+import { IdempotencyService } from './modules/bookings/idempotency.js';
 import { RedisSearchSessionStore, type SearchSessionStore } from './modules/search/sessions.js';
 import type { DependencyCheck } from './services/health.js';
 import { createRedisConnection, type RedisConnection } from './services/redis.js';
@@ -101,7 +102,23 @@ async function main(): Promise<void> {
         if (count > 0) logger.info({ count }, 'Purged expired sessions');
       })
       .catch((err: unknown) => logger.warn({ err }, 'Session purge failed; will retry'));
-  const purgeTimer = setInterval(() => void purgeSessions(), 60 * 60 * 1000);
+  // Expired idempotency keys (bookings) are deleted on the same schedule.
+  const idempotency = new IdempotencyService(prisma);
+  const purgeIdempotencyKeys = () =>
+    idempotency
+      .purgeExpired()
+      .then((count) => {
+        if (count > 0) logger.info({ count }, 'Purged expired idempotency keys');
+      })
+      .catch((err: unknown) => logger.warn({ err }, 'Idempotency key purge failed; will retry'));
+  const purgeTimer = setInterval(
+    () => {
+      void purgeSessions();
+      void purgeIdempotencyKeys();
+      void purgeIdempotencyKeys();
+    },
+    60 * 60 * 1000,
+  );
   purgeTimer.unref();
   void purgeSessions();
 

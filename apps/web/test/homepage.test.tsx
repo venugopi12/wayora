@@ -212,7 +212,7 @@ describe('travel selector', () => {
       screen.getByRole('list', { name: 'Travel options for Goa' }),
     ).getAllByRole('link');
     expect(options[0]).toHaveAccessibleName('Trains to Goa');
-    expect(options[0]).toHaveAccessibleDescription(/demo search · booking later.*your choice/i);
+    expect(options[0]).toHaveAccessibleDescription(/demo search and booking.*your choice/i);
   });
 
   it('explores ideas without a destination', async () => {

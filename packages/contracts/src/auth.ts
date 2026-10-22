@@ -36,7 +36,7 @@ export const emailSchema = z
 const NAME_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M}' .,-]*$/u;
 
 /** A person's name: trimmed, inner whitespace collapsed. */
-const personName = (label: string, max: number) =>
+export const personName = (label: string, max: number) =>
   z
     .string({ error: `Enter ${label}.` })
     .transform((v) => v.trim().replace(/\s+/g, ' '))

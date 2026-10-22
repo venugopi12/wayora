@@ -25,7 +25,7 @@ export function dayOffset(departAt: string, arriveAt: string): number {
 export const money = (m: { amountMinor: string; currency: string }) =>
   formatMoney(m.amountMinor, m.currency);
 
-const UNIT_LABEL = {
+export const UNIT_LABEL = {
   traveller: 'per traveller',
   adult: 'per adult',
   night: 'per night',
@@ -108,7 +108,7 @@ export function Chips({ items }: { items: readonly string[] }) {
 /**
  * Card frame: badges, heading, price, body, and a footer whose only action
  * is "View details" (a link to the offer page). There is no booking action:
- * nothing can be booked.
+ * only a demo booking can be made.
  */
 export function ResultCardShell({
   result,
@@ -145,7 +145,7 @@ export function ResultCardShell({
       {body}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
         <p className="text-caption text-ink-secondary">
-          {demo ? 'Demo offer: not bookable.' : 'Price may change.'}
+          {demo ? 'Demo offer: demo booking only.' : 'Price may change.'}
         </p>
         <Link
           to={href}

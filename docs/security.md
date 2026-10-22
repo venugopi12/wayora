@@ -134,6 +134,37 @@ Details: [search.md](search.md).
   fixtures can't pass for live inventory by accident; fault simulation exists
   only in test code.
 
+### Demo bookings (Phase 12)
+
+Details: [bookings.md](bookings.md).
+
+- Demo only: no supplier call, ticket, payment form or card field exists. The
+  database refuses a supplier reference on a demo booking (no fake PNRs).
+- Every route needs a session; writes also need a trusted `Origin` (CSRF).
+  The user is the session's user; no request field names a user (strict
+  schemas reject `userId` and any other unknown field).
+- Ownership on every read and write (`WHERE reference = ? AND user_id = ?`);
+  another user's booking answers 404 exactly like a missing one, so
+  references can't be probed (no IDOR). References are random (CSPRNG,
+  31-character alphabet, 8 characters) and are not database ids.
+- The price is the server's: the offer is read again from the stored search,
+  and the browser's `acceptedPrice` is only compared (mismatch: 409, nothing
+  booked). Only demo-source, priced offers are bookable. Nothing is booked by
+  opening a page; creation needs `acceptDemoTerms: true` and a POST.
+- `Idempotency-Key` required, scoped per user, with a body hash; concurrent
+  duplicates get 409 and create nothing; the key completes inside the booking
+  transaction. Per-user write rate limit (`BOOKING_RATE_LIMIT_MAX`).
+- Transitions are server-side and conditional on the current status; booked
+  facts, travellers and status history are immutable in the database
+  (triggers); every change is in `audit_logs`.
+- Personal data (names, phone) appears only in booking bodies and responses
+  (`Cache-Control: no-store`), never in URLs, logs or analytics. The API
+  logger redacts `travellers`, `firstName`, `lastName`, `contactPhone`,
+  `phone` and `dateOfBirth`; booking logs carry the reference, category,
+  provider and party size only. Idempotency records store only the reference.
+- The web app keeps traveller details in memory only (not in the URL or
+  browser storage).
+
 ## Planned approach for later phases
 
 ### Authentication extensions
@@ -152,8 +183,9 @@ Details: [search.md](search.md).
 - Order totals are computed server-side in `bigint` minor units. The client never
   sends a price we trust.
 - `Idempotency-Key` required on payment and order creation, stored in
-  `idempotency_keys` with a request hash. Same key with a different body returns
-  `409 CONFLICT`.
+  `idempotency_keys` with a request hash, as demo bookings already do (same key
+  with a different body: `422 IDEMPOTENCY_KEY_REUSED`; still running: `409
+IDEMPOTENCY_IN_PROGRESS`).
 - PSP webhooks: verify the signature over the raw body, check timestamp tolerance,
   store in `webhook_events` before processing, process in the worker, and treat the
   webhook (not the browser redirect) as the source of truth.

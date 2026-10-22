@@ -19,6 +19,7 @@ import { serviceBySlug } from '../navigation/config';
 import { readSearchParams } from '../search/params';
 import { DemoBadge, PriceBlock, money } from '../search/cards/shared';
 import { OfferDetails, offerHeading } from './OfferDetails';
+import { bookPath } from '../bookings/paths';
 import { offerPath, readOfferParams, resultsPathFor } from './paths';
 
 /*
@@ -352,8 +353,8 @@ function OfferPage({
               {validation.status === 'session' ? (
                 demo ? (
                   <>
-                    Demo price: illustrative, not bookable. Not rechecked with any supplier; shown
-                    for this search until {until}.
+                    Demo price: illustrative, not a supplier guarantee. Not rechecked with any
+                    supplier; shown for this search until {until}.
                   </>
                 ) : (
                   <>
@@ -371,9 +372,25 @@ function OfferPage({
                 </>
               )}
             </p>
-            <p className="rounded-md bg-sunken px-3 py-2 text-body-sm text-ink-secondary">
-              Booking isn&apos;t available on Wayora yet.
-            </p>
+            {demo && result.price && searchId ? (
+              <>
+                <Button asChild size="lg">
+                  <Link to={bookPath(serviceType, result.id, searchId, from ?? '')}>
+                    Book this demo offer
+                  </Link>
+                </Button>
+                <p className="text-caption text-ink-secondary">
+                  A demo booking: no supplier reservation, ticket or payment. You review everything
+                  before confirming.
+                </p>
+              </>
+            ) : (
+              <p className="rounded-md bg-sunken px-3 py-2 text-body-sm text-ink-secondary">
+                {demo
+                  ? 'This offer has no price, so it can’t be booked.'
+                  : 'Only demo offers can be booked on Wayora for now.'}
+              </p>
+            )}
             {backToResults}
           </aside>
         </div>

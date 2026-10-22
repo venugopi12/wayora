@@ -23,7 +23,7 @@ import { destinationPath, discoverPath, serviceForPlace, servicePathFor } from '
 import { findDestination, relatedDestinations } from './search';
 
 /**
- * Services worth offering for a destination (demo search today; booking later).
+ * Services worth offering for a destination (demo search and demo booking).
  * Rail and road are offered for the India samples only. A service chosen on
  * the homepage moves to the front when it applies here, and is otherwise not
  * offered (no "trains to Bali").
@@ -188,7 +188,7 @@ function TravelOptions({
             id="travel-options-title"
             eyebrow="Plan the journey"
             title={`Ways to reach ${destination.name}`}
-            description="Each option opens a demo search with sample data, so you can see how planning will work. Booking opens one service at a time in later phases."
+            description="Each option opens a demo search with sample data, where you can also make a demo booking. No real reservation or payment is made."
           />
         </Reveal>
         <RevealGroup
@@ -226,7 +226,7 @@ function TravelOptions({
                       {serviceForPlace(slug, destination.name)}
                     </span>
                     <span id={`option-${slug}-status`} className="flex flex-wrap gap-1.5">
-                      <Badge size="sm">Demo search · booking later</Badge>
+                      <Badge size="sm">Demo search and booking</Badge>
                       {chosen ? (
                         <Badge size="sm" tone="brand">
                           Your choice

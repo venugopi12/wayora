@@ -119,7 +119,11 @@ describe('service search pages', () => {
       expect(await screen.findByRole('heading', { level: 1, name })).toBeInTheDocument();
       const main = screen.getByRole('main');
       expect(within(main).getByText('Demo data only')).toBeInTheDocument();
-      expect(within(main).getByText(/nothing can be booked yet/i)).toBeInTheDocument();
+      expect(
+        within(main).getByText(
+          /bookings are demo bookings: no real reservation, ticket or payment/i,
+        ),
+      ).toBeInTheDocument();
       expect(within(main).getByRole('form')).toBeInTheDocument();
       expect(within(main).queryByRole('button', { name: /book|pay|reserve/i })).toBeNull();
     },

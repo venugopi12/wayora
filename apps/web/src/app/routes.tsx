@@ -55,6 +55,8 @@ const offers = () => import('../features/offers/routes');
 /** Sign-in and registration share one chunk; profile and travellers another. */
 const auth = () => import('../features/auth/routes');
 const account = () => import('../features/account/routes');
+/** Checkout, confirmation, My trips and booking details (Phase 12). */
+const bookings = () => import('../features/bookings/routes');
 
 /** /sign-in (the pre-Phase 8 link) → /login, keeping any query string. */
 function LegacySignInRedirect() {
@@ -68,8 +70,8 @@ const discover = () => import('../features/discover/routes');
 
 /**
  * Every service in the navigation has a route: since Phase 9, a demo search
- * page driven by the search API (features/search). Booking flows in later
- * phases add their own nested routes, e.g. `flights/offer/:id`.
+ * page driven by the search API (features/search). Offers and demo bookings
+ * (Phases 10 and 12) have their own routes below.
  */
 const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
   path: service.path.slice(1),
@@ -93,7 +95,8 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *         │  /offers/:serviceType/:resultId (offer details), dev /design-system
  *         ├─ /sign-in          redirects to /login
  *         ├─ RequireAuth       loader until /auth/session answers; else /login?redirect=
- *         │  └─ /profile, /profile/travellers
+ *         │  └─ /profile, /profile/travellers, /book/:serviceType/:resultId (demo
+ *         │     checkout), /trips, /trips/:reference, /trips/:reference/confirmation
  *         └─ *                 not-found page
  *
  * Future focused layouts (checkout, admin) become siblings of MarketingLayout
@@ -181,6 +184,22 @@ export function createRoutes({
                     {
                       path: ACCOUNT_PATHS.travellers.slice(1),
                       lazy: async () => ({ Component: (await account()).TravellersRoute }),
+                    },
+                    {
+                      path: 'book/:serviceType/:resultId',
+                      lazy: async () => ({ Component: (await bookings()).CheckoutRoute }),
+                    },
+                    {
+                      path: ACCOUNT_PATHS.trips.slice(1),
+                      lazy: async () => ({ Component: (await bookings()).TripsRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.trips.slice(1)}/:reference`,
+                      lazy: async () => ({ Component: (await bookings()).TripDetailRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.trips.slice(1)}/:reference/confirmation`,
+                      lazy: async () => ({ Component: (await bookings()).ConfirmationRoute }),
                     },
                   ],
                 },

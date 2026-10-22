@@ -265,6 +265,7 @@ function search(request: SearchRequestFor<'flights'>, now: Date): ProviderResult
         validUntil: validUntil(now),
         cabinClass,
         itineraries,
+        passengers: { adults, children, infants },
         dedupeKey: offerRef,
       });
     }

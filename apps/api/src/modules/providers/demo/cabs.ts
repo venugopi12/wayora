@@ -90,6 +90,7 @@ function search(request: SearchRequestFor<'cabs'>, now: Date): ProviderResult<'c
       pickupAt,
       distanceKm: km,
       durationMinutes: Math.round(km * MINUTES_PER_KM) + 5,
+      passengers,
     };
   });
 }

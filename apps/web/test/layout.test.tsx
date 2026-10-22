@@ -308,7 +308,9 @@ describe('info and legal pages', () => {
     expect(q).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(q);
     expect(q).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText(/not yet\. each service page has a demo search/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/only as a demo\. each service page has a demo search/i),
+    ).toBeInTheDocument();
     expect(screen.getByText(/there's no support contact yet/i)).toBeInTheDocument();
     expect(screen.getByRole('main').textContent).not.toMatch(/@\w|mailto:|tel:|\+\d{2}/);
   });

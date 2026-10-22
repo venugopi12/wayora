@@ -5,6 +5,7 @@ import {
   type Options,
   type Store,
 } from 'express-rate-limit';
+import type { Response } from 'express';
 import type { Redis } from 'ioredis';
 import type { Logger } from '../utils/logger.js';
 import { sendError } from '../utils/respond.js';
@@ -169,6 +170,32 @@ export function searchRateLimiter(config: { max: number; store?: Store }) {
       sendError(res, 429, {
         code: 'RATE_LIMITED',
         message: 'Too many searches in a short time. Wait a moment and try again.',
+      });
+    },
+  });
+}
+
+/**
+ * Booking writes (create, cancel) per signed-in user per minute. Mounted after
+ * `requireAuth`, so the key is the session's user id: one account can't
+ * spread its writes across IPs, and people sharing an IP don't share a budget.
+ */
+export function bookingWriteRateLimiter(config: {
+  max: number;
+  store?: Store;
+  userIdOf: (res: Response) => string;
+}) {
+  return rateLimit({
+    windowMs: 60_000,
+    limit: config.max,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    keyGenerator: (_req, res) => `user:${config.userIdOf(res)}`,
+    ...(config.store ? { store: config.store } : {}),
+    handler: (_req, res) => {
+      sendError(res, 429, {
+        code: 'RATE_LIMITED',
+        message: 'Too many booking changes in a short time. Wait a moment and try again.',
       });
     },
   });

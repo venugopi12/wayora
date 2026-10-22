@@ -82,6 +82,7 @@ Docker Compose out of the box. `.env` files are git-ignored.
 | `SEARCH_DEMO_PROVIDERS`            | no       | dev/test on, production off | Demo search fixtures ([search.md](search.md))                                                 |
 | `SEARCH_DISABLED_PROVIDERS`        | no       | empty                       | Comma-separated provider ids to switch off                                                    |
 | `SEARCH_RATE_LIMIT_MAX`            | no       | `30`                        | Searches per IP per minute                                                                    |
+| `BOOKING_RATE_LIMIT_MAX`           | no       | `10`                        | Demo booking creations and cancellations per signed-in user per minute                        |
 | `SEARCH_SESSION_STORE`             | no       | `redis` if `REDIS_URL` set  | `redis` or `memory`; **production requires `redis`** ([search.md](search.md#search-sessions)) |
 | `SEARCH_SESSION_TTL_SECONDS`       | no       | `600`                       | 60–1800. Search session lifetime (old name `SEARCH_CACHE_TTL_SECONDS` accepted)               |
 | `SEARCH_DEADLINE_MS`               | no       | `8000`                      | Budget per search / offer check, retries included                                             |
@@ -140,6 +141,11 @@ npm run db:studio           # browse data
 
 Schema: `database/schema.prisma`. Migrations: `database/migrations/`. Read
 [architecture.md#database](architecture.md#database) before changing either.
+
+The Phase 12 migration (`20261022000000_demo_bookings`) stops without changing
+anything if the `bookings` table already has rows (it had no writer before);
+see [bookings.md#migration](bookings.md#migration) for what to do and for the
+rollback SQL. `npm run db:migrate` applies it to an up-to-date dev database.
 
 ## Docker
 

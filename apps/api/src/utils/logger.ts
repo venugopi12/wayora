@@ -22,6 +22,13 @@ export const REDACT_PATHS = [
   '*.secret',
   '*.cardNumber',
   '*.cvv',
+  // Traveller details (bookings): never logged, even by accident.
+  '*.travellers',
+  '*.firstName',
+  '*.lastName',
+  '*.contactPhone',
+  '*.phone',
+  '*.dateOfBirth',
 ];
 
 export function createLogger(env: Pick<Env, 'LOG_LEVEL' | 'LOG_FORMAT' | 'NODE_ENV'>): Logger {

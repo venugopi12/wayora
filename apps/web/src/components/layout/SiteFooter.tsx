@@ -134,7 +134,7 @@ export function SiteFooter() {
           <p className="flex flex-wrap gap-x-3 gap-y-1">
             <span>© {year} Wayora</span>
             <span aria-hidden="true">·</span>
-            <span>Booking isn&apos;t available yet.</span>
+            <span>Demo bookings only: no real reservations or payments.</span>
           </p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <nav aria-label="Legal">

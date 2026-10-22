@@ -7,7 +7,7 @@ import { INFO_PATHS } from '../../features/navigation/config';
 
 /** What an account does today. Keep this list true: no features that don't exist. */
 const ACCOUNT_POINTS = [
-  'Save the people you travel with, ready for when booking opens.',
+  'Save the people you travel with, ready to fill in demo booking forms.',
   'Sign in on any device and sign out of all of them at once.',
   'Your password is stored only as a one-way hash.',
 ] as const;

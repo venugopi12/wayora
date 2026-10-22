@@ -416,8 +416,7 @@ describe('/discover/:slug', () => {
       'Cabs in Kyoto',
       'Holiday packages in Kyoto',
     ]);
-    for (const link of links)
-      expect(link).toHaveAccessibleDescription(/demo search · booking later/i);
+    for (const link of links) expect(link).toHaveAccessibleDescription(/demo search and booking/i);
     fireEvent.click(within(list).getByRole('link', { name: 'Flights to Kyoto' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Flights' })).toBeInTheDocument();
     expect(router.state.location.search).toBe('?to=kyoto');

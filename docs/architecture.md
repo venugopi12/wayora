@@ -66,12 +66,15 @@ service later, if scale or team structure demands it, without a rewrite.
 | metro         | city ticket products                                        | Per-city adapters                                     |
 | cabs          | quotes, rides                                               | Quote → book → track                                  |
 | holidays      | packages, itineraries                                       | Composes other modules' services                      |
-| orders        | `orders`, `bookings`, `booking_items`, `idempotency_keys`   | The only writer of order state                        |
+| bookings      | `bookings`, `booking_travellers`, `booking_status_events`   | Built (Phase 12, demo only): `modules/bookings`       |
+| orders        | `orders`, `booking_items`, `idempotency_keys`               | The only writer of order state                        |
 | payments      | payment intents, refunds, PSP webhooks via `webhook_events` | Never sees raw card data                              |
 | notifications | templates, delivery log                                     | Executed by the worker                                |
 
 Every travel vertical produces `Booking` + `BookingItem` rows through the orders
 module, so one order can combine a flight, a hotel and a cab, and payment happens once.
+Phase 12 demo bookings have no order (`order_id` is null) and no items; see
+[bookings.md](bookings.md).
 
 ### Adding a module
 
@@ -149,7 +152,9 @@ native query engine at runtime).
 | `audit_logs`       | Append-only record of security- and money-relevant actions                               |
 
 Phase 8 added `sessions` (hashed session tokens with expiry and revocation); see
-[auth.md](auth.md).
+[auth.md](auth.md). Phase 12 gave `bookings` its first writer (demo bookings, owned
+by a user, with an immutable offer snapshot) and added `booking_travellers` and
+`booking_status_events`; see [bookings.md](bookings.md#database).
 
 ### Conventions
 
@@ -213,6 +218,7 @@ src/
 │                info (about, help, legal drafts),
 │                auth (session provider, guards, sign-in/registration),
 │                account (profile, saved travellers),
+│                bookings (demo checkout, confirmation, My trips, Phase 12),
 │                preferences (display currency),
 │                design-system (dev-only showcase)
 ├── services/    API calls per domain, built on the shared api client
@@ -243,7 +249,7 @@ src/
   A metric-matched local fallback (`Plus Jakarta Sans Fallback` in
   `packages/ui/src/styles/base.css`) keeps text from rewrapping when the font
   swaps in.
-- **Routes:** `/` (cinematic homepage, header overlay), `/status` (API readiness), `/discover` (filters in the URL: `?q`, `?mood`, `?region`; old `?destination=` links redirect), `/discover/:slug` (destination pages), `/about`, `/help`, `/legal/privacy` and `/legal/terms` (draft placeholders), `/login` and `/register` (auth layout; `/sign-in` redirects), `/profile` and `/profile/travellers` (signed in only), one route per travel service (`/flights` … `/holidays`, search and results pages since Phases 9–10, see [search.md](search.md); `?to=<destination>` prefills the destination), `/offers/:serviceType/:resultId` (offer details), dev-only `/design-system`, and a not-found fallback. Layouts, route handles, containers, breadcrumbs and the footer: see [layouts.md](layouts.md).
+- **Routes:** `/` (cinematic homepage, header overlay), `/status` (API readiness), `/discover` (filters in the URL: `?q`, `?mood`, `?region`; old `?destination=` links redirect), `/discover/:slug` (destination pages), `/about`, `/help`, `/legal/privacy` and `/legal/terms` (draft placeholders), `/login` and `/register` (auth layout; `/sign-in` redirects), `/profile` and `/profile/travellers` (signed in only), one route per travel service (`/flights` … `/holidays`, search and results pages since Phases 9–10, see [search.md](search.md); `?to=<destination>` prefills the destination), `/offers/:serviceType/:resultId` (offer details), `/book/:serviceType/:resultId` (demo checkout), `/trips`, `/trips/:reference` and `/trips/:reference/confirmation` (demo bookings, signed in only, see [bookings.md](bookings.md)), dev-only `/design-system`, and a not-found fallback. Layouts, route handles, containers, breadcrumbs and the footer: see [layouts.md](layouts.md).
 - **Code splitting:** the homepage, not-found page and error boundary ship in the
   main bundle. `/status`, `/discover`, `/discover/:slug`, `/sign-in`, the info
   and legal pages and the seven service pages load on first visit through React

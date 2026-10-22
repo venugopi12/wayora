@@ -3,8 +3,11 @@
 Wayora is a travel platform for flights, hotels, trains, buses, metro, cabs and
 holiday packages. This repository holds the platform foundation, design system,
 navigation, cinematic homepage, shared UI and motion library, destination
-discovery, and the global footer and layout system (Phases 1–7). Discover runs on a small, labelled sample dataset. No
-booking flows exist yet.
+discovery, the global footer and layout system (Phases 1–7), accounts (Phase 8),
+demo search, results and offers for all seven categories (Phases 9–11), and demo
+bookings with My trips (Phase 12). Search and Discover run on small, labelled
+sample datasets. Bookings are **demo bookings**: no supplier reservation, ticket
+or payment is ever made.
 
 | Workspace            | What it is                                                                                       |
 | -------------------- | ------------------------------------------------------------------------------------------------ |
@@ -80,6 +83,7 @@ is missing. See the `.env.example` next to each app and
 - [Layouts and footer](docs/layouts.md): route tree, containers and spacing tokens, breadcrumbs, footer config, content that needs legal review
 - [Destination discovery](docs/discover.md): `/discover` and `/discover/:slug`, the sample dataset, search and filters, how to add a destination
 - [Travel search, results and offers](docs/search.md): provider adapters, contracts, Redis search sessions, offer validation and revalidation, error codes, timeouts/retries/circuit breakers, filters and sorting, results pages, offer details, URL state, demo data, adding a supplier
+- [Demo bookings](docs/bookings.md): journey, statuses, API, idempotency, database and migration (with rollback), My trips, limitations
 - [Authentication and accounts](docs/auth.md): sessions, cookies and CSRF, endpoints, migration, how to run the account tests, limitations
 - [Security](docs/security.md): current controls and the plan for payments and providers
 
@@ -98,4 +102,7 @@ is missing. See the `.env.example` next to each app and
 | GET/POST/PATCH/DELETE | `/api/v1/users/me/travellers[/:id]`                            | Saved travellers                                                                        |
 | POST                  | `/api/v1/search/:serviceType`                                  | Demo search for one category ([search.md](docs/search.md))                              |
 | GET                   | `/api/v1/search/:serviceType/sessions/:searchId/offer`         | One validated offer from a stored search ([search.md](docs/search.md#offer-validation)) |
+| POST                  | `/api/v1/bookings`                                             | Create a demo booking (`Idempotency-Key` required; [bookings.md](docs/bookings.md))     |
+| GET                   | `/api/v1/bookings[/:reference]`                                | Your demo bookings (`?view=upcoming\|past\|cancelled&page=`), or one                    |
+| POST                  | `/api/v1/bookings/:reference/cancel`                           | Cancel a demo booking (status change only)                                              |
 | GET                   | `/api/v1/providers`                                            | Search provider capabilities                                                            |

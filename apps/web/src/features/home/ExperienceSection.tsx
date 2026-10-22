@@ -16,7 +16,7 @@ const CHAPTERS = [
   },
   {
     title: 'Your trip, kept together.',
-    body: 'As booking opens, tickets, stays and transfers will sit in one itinerary you can come back to. It is on the roadmap, not live yet.',
+    body: 'Your demo bookings already sit together in My trips. Real tickets, stays and transfers will join them as real booking opens; that part is on the roadmap.',
   },
 ] as const;
 

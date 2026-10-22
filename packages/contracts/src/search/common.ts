@@ -145,7 +145,7 @@ export const searchPriceSchema = z.discriminatedUnion('kind', [
 ]);
 export type SearchPrice = z.infer<typeof searchPriceSchema>;
 
-/** Where a result came from. `demo` results are fixtures: not live, not bookable. */
+/** Where a result came from. `demo` results are fixtures: not live; bookable only as demo bookings. */
 export const dataSourceSchema = z.enum(['demo', 'live']);
 export type DataSource = z.infer<typeof dataSourceSchema>;
 
@@ -203,4 +203,4 @@ export const paginationSchema = z.object({
 export type Pagination = z.infer<typeof paginationSchema>;
 
 export const DEMO_DATA_DISCLAIMER =
-  'Demo data: these results come from Wayora’s built-in sample fixtures, not from airlines, hotels or other travel providers. Prices, times and services are illustrative, availability is not checked, and nothing can be booked.';
+  'Demo data: these results come from Wayora’s built-in sample fixtures, not from airlines, hotels or other travel providers. Prices, times and services are illustrative, availability is not checked, and bookings are demo bookings only: no real reservation, ticket or payment is made.';

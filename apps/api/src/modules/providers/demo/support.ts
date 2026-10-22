@@ -12,7 +12,8 @@ import {
  * are reproducible. Nothing here is random and nothing reads the network.
  */
 
-export const DEMO_VERSION = '2026-10-21.1';
+// 2026-10-22.1: flight and cab offers carry the party they are priced for (Phase 12).
+export const DEMO_VERSION = '2026-10-22.1';
 /** Demo answers are instant; the limit still applies so the plumbing is exercised. */
 export const DEMO_TIMEOUT_MS = 2_000;
 /** How long a demo price is labelled indicative. */

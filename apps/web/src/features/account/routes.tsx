@@ -1,9 +1,8 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LogOut, MonitorSmartphone, Pencil, Plus, Trash2, UserRound, Users } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { LogOut, MonitorSmartphone, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { NavLink } from 'react-router';
 import { z } from 'zod';
 import {
   MAX_TRAVELLERS_PER_USER,
@@ -18,7 +17,6 @@ import {
   Alert,
   Avatar,
   Button,
-  Container,
   Dialog,
   DialogClose,
   DialogContent,
@@ -28,7 +26,6 @@ import {
   Input,
   Select,
   Skeleton,
-  cn,
   useToast,
 } from '@wayora/ui';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
@@ -44,7 +41,7 @@ import { authKeys, useAuth } from '../auth/AuthProvider';
 import { applyServerError } from '../auth/form-errors';
 import { FormMessage } from '../auth/FormMessage';
 import { useSignOut } from '../auth/useSignOut';
-import { ACCOUNT_PATHS } from '../navigation/config';
+import { AccountShell, Panel } from './AccountShell';
 import { countryName, countryOptions } from './countries';
 
 /*
@@ -52,88 +49,6 @@ import { countryName, countryOptions } from './countries';
  * signed-in user is guaranteed here; every request is still checked by the
  * API (the session cookie, never a client-supplied id, decides whose data).
  */
-
-const ACCOUNT_NAV = [
-  { to: ACCOUNT_PATHS.profile, label: 'Profile', icon: UserRound },
-  { to: ACCOUNT_PATHS.travellers, label: 'Saved travellers', icon: Users },
-] as const;
-
-function AccountShell({
-  title,
-  description,
-  actions,
-  children,
-}: {
-  title: string;
-  description: ReactNode;
-  actions?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <Container className="py-section-sm">
-      <div className="grid gap-8 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-12">
-        <nav aria-label="Account" className="lg:pt-2">
-          <ul className="flex gap-1 overflow-x-auto lg:flex-col">
-            {ACCOUNT_NAV.map(({ to, label, icon: Icon }) => (
-              <li key={to} className="shrink-0">
-                <NavLink
-                  to={to}
-                  end
-                  className={cn(
-                    'flex min-h-11 items-center gap-2.5 rounded-md px-3 text-body-sm text-ink-secondary',
-                    'hover:bg-brand-soft hover:text-brand-ink',
-                    'aria-[current=page]:bg-brand-soft aria-[current=page]:font-semibold aria-[current=page]:text-brand-ink',
-                  )}
-                >
-                  <Icon className="size-4" aria-hidden="true" />
-                  {label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        <div className="flex min-w-0 flex-col gap-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex max-w-2xl flex-col gap-2">
-              <h1 className="text-heading-1">{title}</h1>
-              <p className="text-body text-ink-secondary">{description}</p>
-            </div>
-            {actions ? <div className="shrink-0">{actions}</div> : null}
-          </div>
-          {children}
-        </div>
-      </div>
-    </Container>
-  );
-}
-
-function Panel({
-  title,
-  description,
-  children,
-  className,
-}: {
-  title: string;
-  description?: ReactNode;
-  children: ReactNode;
-  className?: string;
-}) {
-  const id = `panel-${title.toLowerCase().replace(/\W+/g, '-')}`;
-  return (
-    <section
-      aria-labelledby={id}
-      className={cn('rounded-xl border border-line bg-card p-5 shadow-xs sm:p-7', className)}
-    >
-      <div className="mb-5 flex flex-col gap-1">
-        <h2 id={id} className="text-title">
-          {title}
-        </h2>
-        {description ? <p className="text-body-sm text-ink-secondary">{description}</p> : null}
-      </div>
-      {children}
-    </section>
-  );
-}
 
 const memberSince = (iso: string) =>
   new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date(iso));
@@ -579,7 +494,7 @@ export function TravellersRoute() {
   return (
     <AccountShell
       title="Saved travellers"
-      description="The people you travel with. Their names and details will fill in booking forms when booking opens."
+      description="The people you travel with. Their names fill in demo booking forms, so you don’t retype them."
       actions={travellers.isSuccess && list.length > 0 ? addButton : undefined}
     >
       {travellers.isPending ? (

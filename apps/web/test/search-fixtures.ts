@@ -77,6 +77,7 @@ export function flight(
     ...base('demo-flights', ref, `${number} · Nonstop`),
     price: total(rupees, rupees, 'adult'),
     cabinClass: 'economy',
+    passengers: { adults: 1, children: 0, infants: 0 },
     itineraries: [
       {
         direction: 'outbound',
@@ -114,6 +115,7 @@ export function connectingFlight(rupees: number): FlightResult {
     ...base('demo-flights', ref, 'KDA 431, KDA 462 · 1 stop'),
     price: total(rupees, rupees, 'adult'),
     cabinClass: 'economy',
+    passengers: { adults: 1, children: 0, infants: 0 },
     itineraries: [
       {
         direction: 'outbound',
@@ -260,6 +262,7 @@ export const cab: CabResult = {
   },
   pickupAt: at(utcDateFromToday(5), 9 * 60 + 30),
   distanceKm: 42,
+  passengers: 1,
   durationMinutes: 70,
 };
 

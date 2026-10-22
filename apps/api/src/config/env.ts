@@ -107,6 +107,8 @@ export const envSchema = z.object({
     ),
   /** Searches per client IP per minute (on top of RATE_LIMIT_MAX). */
   SEARCH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
+  /** Booking creations and cancellations per signed-in user per minute (docs/bookings.md). */
+  BOOKING_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   /**
    * Where search sessions live (docs/search.md#search-sessions). `redis` keeps
    * them across API restarts and instances; `memory` is per process and only

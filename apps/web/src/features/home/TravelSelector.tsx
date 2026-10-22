@@ -137,8 +137,8 @@ export function TravelSelector() {
             </h2>
             <p className="text-caption text-ink-secondary">
               {anySearch
-                ? 'Try any service with demo search. Booking opens in a later phase.'
-                : 'Booking opens service by service in later phases.'}
+                ? 'Search and make demo bookings in any service. No real reservations or payments.'
+                : 'Demo booking opens with each service’s demo search.'}
             </p>
           </div>
 

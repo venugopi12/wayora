@@ -9,7 +9,7 @@ export function NotFoundRoute() {
     <FullPageMessage
       code="404"
       title="This page isn't on the map"
-      description="The address may be mistyped, or the page may not exist yet. Booking pages arrive in later phases."
+      description="The address may be mistyped, or the page may not exist yet."
       actions={
         <Button asChild>
           <Link to="/">Go to the home page</Link>

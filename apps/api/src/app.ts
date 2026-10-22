@@ -8,10 +8,15 @@ import { demoProvidersEnabled, type Env } from './config/env.js';
 import { requireTrustedOrigin } from './middleware/csrf.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { httpLogger } from './middleware/http-logger.js';
-import { apiRateLimiter, searchRateLimiter } from './middleware/rate-limit.js';
+import {
+  apiRateLimiter,
+  bookingWriteRateLimiter,
+  searchRateLimiter,
+} from './middleware/rate-limit.js';
 import { requestId } from './middleware/request-id.js';
-import { loadSession } from './middleware/session.js';
+import { currentUser, loadSession } from './middleware/session.js';
 import { AuthService } from './modules/auth/auth.service.js';
+import { BookingsService } from './modules/bookings/bookings.service.js';
 import { SessionService } from './modules/auth/session.service.js';
 import { DEMO_PROVIDERS } from './modules/providers/demo/index.js';
 import type { SearchProvider } from './modules/providers/provider.js';
@@ -105,7 +110,13 @@ export function createApp({
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', REQUEST_ID_HEADER],
-      exposedHeaders: [REQUEST_ID_HEADER, 'RateLimit', 'RateLimit-Policy', 'Retry-After'],
+      exposedHeaders: [
+        REQUEST_ID_HEADER,
+        'RateLimit',
+        'RateLimit-Policy',
+        'Retry-After',
+        'Idempotent-Replayed',
+      ],
       maxAge: 600,
     }),
   );
@@ -122,7 +133,7 @@ export function createApp({
     }),
   );
 
-  let accounts: AccountsRouterOptions | undefined;
+  let accounts: Omit<AccountsRouterOptions, 'bookings'> | undefined;
   if (prisma) {
     const secure = env.NODE_ENV === 'production';
     const sessions = createSessionService(prisma, env, now);
@@ -173,6 +184,26 @@ export function createApp({
     },
   });
   const searchStore = createRateLimitStore?.('search');
+  const bookingStore = createRateLimitStore?.('bookings');
+  // Bookings need the database and the search sessions their offers come from.
+  const accountRoutes: AccountsRouterOptions | undefined =
+    accounts && prisma
+      ? {
+          ...accounts,
+          bookings: new BookingsService({
+            prisma,
+            search,
+            registry,
+            logger,
+            ...(now ? { now } : {}),
+          }),
+          bookingLimiter: bookingWriteRateLimiter({
+            max: env.BOOKING_RATE_LIMIT_MAX,
+            userIdOf: (res) => currentUser(res).id,
+            ...(bookingStore ? { store: bookingStore } : {}),
+          }),
+        }
+      : undefined;
 
   app.use(
     API_V1_PREFIX,
@@ -186,7 +217,7 @@ export function createApp({
           ...(searchStore ? { store: searchStore } : {}),
         }),
       },
-      ...(accounts ? { accounts } : {}),
+      ...(accountRoutes ? { accounts: accountRoutes } : {}),
     }),
   );
 
