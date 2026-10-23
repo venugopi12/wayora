@@ -151,6 +151,74 @@ describe('admin pages', JOURNEY, () => {
     expect(screen.getByText(/Viewing this page is recorded in the audit log/)).toBeInTheDocument();
   });
 
+  it('bookings: category and status filters, then a read-only detail view', async () => {
+    const api = installFakeAdminApi();
+    const { router } = renderRoute('/admin/bookings');
+    const table = await screen.findByRole('table', { name: 'Bookings' });
+    expect(within(table).getAllByRole('row')).toHaveLength(4);
+    expect(within(table).getAllByText('Demo')).toHaveLength(3);
+
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'hotels' } });
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'confirmed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() =>
+      expect(router.state.location.search).toBe('?serviceType=hotels&status=confirmed'),
+    );
+    await waitFor(() =>
+      expect(api.adminRequests()).toContain(
+        '/admin/bookings?serviceType=hotels&status=confirmed&page=1',
+      ),
+    );
+    const filtered = await screen.findByRole('table', { name: 'Bookings' });
+    await waitFor(() => expect(within(filtered).getAllByRole('row')).toHaveLength(2));
+
+    fireEvent.click(within(filtered).getByRole('link', { name: 'WYD-AAAA-AAAA' }));
+    await screen.findByRole('region', { name: 'Status history' });
+    expect(screen.getByText('None (no supplier was contacted)')).toBeInTheDocument();
+    expect(screen.getByText('•••• 3210')).toBeInTheDocument();
+    expect(screen.getByText(/no ticket, PNR or real reservation exists/)).toBeInTheDocument();
+    expect(within(screen.getByRole('main')).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('payments: status and mode filters; demo attempts are labelled', async () => {
+    const api = installFakeAdminApi();
+    const { router } = renderRoute('/admin/payments');
+    const table = await screen.findByRole('table', { name: 'Payment attempts' });
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'failed' } });
+    fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'demo' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(router.state.location.search).toBe('?status=failed&mode=demo'));
+    await waitFor(() =>
+      expect(api.adminRequests()).toContain('/admin/payments?status=failed&mode=demo&page=1'),
+    );
+    const filtered = await screen.findByRole('table', { name: 'Payment attempts' });
+    await waitFor(() => expect(within(filtered).getAllByRole('row')).toHaveLength(2));
+    expect(within(filtered).getByText('Failed')).toBeInTheDocument();
+    expect(within(filtered).getByText('Demo')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'live' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(await screen.findByText('No payments match')).toBeInTheDocument();
+  });
+
+  it('audit log pages through entries', async () => {
+    const api = installFakeAdminApi();
+    const { router } = renderRoute('/admin/audit');
+    const table = await screen.findByRole('table', { name: 'Audit entries' });
+    expect(within(table).getAllByRole('row')).toHaveLength(26);
+    expect(screen.getByText(/30 results · page 1 of 2/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    await waitFor(() => expect(router.state.location.search).toBe('?page=2'));
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('table', { name: 'Audit entries' })).getAllByRole('row'),
+      ).toHaveLength(6),
+    );
+    expect(api.adminRequests()).toContain('/admin/audit-logs?page=2');
+    expect(screen.getByRole('button', { name: /Next/ })).toBeDisabled();
+  });
+
   it('shows an empty state, a not-found state and a retry after an error', async () => {
     const api = installFakeAdminApi({ users: [] });
     renderRoute('/admin/users');

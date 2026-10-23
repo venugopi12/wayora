@@ -297,6 +297,20 @@ describe.skipIf(!TEST_DATABASE_URL)('admin dashboard (integration, real PostgreS
       expect(forged.status).toBe(403);
     });
 
+    it('the general API rate limit applies to admin endpoints', async () => {
+      const limited = buildTestApp({
+        prisma: testPrisma(),
+        env: { ...BASE_ENV, RATE_LIMIT_MAX: 6 },
+        logger: pino({ level: 'silent' }),
+      });
+      const admin = await staff(limited, 'admin@example.com', 'admin'); // 1 request
+      const statuses: number[] = [];
+      for (let i = 0; i < 7; i += 1)
+        statuses.push((await admin.get('/api/v1/admin/overview')).status);
+      expect(statuses.slice(0, 5).every((s) => s === 200)).toBe(true);
+      expect(statuses.at(-1)).toBe(429);
+    });
+
     it('responses are no-store and queries are validated strictly', async () => {
       const admin = await staff(app(), 'admin@example.com', 'admin');
       const ok = await admin.get('/api/v1/admin/users');
@@ -650,6 +664,18 @@ describe.skipIf(!TEST_DATABASE_URL)('admin dashboard (integration, real PostgreS
         (await admin.get('/api/v1/admin/audit-logs?action=user.role')).body.data,
       );
       expect(filtered.items.every((e) => e.action.startsWith('user.role'))).toBe(true);
+
+      // Pages are disjoint and complete.
+      const total = log.pagination.totalResults;
+      const seen: string[] = [];
+      for (let page = 1; page <= total; page += 1) {
+        const one = adminAuditListSchema.parse(
+          (await admin.get(`/api/v1/admin/audit-logs?pageSize=1&page=${page}`)).body.data,
+        );
+        expect(one.items).toHaveLength(1);
+        seen.push(one.items[0]!.id);
+      }
+      expect(new Set(seen).size).toBe(total);
 
       await expect(testPrisma().$executeRaw`UPDATE audit_logs SET action = 'x'`).rejects.toThrow();
       await expect(testPrisma().$executeRaw`DELETE FROM audit_logs`).rejects.toThrow();

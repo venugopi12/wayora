@@ -1,6 +1,13 @@
 import { vi } from 'vitest';
 import {
   ROLE_PERMISSIONS,
+  adminAuditEntrySchema,
+  adminBookingDetailSchema,
+  adminBookingSummarySchema,
+  adminPaymentSummarySchema,
+  type AdminAuditEntry,
+  type AdminBookingSummary,
+  type AdminPaymentSummary,
   adminHealthSchema,
   adminOverviewSchema,
   adminUserDetailSchema,
@@ -105,6 +112,54 @@ export const HEALTH: AdminHealth = adminHealthSchema.parse({
   payments: { status: 'up', inProgress: 0, oldestInProgressAt: null },
 });
 
+const REFS = ['WYD-AAAA-AAAA', 'WYD-BBBB-BBBB', 'WYD-CCCC-CCCC'];
+export const BOOKINGS: AdminBookingSummary[] = REFS.map((reference, i) =>
+  adminBookingSummarySchema.parse({
+    reference,
+    serviceType: i === 1 ? 'cabs' : 'hotels',
+    status: i === 2 ? 'cancelled' : 'confirmed',
+    demo: true,
+    paymentMode: i === 1 ? 'none' : 'demo',
+    userId: '01890000-0000-7000-b000-000000000001',
+    userEmail: 'traveller1@example.com',
+    total: i === 1 ? null : { amountMinor: '1170000', currency: 'INR' },
+    startsOn: '2026-11-12',
+    createdAt: new Date(Date.UTC(2026, 9, 20 - i)).toISOString(),
+  }),
+);
+export const PAYMENTS: AdminPaymentSummary[] = [
+  ['succeeded', 0],
+  ['failed', 2],
+].map(([status, i]) =>
+  adminPaymentSummarySchema.parse({
+    id: `01890000-0000-7000-a000-00000000000${i}`,
+    bookingReference: REFS[i as number],
+    userId: '01890000-0000-7000-b000-000000000001',
+    attempt: 1,
+    status,
+    mode: 'demo',
+    provider: 'demo',
+    amount: { amountMinor: '1170000', currency: 'INR' },
+    demoScenario: status === 'failed' ? 'decline' : 'succeed',
+    refundRequired: false,
+    createdAt: '2026-10-20T10:00:00.000Z',
+    completedAt: '2026-10-20T10:00:01.000Z',
+  }),
+);
+const AUDIT: AdminAuditEntry[] = Array.from({ length: 30 }, (_, i) =>
+  adminAuditEntrySchema.parse({
+    id: `01890000-0000-7000-9000-${String(i).padStart(12, '0')}`,
+    at: new Date(Date.UTC(2026, 9, 23, 10) - i * 60_000).toISOString(),
+    actorType: 'admin',
+    actorId: '01890000-0000-7000-8000-000000000001',
+    action: i % 2 ? 'admin.user_viewed' : 'admin.booking_viewed',
+    entityType: i % 2 ? 'user' : 'booking',
+    entityId: `entity-${i}`,
+    requestId: null,
+    metadata: { role: 'admin' },
+  }),
+);
+
 export function adminUser(i: number, overrides: Partial<AdminUserSummary> = {}): AdminUserSummary {
   return adminUserSummarySchema.parse({
     id: `01890000-0000-7000-b000-${String(i).padStart(12, '0')}`,
@@ -142,6 +197,7 @@ export function installFakeAdminApi({
 
   const handle = (url: URL): Response => {
     const path = url.pathname.replace(/^\/api\/v1/, '');
+    const page = Number(url.searchParams.get('page') ?? '1');
     requests.push(`${path}${url.search}`);
     if (!account.state.signedIn) return fail(401, 'UNAUTHENTICATED', 'Sign in to continue.');
     if (state.failNext?.path === path) {
@@ -161,7 +217,6 @@ export function installFakeAdminApi({
     if (path === '/admin/health') return ok(HEALTH);
     if (path === '/admin/users') {
       const q = url.searchParams.get('q')?.toLowerCase();
-      const page = Number(url.searchParams.get('page') ?? '1');
       const pageSize = 25;
       const matched = users.filter(
         (u) => !q || u.email.includes(q) || (u.name ?? '').toLowerCase().includes(q),
@@ -200,11 +255,59 @@ export function installFakeAdminApi({
         }),
       );
     }
-    if (path === '/admin/audit-logs')
-      return ok({
-        items: [],
-        pagination: { page: 1, pageSize: 25, totalResults: 0, totalPages: 0 },
-      });
+    const pageOf = <T>(rows: T[], size = 25) => ({
+      items: rows.slice((page - 1) * size, page * size),
+      pagination: {
+        page,
+        pageSize: size,
+        totalResults: rows.length,
+        totalPages: Math.ceil(rows.length / size),
+      },
+    });
+    if (path === '/admin/audit-logs') return ok(pageOf(AUDIT));
+    if (path === '/admin/bookings') {
+      const type = url.searchParams.get('serviceType');
+      const status = url.searchParams.get('status');
+      return ok(
+        pageOf(
+          BOOKINGS.filter(
+            (b) => (!type || b.serviceType === type) && (!status || b.status === status),
+          ),
+        ),
+      );
+    }
+    const bookingMatch = /^\/admin\/bookings\/([^/]+)$/.exec(path);
+    if (bookingMatch) {
+      const b = BOOKINGS.find((x) => x.reference === bookingMatch[1]);
+      if (!b) return fail(404, 'NOT_FOUND', 'There is no booking with that reference.');
+      return ok(
+        adminBookingDetailSchema.parse({
+          ...b,
+          providerName: 'Wayora demo hotels',
+          supplierReference: null,
+          partySize: 2,
+          endsOn: null,
+          paymentDueAt: null,
+          confirmedAt: b.status === 'confirmed' ? b.createdAt : null,
+          cancelledAt: null,
+          travellers: [{ firstName: 'Asha', lastName: 'Rao', type: null }],
+          contactPhoneMasked: '•••• 3210',
+          offerSnapshot: { v: 1 },
+          history: [{ status: b.status, at: b.createdAt, by: 'user', note: null }],
+          payments: PAYMENTS.filter((p) => p.bookingReference === b.reference),
+          notifications: [],
+        }),
+      );
+    }
+    if (path === '/admin/payments') {
+      const status = url.searchParams.get('status');
+      const mode = url.searchParams.get('mode');
+      return ok(
+        pageOf(
+          PAYMENTS.filter((p) => (!status || p.status === status) && (!mode || p.mode === mode)),
+        ),
+      );
+    }
     return fail(404, 'NOT_FOUND', 'Not found.');
   };
 
