@@ -7,6 +7,7 @@ import {
 } from 'express-rate-limit';
 import type { Response } from 'express';
 import type { Redis } from 'ioredis';
+import { errorForLog } from '../utils/log-safety.js';
 import type { Logger } from '../utils/logger.js';
 import { sendError } from '../utils/respond.js';
 
@@ -77,7 +78,7 @@ export class ResilientRedisStore implements Store {
     if (now - this.lastWarnAt < 60_000) return;
     this.lastWarnAt = now;
     this.logger.warn(
-      { err: error },
+      { err: errorForLog(error) },
       'Rate-limit store: Redis unavailable, using in-memory fallback',
     );
   }

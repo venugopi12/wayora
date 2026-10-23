@@ -116,6 +116,8 @@ describe('auth configuration', () => {
         NODE_ENV: 'production',
         CORS_ORIGIN: 'https://wayora.example',
         WEB_ORIGIN: 'https://wayora.example',
+        API_BASE_URL: 'https://api.wayora.example',
+        DATABASE_URL: 'postgresql://wayora:prod-secret@db.internal:5432/wayora',
       }).NODE_ENV,
     ).toBe('production');
   });

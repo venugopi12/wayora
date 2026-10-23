@@ -2,7 +2,8 @@
 #
 # Runs on every push to main and every pull request:
 #   install → Prisma engine check → migrations + drift check (PostgreSQL)
-#   → lint → format → typecheck → tests (incl. PostgreSQL and Redis integration) → build.
+#   → lint → format → typecheck → tests (incl. PostgreSQL and Redis integration)
+#   → dependency audit → build.
 #
 # Run the same steps locally: see docs/SETUP.md#continuous-integration.
 name: CI
@@ -111,5 +112,15 @@ jobs:
       - name: Test
         run: npm test
 
+      # Known vulnerabilities in what ships (devDependencies excluded). Fails on
+      # high or critical advisories; see docs/deployment.md#dependencies.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      # Production builds refuse to run without an explicit API URL
+      # (apps/web/config/security-headers.ts). CI builds against a local one;
+      # real releases set the public HTTPS URL.
       - name: Build
         run: npm run build
+        env:
+          VITE_API_BASE_URL: http://localhost:4000

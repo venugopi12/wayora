@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type RequestHandler } from 'express';
 import {
   notificationListQuerySchema,
   notificationParamsSchema,
@@ -21,7 +21,12 @@ import type { NotificationsService } from './notifications.service.js';
  * GET   /notifications/preferences
  * PATCH /notifications/preferences
  */
-export function notificationsRouter(notifications: NotificationsService): Router {
+export function notificationsRouter(
+  notifications: NotificationsService,
+  /** Per-user limit on writes (mark read, read all, preferences). */
+  writeLimiter?: RequestHandler,
+): Router {
+  const limit: RequestHandler[] = writeLimiter ? [writeLimiter] : [];
   const router = Router();
   router.use(noStore, requireAuth);
 
@@ -34,7 +39,7 @@ export function notificationsRouter(notifications: NotificationsService): Router
     sendData(res, { unread: await notifications.unreadCount(currentUser(res).id) });
   });
 
-  router.post('/read-all', async (_req, res) => {
+  router.post('/read-all', ...limit, async (_req, res) => {
     sendData(res, await notifications.markAllRead(currentUser(res).id));
   });
 
@@ -42,12 +47,12 @@ export function notificationsRouter(notifications: NotificationsService): Router
     sendData(res, await notifications.preferences(currentUser(res).id));
   });
 
-  router.patch('/preferences', async (req, res) => {
+  router.patch('/preferences', ...limit, async (req, res) => {
     const { body } = validateRequest(req, { body: updateNotificationPreferencesSchema });
     sendData(res, await notifications.updatePreferences(currentUser(res).id, body));
   });
 
-  router.patch('/:notificationId/read', async (req, res) => {
+  router.patch('/:notificationId/read', ...limit, async (req, res) => {
     const { params } = validateRequest(req, { params: notificationParamsSchema });
     sendData(res, await notifications.markRead(currentUser(res).id, params.notificationId));
   });

@@ -35,6 +35,8 @@ export interface AccountsRouterOptions {
   paymentLimiter?: RequestHandler;
   /** Notifications (Phase 14). */
   notifications: NotificationsService;
+  /** Per-user limit on notification writes. */
+  notificationLimiter?: RequestHandler;
   /** Admin dashboard (Phase 15, docs/admin.md). */
   admin: AdminRouterOptions;
   logger: Logger;
@@ -67,6 +69,7 @@ export function v1Router(options: V1RouterOptions): Router {
       payments,
       paymentLimiter,
       notifications,
+      notificationLimiter,
       admin,
       logger,
     } = options.accounts;
@@ -79,7 +82,11 @@ export function v1Router(options: V1RouterOptions): Router {
     );
     router.use('/bookings', loadSession, bookingsRouter(bookings, bookingLimiter));
     router.use('/payments', loadSession, paymentsRouter(payments, paymentLimiter));
-    router.use('/notifications', loadSession, notificationsRouter(notifications));
+    router.use(
+      '/notifications',
+      loadSession,
+      notificationsRouter(notifications, notificationLimiter),
+    );
     router.use('/admin', loadSession, adminRouter(admin));
     // Signed provider webhooks: no session; only providers that verify signatures.
     router.use('/payment-events', paymentEventsRouter(payments, logger));

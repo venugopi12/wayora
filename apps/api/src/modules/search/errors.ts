@@ -72,42 +72,5 @@ export function revalidationFailedError(outcome: FailedOutcome | 'invalid'): App
 export const STORE_UNAVAILABLE_MESSAGE =
   'Search is temporarily unavailable. Please try again in a moment.';
 
-const MAX_LOGGED_MESSAGE = 300;
-
-/**
- * Removes credentials and noise from text that may come from a supplier
- * (error messages often embed request URLs, keys or tokens):
- * - URLs keep scheme, host and path; user info and query strings go,
- * - `key=value` / `key: value` pairs for secret-looking keys are masked,
- * - bearer/basic credentials are masked (before key/value pairs, so a
- *   masked `Authorization:` key can't shield the token that follows),
- * - the result is truncated.
- */
-export function scrub(text: string): string {
-  return (
-    text
-      .replace(
-        /\b(https?:\/\/)(?:[^\s/@]+@)?([^\s/?#]+)([^\s?#]*)(\?[^\s#]*)?(#\S*)?/gi,
-        (_m, scheme: string, host: string, path: string, query?: string) =>
-          `${scheme}${host}${path}${query ? '?[REDACTED]' : ''}`,
-      )
-      // Auth schemes first, so `Authorization: Bearer <token>` loses the token.
-      .replace(/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 [REDACTED]')
-      .replace(
-        /\b(api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|token|password|passwd|pwd|signature|sig|session|cookie|authorization)\b(["']?\s*[:=]\s*["']?)[^\s"'&,;}]+/gi,
-        '$1$2[REDACTED]',
-      )
-      .slice(0, MAX_LOGGED_MESSAGE)
-  );
-}
-
-/** A failure as it may be logged: class, scrubbed message, and a code if one exists. */
-export function errorForLog(error: unknown): { name: string; message: string; code?: string } {
-  if (!(error instanceof Error)) return { name: 'NonError', message: scrub(String(error)) };
-  const code = (error as { code?: unknown }).code;
-  return {
-    name: error.name,
-    message: scrub(error.message),
-    ...(typeof code === 'string' ? { code: scrub(code) } : {}),
-  };
-}
+// Log scrubbing lives in utils/log-safety.ts (shared by every module).
+export { errorForLog, scrub } from '../../utils/log-safety.js';

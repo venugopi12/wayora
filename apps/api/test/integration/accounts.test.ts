@@ -329,6 +329,14 @@ describe.skipIf(!TEST_DATABASE_URL)('accounts (integration, real PostgreSQL)', (
       expect((await laptop.get('/api/v1/auth/me')).status).toBe(401);
       expect((await phone.get('/api/v1/auth/me')).status).toBe(401);
       expect((await other.get('/api/v1/auth/me')).status).toBe(200);
+
+      // Audited once, with the count and no token or device details.
+      const audit = await testPrisma().auditLog.findMany({
+        where: { action: 'account.sessions_revoked' },
+      });
+      expect(audit).toHaveLength(1);
+      expect(audit[0]).toMatchObject({ actorType: 'USER', metadata: { sessionsRevoked: 2 } });
+      expect(JSON.stringify(audit)).not.toMatch(/wayora_session|user-agent|token/i);
     });
 
     it('purges expired and long-revoked sessions', async () => {

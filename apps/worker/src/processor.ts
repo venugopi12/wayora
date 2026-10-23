@@ -29,7 +29,8 @@ export function createProcessor(logger: Logger, extra: Record<string, Handler> =
 
     try {
       const result = await handler(job.data);
-      log.info('Job completed');
+      // Scheduled jobs complete every few seconds: success is debug-level noise.
+      log.debug('Job completed');
       return result;
     } catch (error) {
       if (error instanceof ZodError) {

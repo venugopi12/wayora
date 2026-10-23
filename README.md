@@ -92,6 +92,7 @@ is missing. See the `.env.example` next to each app and
 - [Admin dashboard](docs/admin.md): roles and permissions, provisioning, API, metric definitions, search analytics, platform health and worker heartbeat, audit log, migration (with rollback)
 - [Authentication and accounts](docs/auth.md): sessions, cookies and CSRF, endpoints, migration, how to run the account tests, limitations
 - [Security](docs/security.md): current controls and the plan for payments and providers
+- [Deployment and release](docs/deployment.md): production configuration, build, backup and migrations, deploying the API/worker/web, health checks, smoke tests, rollback, logs, web server headers
 
 ## API at a glance
 

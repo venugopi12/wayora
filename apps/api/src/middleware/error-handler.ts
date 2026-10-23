@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import { AppError } from '../utils/errors.js';
+import { unexpectedErrorForLog } from '../utils/log-safety.js';
 import type { Logger } from '../utils/logger.js';
 import { sendError } from '../utils/respond.js';
 
@@ -29,7 +30,11 @@ export function errorHandler(logger: Logger, options: { exposeInternals: boolean
     }
 
     if (err instanceof AppError) {
-      if (err.status >= 500) logger.error({ err, requestId: res.locals.requestId }, err.message);
+      if (err.status >= 500)
+        logger.error(
+          { err: unexpectedErrorForLog(err), requestId: res.locals.requestId },
+          err.message,
+        );
       sendError(res, err.status, {
         code: err.code,
         message: err.message,
@@ -63,7 +68,12 @@ export function errorHandler(logger: Logger, options: { exposeInternals: boolean
     }
 
     logger.error(
-      { err, requestId: res.locals.requestId, method: req.method, path: req.path },
+      {
+        err: unexpectedErrorForLog(err),
+        requestId: res.locals.requestId,
+        method: req.method,
+        path: req.path,
+      },
       'Unhandled error',
     );
     sendError(res, 500, {

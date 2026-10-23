@@ -77,7 +77,11 @@ export function authRouter(options: AuthRouterOptions): Router {
   }) satisfies RequestHandler);
 
   router.post('/logout-all', requireAuth, (async (_req, res) => {
-    const sessionsRevoked = await sessions.revokeAllForUser(currentUser(res).id);
+    const userId = currentUser(res).id;
+    const sessionsRevoked = await sessions.revokeAllForUser(userId);
+    await auth.recordSessionsRevoked(userId, sessionsRevoked, {
+      requestId: typeof res.locals.requestId === 'string' ? res.locals.requestId : undefined,
+    });
     clearSessionCookie(res, cookie);
     sendData(res, { signedOut: true, sessionsRevoked });
   }) satisfies RequestHandler);

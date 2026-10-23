@@ -32,21 +32,63 @@ export const workerEnvSchema = z.object({
 });
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;
 
+/** Local development credentials (Docker Compose / .env.example). Refused in production. */
+const DEV_ONLY_CREDENTIALS = ['wayora_local_dev_only', 'wayora_ci_only'];
+
+/**
+ * Production rules a single field can't express. Values are never echoed,
+ * only which variable is wrong.
+ */
+export function productionIssues(env: WorkerEnv): string[] {
+  if (env.NODE_ENV !== 'production') return [];
+  const issues: string[] = [];
+  if (!env.DATABASE_URL) {
+    issues.push(
+      'DATABASE_URL: is required in production (the worker delivers the notification outbox)',
+    );
+  }
+  for (const key of ['DATABASE_URL', 'REDIS_URL'] as const) {
+    const value = env[key];
+    if (value && DEV_ONLY_CREDENTIALS.some((secret) => value.includes(secret))) {
+      issues.push(`${key}: uses a local development password; set the production credentials`);
+    }
+  }
+  if (env.WEB_ORIGIN && !env.WEB_ORIGIN.startsWith('https://')) {
+    issues.push('WEB_ORIGIN: must use https:// in production (it is used in email links)');
+  }
+  return issues;
+}
+
+/** Validates an environment; returns the parsed value or the list of problems. */
+export function validateWorkerEnv(
+  source: Record<string, string | undefined>,
+): { ok: true; env: WorkerEnv } | { ok: false; issues: string[] } {
+  const result = workerEnvSchema.safeParse(source);
+  if (!result.success) {
+    return {
+      ok: false,
+      issues: result.error.issues.map((issue) => {
+        const key = issue.path.join('.');
+        return source[key] === undefined
+          ? `${key}: is required but not set`
+          : `${key}: ${issue.message}`;
+      }),
+    };
+  }
+  const issues = productionIssues(result.data);
+  return issues.length ? { ok: false, issues } : { ok: true, env: result.data };
+}
+
 /** Loads apps/worker/.env (if present) and validates; exits with a clear message on failure. */
 export function loadWorkerEnv(): WorkerEnv {
   const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const file = path.join(appRoot, '.env');
   if (existsSync(file)) process.loadEnvFile(file);
 
-  const result = workerEnvSchema.safeParse(process.env);
-  if (result.success) return result.data;
+  const result = validateWorkerEnv(process.env);
+  if (result.ok) return result.env;
 
-  const lines = result.error.issues.map((issue) => {
-    const key = issue.path.join('.');
-    return process.env[key] === undefined
-      ? `  - ${key}: is required but not set`
-      : `  - ${key}: ${issue.message}`;
-  });
+  const lines = result.issues.map((issue) => `  - ${issue}`);
   process.stderr.write(
     [
       '',

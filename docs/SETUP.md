@@ -205,8 +205,15 @@ on Ubuntu with Node 22 and a PostgreSQL 16 service container:
    suite against Redis (a Redis 7 service container). With `CI` set, a missing
    `TEST_DATABASE_URL` or `TEST_REDIS_URL` fails those suites instead of
    skipping them.
-6. `npm run build` (the web build also checks that no source maps or
-   development-only routes end up in `apps/web/dist`).
+6. `npm audit --omit=dev --audit-level=high`: fails on high or critical
+   advisories in what ships.
+7. `npm run build` with `VITE_API_BASE_URL=http://localhost:4000` (production web
+   builds refuse to run without an explicit API URL). The web build also checks
+   that no source maps or development-only routes end up in `apps/web/dist`.
+
+The workflow uses read-only repository permissions, throwaway service
+containers and CI-only credentials, and never touches a real database.
+Releases are a separate, manual process: [deployment.md](deployment.md).
 
 ### Running the CI steps locally
 
@@ -221,7 +228,9 @@ export DATABASE_URL=$TEST_DATABASE_URL     # Prisma CLI target for the next two 
 npm ci
 npm run db:migrate:deploy
 npm run db:migrate:check
-npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
+npm run lint && npm run format:check && npm run typecheck && npm test
+npm audit --omit=dev --audit-level=high
+npm run build   # VITE_API_BASE_URL comes from apps/web/.env (npm run setup)
 unset DATABASE_URL                         # back to apps' .env files for dev
 ```
 
@@ -257,6 +266,7 @@ binary is never committed.
 | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `Invalid environment configuration` on start                               | Run `npm run setup`, then check the listed variables                                                                                |
 | Readiness shows `unready`, PostgreSQL down                                 | `npm run infra:up`; check `DATABASE_URL` matches `.env` credentials                                                                 |
+| Readiness shows `degraded`, `worker` down                                  | Start the worker (`npm run dev:worker`); it writes a heartbeat to Redis every 15 s                                                  |
 | Readiness shows `degraded`, Redis down                                     | `npm run infra:up`. The API keeps serving; rate limiting falls back to per-process memory                                           |
 | Web shows "Showing the built-in service list"                              | The API isn't running or `VITE_API_BASE_URL` is wrong; start `npm run dev:api`                                                      |
 | Port 5432/6379 already in use                                              | Set `POSTGRES_PORT` / `REDIS_PORT` in root `.env` and update the URLs in the app `.env` files                                       |

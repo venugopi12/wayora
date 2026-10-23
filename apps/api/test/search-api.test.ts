@@ -247,6 +247,7 @@ describe('search session and resilience environment', () => {
     NODE_ENV: 'production',
     CORS_ORIGIN: 'https://wayora.example',
     WEB_ORIGIN: 'https://wayora.example',
+    API_BASE_URL: 'https://api.wayora.example',
   };
 
   it('defaults: Redis sessions when REDIS_URL is set, 10-minute lifetime, bounded resilience', () => {

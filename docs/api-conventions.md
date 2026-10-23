@@ -120,20 +120,25 @@ router.get('/categories/:slug', (req, res) => {
 
 ## Health endpoints
 
-| Endpoint                   | Use                        | Behaviour                                                           |
-| -------------------------- | -------------------------- | ------------------------------------------------------------------- |
-| `GET /api/v1/health`       | Liveness probe             | 200 whenever the process can serve HTTP. Never touches dependencies |
-| `GET /api/v1/health/ready` | Readiness probe, status UI | Probes dependencies in parallel with a timeout each                 |
+| Endpoint                   | Use                        | Behaviour                                                                                                                                |
+| -------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/health`       | Liveness probe             | 200 whenever the process can serve HTTP. Never touches dependencies                                                                      |
+| `GET /api/v1/health/ready` | Readiness probe, status UI | Probes dependencies in parallel with a timeout each; failures say "Not responding" or "Timed out after … ms", never the driver's message |
 
 Readiness `status`:
 
-| Status     | HTTP | Meaning                                                   |
-| ---------- | ---- | --------------------------------------------------------- |
-| `ready`    | 200  | Every essential dependency is up                          |
-| `degraded` | 200  | Essentials are up; an optional dependency (Redis) is down |
-| `unready`  | 503  | An essential dependency (PostgreSQL) is down              |
+| Status     | HTTP | Meaning                                                                              |
+| ---------- | ---- | ------------------------------------------------------------------------------------ |
+| `ready`    | 200  | Every essential dependency is up                                                     |
+| `degraded` | 200  | Essentials are up; an optional dependency (Redis, or the worker's heartbeat) is down |
+| `unready`  | 503  | An essential dependency (PostgreSQL) is down                                         |
 
-Dependency `state` is `up`, `down` or `disabled` (intentionally not configured).
+Dependencies: `postgres` (essential), `redis` (optional) and, since Phase 16,
+`worker` (optional: up only while the worker's own heartbeat in Redis is fresh,
+`disabled` without Redis). A stopped worker degrades readiness instead of taking
+the API out of the load balancer, because the API still serves every request;
+only notification delivery waits. Dependency `state` is `up`, `down` or
+`disabled` (intentionally not configured).
 Health endpoints are exempt from rate limiting and are not access-logged.
 
 ## Rate limiting

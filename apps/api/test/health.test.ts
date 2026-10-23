@@ -57,8 +57,10 @@ describe('GET /api/v1/health/ready (readiness)', () => {
     expect(data.dependencies.find((d) => d.name === 'redis')).toMatchObject({
       state: 'down',
       essential: false,
-      error: 'connect ECONNREFUSED',
+      // The driver's message (hosts, ports) stays in the server logs.
+      error: 'Not responding',
     });
+    expect(JSON.stringify(res.body)).not.toContain('ECONNREFUSED');
   });
 
   it('is unready (503) when essential PostgreSQL is down', async () => {

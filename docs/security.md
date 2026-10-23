@@ -11,7 +11,19 @@ for later phases, so they are built the same way from day one.
 ### Configuration and secrets
 
 - Every app validates its environment at startup with Zod and exits with a clear
-  list of problems. Misconfiguration never reaches runtime.
+  list of problems (variable names and reasons, never values). Misconfiguration
+  never reaches runtime.
+- **Production refuses development defaults** (Phase 16): with `NODE_ENV=production`
+  the API won't start if `DATABASE_URL`/`REDIS_URL` contain the local development
+  password, if `CORS_ORIGIN`, `WEB_ORIGIN` or `API_BASE_URL` aren't HTTPS, or
+  without Redis; the worker won't start without `DATABASE_URL`, with the
+  development password, or with a non-HTTPS `WEB_ORIGIN`. Demo inventory and demo
+  payments are off unless enabled explicitly. Valid but risky choices
+  (`TRUST_PROXY=false`, demo providers or payments on) are logged as warnings at
+  start-up.
+- **The web build refuses an implicit API URL**: a production `npm run build`
+  needs `VITE_API_BASE_URL` set, HTTPS (plain http only for localhost), with no
+  credentials or query (`apps/web/config/security-headers.ts`).
 - `.env` files are git-ignored. Only `.env.example` files with obviously
   local-only placeholders are committed.
 - **Browser bundle boundary:** only `VITE_*` variables reach the web app, and the
@@ -21,19 +33,45 @@ for later phases, so they are built the same way from day one.
 
 ### HTTP
 
-- `helmet` security headers (CSP for API responses, `nosniff`, HSTS, frame-ancestors,
-  referrer policy). `X-Powered-By` disabled.
+- **API headers** (`apiSecurityHeaders` in `apps/api/src/app.ts`): the API serves
+  JSON only, so its CSP is `default-src 'none'; frame-ancestors 'none'; base-uri
+'none'; form-action 'none'`, plus `X-Frame-Options: DENY`, `nosniff`,
+  `Referrer-Policy: no-referrer`, `Cross-Origin-Resource-Policy: same-origin`.
+  HSTS (1 year, subdomains) only in production, where every origin is HTTPS.
+  `X-Powered-By` disabled.
+- **Web headers** (`apps/web/config/security-headers.ts`): a CSP with
+  `script-src 'self'` (no inline scripts, no eval — Zod's compiled parsers are
+  switched off for it, `apps/web/src/lib/zod.ts`), `connect-src` limited to the API
+  origin, `object-src 'none'`, `frame-ancestors 'none'`; `nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`,
+  `Cross-Origin-Opener-Policy`, `Permissions-Policy`. `style-src` allows inline
+  styles because Radix dialogs inject a scroll-lock `<style>` at runtime. The
+  build embeds the CSP as a `<meta>` tag (so it holds on any host); the server in
+  front of `dist/` must send the full set ([deployment.md](deployment.md#web-server-headers)).
+  Verified in a browser: no CSP violations across every journey, and framing by
+  another origin is refused.
 - CORS allow-list from `CORS_ORIGIN`; `*` is rejected by env validation because
   credentials are enabled.
 - JSON bodies limited to 100 kB. Malformed JSON returns `INVALID_JSON`, not a stack trace.
-- Rate limiting per client IP, shared through Redis, falling back to in-memory
-  limits (not to no limits) when Redis is down. `TRUST_PROXY` must be set correctly
-  behind a load balancer so clients cannot spoof IPs via `X-Forwarded-For`.
+- Rate limiting per client IP, shared through Redis. **Redis failure policy:**
+  limits fall back to per-process in-memory counters (still enforced, but per
+  instance), never to "no limits"; the switch is logged once a minute.
+  `TRUST_PROXY` must be set correctly behind a load balancer so clients cannot
+  spoof IPs via `X-Forwarded-For` (production warns when it's off).
+- Stricter limits on sensitive endpoints: sign-in/registration per IP and failed
+  sign-ins per email (15 min), searches per IP, and per signed-in user: booking
+  writes, payment writes and (Phase 16) notification writes
+  (`NOTIFICATION_RATE_LIMIT_MAX`). Profile and saved-traveller writes rely on the
+  API-wide limit (and travellers are capped at 20 per account).
 - Strict query schemas reject unknown parameters.
 - Inbound `X-Request-Id` values are accepted only if they match a short safe pattern
   (prevents log injection).
 - Unexpected errors return a generic message plus request ID; internals are logged,
   not exposed (except in local development).
+- Public readiness (`/health/ready`) says _that_ a dependency failed ("Not
+  responding" or "Timed out after … ms"), never the driver's message (hosts, IPs,
+  ports); the scrubbed reason goes to the logs, at most once a minute per
+  dependency.
 
 ### Web build
 
@@ -48,12 +86,22 @@ for later phases, so they are built the same way from day one.
 
 ### Logging
 
-- Structured JSON logs with request IDs.
+- Structured JSON logs (timestamp, level, service, version, environment) with
+  request IDs.
 - Redaction of `authorization`, `cookie`, `set-cookie`, `x-api-key` and any
   `password`, `confirmPassword`, `currentPassword`, `passwordHash`, `token`,
   `sessionToken`, `tokenHash`, `accessToken`, `refreshToken`, `secret`,
   `cardNumber`, `cvv` fields. Request bodies are never logged.
-- Request bodies and job payloads are not logged.
+- Request bodies and job payloads are not logged. Access logs keep the path and
+  the _names_ of query parameters, never their values (admin searches by email).
+- Error text is scrubbed before logging (`apps/api/src/utils/log-safety.ts`):
+  credentials in any URL (`postgresql://user:pass@…`), bearer tokens and
+  secret-looking pairs are masked; ORM errors keep their first and last lines
+  (the failed query's values in between are dropped), stack frames and the
+  model/constraint names.
+- The worker's logs redact credentials and personal fields (`email`, names,
+  phone), and scheduled-job successes are debug-level, so production logs stay
+  quiet.
 
 ### Data
 
@@ -281,8 +329,9 @@ IDEMPOTENCY_IN_PROGRESS`).
 - TLS everywhere; HSTS on the web origin.
 - Separate database roles: migrations role (DDL) vs application role (DML only).
 - Centralised error reporting with PII scrubbing.
-- Dependency updates and `npm audit` in CI (CI itself runs today: lint, format,
-  typecheck, tests with PostgreSQL, build; `npm audit` is not a CI step yet).
+- Automated dependency updates (CI already runs lint, format, typecheck, tests
+  with PostgreSQL and Redis, `npm audit --omit=dev --audit-level=high` and the
+  build on every push and pull request).
 - Backups with point-in-time recovery for PostgreSQL; AOF persistence for Redis queues.
 
 ## Reporting

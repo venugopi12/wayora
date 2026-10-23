@@ -124,6 +124,33 @@ export function createPaymentsService(
   });
 }
 
+/**
+ * Security headers for a JSON-only API (docs/security.md#http-headers). It
+ * serves no HTML, scripts or frames, so the CSP forbids everything; framing
+ * is refused; HSTS is sent only in production, where every origin is HTTPS
+ * (config/env.ts enforces it) — browsers ignore HSTS over plain HTTP, and a
+ * development machine shouldn't pin `localhost` to HTTPS.
+ */
+export function apiSecurityHeaders(env: Pick<Env, 'NODE_ENV'>): Parameters<typeof helmet>[0] {
+  return {
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'none'"],
+        formAction: ["'none'"],
+      },
+    },
+    referrerPolicy: { policy: 'no-referrer' },
+    frameguard: { action: 'deny' },
+    // Only no-cors loads (<img>, <script>) are affected; the web app's CORS fetches aren't.
+    crossOriginResourcePolicy: { policy: 'same-origin' },
+    strictTransportSecurity:
+      env.NODE_ENV === 'production' ? { maxAge: 31_536_000, includeSubDomains: true } : false,
+  };
+}
+
 const HOUR_MS = 60 * 60 * 1000;
 /** Session activity is persisted at most this often. */
 const SESSION_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
@@ -169,7 +196,7 @@ export function createApp({
 
   app.use(requestId);
   app.use(httpLogger(logger));
-  app.use(helmet());
+  app.use(helmet(apiSecurityHeaders(env)));
   app.use(
     cors({
       origin: env.CORS_ORIGIN,
@@ -265,6 +292,7 @@ export function createApp({
   const searchStore = createRateLimitStore?.('search');
   const bookingStore = createRateLimitStore?.('bookings');
   const paymentStore = createRateLimitStore?.('payments');
+  const notificationStore = createRateLimitStore?.('notifications');
   const payments = prisma
     ? createPaymentsService(prisma, env, logger, {
         ...(now ? { now } : {}),
@@ -300,6 +328,12 @@ export function createApp({
             }),
           },
           logger,
+          notificationLimiter: bookingWriteRateLimiter({
+            max: env.NOTIFICATION_RATE_LIMIT_MAX,
+            subject: 'notification changes',
+            userIdOf: (res) => currentUser(res).id,
+            ...(notificationStore ? { store: notificationStore } : {}),
+          }),
           paymentLimiter: bookingWriteRateLimiter({
             max: env.PAYMENT_RATE_LIMIT_MAX,
             subject: 'payment requests',
@@ -317,7 +351,11 @@ export function createApp({
   app.use(
     API_V1_PREFIX,
     v1Router({
-      health: { dependencies: healthChecks, timeoutMs: env.HEALTH_CHECK_TIMEOUT_MS },
+      health: {
+        dependencies: healthChecks,
+        timeoutMs: env.HEALTH_CHECK_TIMEOUT_MS,
+        logger: logger.child({ component: 'readiness' }),
+      },
       search: {
         service: search,
         registry,

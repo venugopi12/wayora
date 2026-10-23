@@ -128,6 +128,8 @@ export const envSchema = z.object({
   PAYMENT_DEMO_PENDING_SECONDS: z.coerce.number().int().min(1).max(300).default(8),
   /** Payment starts and cancellations per signed-in user per minute. */
   PAYMENT_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+  /** Notification writes (mark read, read all, preferences) per signed-in user per minute. */
+  NOTIFICATION_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
   /**
    * Where search sessions live (docs/search.md#search-sessions). `redis` keeps
    * them across API restarts and instances; `memory` is per process and only
@@ -175,6 +177,15 @@ export function demoProvidersEnabled(env: Env): boolean {
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * Credentials that exist only for local development (the Docker Compose and
+ * `.env.example` defaults). Production refuses to start with them.
+ */
+export const DEV_ONLY_CREDENTIALS = ['wayora_local_dev_only', 'wayora_ci_only'] as const;
+
+const usesDevCredential = (url: string | undefined) =>
+  url !== undefined && DEV_ONLY_CREDENTIALS.some((secret) => url.includes(secret));
+
 /** Cross-field rules that a single field schema can't express. */
 function crossFieldIssues(env: Env): string[] {
   const issues: string[] = [];
@@ -191,6 +202,18 @@ function crossFieldIssues(env: Env): string[] {
     if (!env.WEB_ORIGIN.startsWith('https://')) {
       issues.push('WEB_ORIGIN: must use https:// in production');
     }
+    if (!env.API_BASE_URL.startsWith('https://')) {
+      issues.push('API_BASE_URL: must use https:// in production');
+    }
+    // The values are never echoed: only which variable is wrong.
+    if (usesDevCredential(env.DATABASE_URL)) {
+      issues.push(
+        'DATABASE_URL: uses the local development password; set the production credentials',
+      );
+    }
+    if (usesDevCredential(env.REDIS_URL)) {
+      issues.push('REDIS_URL: uses a local development password; set the production credentials');
+    }
     // Per-process sessions break offer pages behind a load balancer and on
     // every restart, so production never falls back to memory.
     if (searchSessionStore(env) !== 'redis') {
@@ -206,6 +229,33 @@ function crossFieldIssues(env: Env): string[] {
     issues.push('SEARCH_SESSION_STORE: "redis" needs REDIS_URL');
   }
   return issues;
+}
+
+/**
+ * Settings that are valid but risky in production. The server logs them at
+ * start-up (names and reasons only, never values) instead of refusing to run,
+ * because each can be intended (e.g. a demo deployment).
+ */
+export function productionWarnings(env: Env): string[] {
+  if (env.NODE_ENV !== 'production') return [];
+  const warnings: string[] = [];
+  if (env.TRUST_PROXY === false) {
+    warnings.push(
+      "TRUST_PROXY is false: behind a load balancer or reverse proxy every client gets the proxy's IP, so per-IP rate limits are shared by everyone. Set it to the number of proxy hops.",
+    );
+  }
+  if (demoProvidersEnabled(env)) {
+    warnings.push(
+      'SEARCH_DEMO_PROVIDERS is on: search shows demo inventory (fixtures), not live suppliers.',
+    );
+  }
+  if (paymentProvider(env) === 'demo') {
+    warnings.push('PAYMENT_PROVIDER is demo: payments are simulated; no money moves.');
+  }
+  if (env.LOG_FORMAT === 'pretty') {
+    warnings.push('LOG_FORMAT=pretty is ignored in production; logs are JSON.');
+  }
+  return warnings;
 }
 
 export class EnvValidationError extends Error {

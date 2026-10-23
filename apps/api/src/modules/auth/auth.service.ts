@@ -90,6 +90,29 @@ export class AuthService {
     return { user: toSafeUser(user), token };
   }
 
+  /**
+   * Audits "sign out everywhere" (docs/security.md#audit-log): a security
+   * action the account holder may need to see or prove later. No token,
+   * IP or user agent is recorded.
+   */
+  async recordSessionsRevoked(
+    userId: string,
+    sessionsRevoked: number,
+    context: { requestId?: string | undefined } = {},
+  ): Promise<void> {
+    await this.prisma.auditLog.create({
+      data: {
+        actorType: 'USER',
+        actorId: userId,
+        action: 'account.sessions_revoked',
+        entityType: 'user',
+        entityId: userId,
+        requestId: context.requestId ?? null,
+        metadata: { sessionsRevoked },
+      },
+    });
+  }
+
   /** Transparently moves old hashes to the current Argon2id parameters. */
   private async upgradeHashIfNeeded(user: User, password: string): Promise<void> {
     if (!user.passwordHash || !needsRehash(user.passwordHash)) return;
