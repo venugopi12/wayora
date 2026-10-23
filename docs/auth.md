@@ -79,8 +79,12 @@ All under `/api/v1`. Responses use the standard envelope
 | PATCH  | `/users/me/travellers/:travellerId` | yes  | 200 `Traveller`                      | 404 if missing **or owned by someone else** |
 | DELETE | `/users/me/travellers/:travellerId` | yes  | 200 `{ id, deleted: true }`          | 404 likewise                                |
 
-`SafeUser` = `{ id, name, email, emailVerified, createdAt }`. Password hashes,
-token hashes, session ids and account status are never returned.
+`SafeUser` = `{ id, name, email, emailVerified, role, createdAt }`. `role`
+(`user`, `support` or `admin`, Phase 15) only lets the web app show or hide
+the admin link; authorization happens on the server
+([admin.md](admin.md#roles-and-permissions)). No endpoint here accepts a role.
+Password hashes, token hashes, session ids and account status are never
+returned.
 
 Identity always comes from the session cookie. No endpoint accepts a user id
 from the client; another user's traveller id behaves exactly like a missing

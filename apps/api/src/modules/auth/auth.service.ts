@@ -58,7 +58,10 @@ export class AuthService {
    * Verifies credentials and starts a fresh session. Unknown email, missing
    * password, wrong password and inactive account all fail identically.
    */
-  async login(input: { email: string; password: string }): Promise<SignedIn> {
+  async login(
+    input: { email: string; password: string },
+    context: { requestId?: string | undefined } = {},
+  ): Promise<SignedIn> {
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (!user?.passwordHash) {
       await burnVerifyTime(input.password);
@@ -70,6 +73,20 @@ export class AuthService {
     }
     await this.upgradeHashIfNeeded(user, input.password);
     const { token } = await this.sessions.create(user.id);
+    // Staff sign-ins are audited (docs/admin.md#audit-log). No IP, user agent or token.
+    if (user.role !== 'USER') {
+      await this.prisma.auditLog.create({
+        data: {
+          actorType: 'ADMIN',
+          actorId: user.id,
+          action: 'admin.sign_in',
+          entityType: 'user',
+          entityId: user.id,
+          requestId: context.requestId ?? null,
+          metadata: { role: user.role.toLowerCase() },
+        },
+      });
+    }
     return { user: toSafeUser(user), token };
   }
 

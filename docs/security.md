@@ -215,6 +215,28 @@ Details: [notifications.md](notifications.md).
   at send time; `last_error` holds a short code. No email provider or
   credentials exist; deliveries are recorded `NOT_CONFIGURED`, never `SENT`.
 
+### Admin dashboard (Phase 15)
+
+Details: [admin.md](admin.md#security).
+
+- Roles `USER` / `SUPPORT` / `ADMIN` with one permission map; every admin
+  endpoint checks its permission on the server, using the role of the user
+  row loaded from the database for this request. Client-sent roles are
+  ignored (headers, query) or rejected (`400` from strict profile and
+  registration schemas); hiding links in the web app is presentation only.
+- Roles change only through the provisioning script (no UI or API); the
+  last active administrator can't be demoted; a database trigger audits
+  every role change with actor and reason.
+- Read-only: no admin write endpoints. Responses are `no-store`, exclude
+  credentials, tokens, idempotency keys, raw provider payloads and phone
+  numbers (masked), and are paginated and bounded.
+- Audited: staff sign-ins, denied admin requests, detail views, role changes.
+  The audit log stays append-only and is readable by administrators only.
+- The health page reports states and counts, never connection strings,
+  hosts, versions or error text; the worker is "up" only from its own
+  heartbeat.
+- Search analytics store no user, IP, route, dates or traveller data.
+
 ## Planned approach for later phases
 
 ### Authentication extensions

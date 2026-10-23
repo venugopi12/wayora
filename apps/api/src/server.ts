@@ -83,6 +83,7 @@ async function main(): Promise<void> {
     logger,
     healthChecks,
     prisma,
+    ...(redis ? { redis: redis.client } : {}),
     ...(searchSessions ? { searchSessions } : {}),
     ...(redis
       ? {

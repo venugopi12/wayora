@@ -131,10 +131,18 @@ describe('what leaves the server', () => {
       phoneE164: '+919876543210',
       passwordHash: '$argon2id$secret',
       status: 'ACTIVE',
+      role: 'USER',
       createdAt: new Date('2026-01-01T00:00:00Z'),
       updatedAt: new Date('2026-01-01T00:00:00Z'),
     });
-    expect(Object.keys(safe).sort()).toEqual(['createdAt', 'email', 'emailVerified', 'id', 'name']);
+    expect(Object.keys(safe).sort()).toEqual([
+      'createdAt',
+      'email',
+      'emailVerified',
+      'id',
+      'name',
+      'role',
+    ]);
     expect(JSON.stringify(safe)).not.toContain('argon2');
   });
 

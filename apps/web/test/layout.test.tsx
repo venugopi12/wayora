@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import type { RouteObject, UIMatch } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RequireAuth } from '../src/features/auth/guards';
 import { createRoutes } from '../src/app/routes';
 import { MarketingLayout } from '../src/components/layout/MarketingLayout';
 import { AuthLayout } from '../src/components/layout/AuthLayout';
@@ -187,13 +188,17 @@ describe('layout', () => {
     expect((root.element as { type: unknown }).type).toBe(RootLayout);
     expect(root.errorElement).toBeTruthy();
     // The focused auth layout is a sibling, so sign-in pages have no marketing chrome.
-    const [authLayout, marketing] = root.children as [RouteObject, RouteObject];
+    const [authLayout, marketing, admin] = root.children as [RouteObject, RouteObject, RouteObject];
     expect((authLayout.element as { type: unknown }).type).toBe(AuthLayout);
     expect((marketing.element as { type: unknown }).type).toBe(MarketingLayout);
     const pages = marketing.children![0]!;
     expect(pages.errorElement).toBeTruthy();
     expect(pages.children!.some((r) => r.index)).toBe(true);
     expect(pages.children!.at(-1)!.path).toBe('*');
+    // The admin dashboard is another focused sibling, behind sign-in (Phase 15).
+    expect((admin.element as { type: unknown }).type).toBe(RequireAuth);
+    expect(admin.children![0]!.path).toBe('admin');
+    expect(admin.children![0]!.errorElement).toBeTruthy();
   });
 
   it('announces client-side page changes using the page title', async () => {

@@ -20,6 +20,7 @@ import {
   MemorySearchSessionStore,
   type SearchSessionStore,
 } from '../src/modules/search/sessions.js';
+import type { SearchEventRecorder } from '../src/modules/search/analytics.js';
 
 /*
  * Test-only providers that simulate supplier behaviour (slow, failing,
@@ -194,7 +195,9 @@ export function serviceWith(
     now,
     resilience = NO_RETRY,
     logger = silentLogger,
+    recordEvent,
   }: {
+    recordEvent?: SearchEventRecorder;
     sessions?: SearchSessionStore;
     concurrency?: number;
     now?: () => Date;
@@ -211,5 +214,6 @@ export function serviceWith(
     resilience,
     ...(concurrency ? { concurrency } : {}),
     ...(now ? { now } : {}),
+    ...(recordEvent ? { recordEvent } : {}),
   });
 }

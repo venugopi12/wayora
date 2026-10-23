@@ -1,4 +1,5 @@
-import { Bell, ChevronDown, LogOut, Luggage, UserRound, Users } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, Luggage, ShieldCheck, UserRound, Users } from 'lucide-react';
+import { isStaff } from '@wayora/contracts';
 import { Link, useLocation, useNavigate } from 'react-router';
 import {
   Avatar,
@@ -15,6 +16,7 @@ import {
 import { useAuth } from '../auth/AuthProvider';
 import { loginPathFor } from '../auth/redirect';
 import { useSignOut } from '../auth/useSignOut';
+import { ADMIN_PATHS } from '../admin/paths';
 import { ACCOUNT_PATHS, DISCOVER, type HeaderTone } from './config';
 
 /*
@@ -76,6 +78,18 @@ function AccountMenu({ tone }: { tone: HeaderTone }) {
         <DropdownMenuItem icon={<Users />} onSelect={() => void navigate(ACCOUNT_PATHS.travellers)}>
           Saved travellers
         </DropdownMenuItem>
+        {/* Staff only. Hiding it is presentation; the API authorizes every admin request. */}
+        {isStaff(user.role) ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              icon={<ShieldCheck />}
+              onSelect={() => void navigate(ADMIN_PATHS.overview)}
+            >
+              Admin dashboard
+            </DropdownMenuItem>
+          </>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem icon={<LogOut />} disabled={pending} onSelect={() => void signOut()}>
           Sign out
@@ -175,6 +189,14 @@ export function DrawerAccount({ onNavigate }: { onNavigate: () => void }) {
               Saved travellers
             </Link>
           </li>
+          {isStaff(user.role) ? (
+            <li>
+              <Link to={ADMIN_PATHS.overview} onClick={onNavigate} className={linkRow}>
+                <ShieldCheck aria-hidden="true" />
+                Admin dashboard
+              </Link>
+            </li>
+          ) : null}
         </ul>
         <Button
           variant="secondary"

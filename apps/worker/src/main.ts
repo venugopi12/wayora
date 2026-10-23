@@ -2,6 +2,7 @@ import { Queue, Worker } from 'bullmq';
 import { JOB_NAMES, QUEUE_NAMES, notificationsDispatchJobSchema } from '@wayora/contracts';
 import { createPrismaClient, type PrismaClient } from '@wayora/database';
 import { bullConnection, loadWorkerEnv } from './config.js';
+import { startBeacon } from './liveness/beacon.js';
 import { createLogger } from './logger.js';
 import { NotificationDispatcher } from './notifications/dispatcher.js';
 import { NotConfiguredEmailProvider } from './notifications/email.js';
@@ -70,6 +71,13 @@ if (prisma) {
     );
 }
 
+// Liveness beacon for the admin health page (docs/admin.md#platform-health).
+const beacon = startBeacon({
+  redis: () => queue.client,
+  isRunning: () => worker.isRunning() && !worker.isPaused(),
+  logger,
+});
+
 worker.on('ready', () => {
   logger.info(
     { queue: QUEUE_NAMES.system, concurrency: env.WORKER_CONCURRENCY },
@@ -89,6 +97,7 @@ async function shutdown(signal: string): Promise<void> {
   }, env.SHUTDOWN_TIMEOUT_MS);
   forceExit.unref();
 
+  beacon.stop();
   try {
     await worker.close(); // stops fetching, waits for in-flight jobs
     await queue.close();

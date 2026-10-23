@@ -27,6 +27,31 @@ datasource db {
 
 // ─── Enums ────────────────────────────────────────────────────────────────
 
+/// Staff roles (Phase 15, docs/admin.md#roles). Everyone else is USER.
+enum UserRole {
+  USER
+  /// Read-only operations access (no audit logs).
+  SUPPORT
+  /// Full admin dashboard access.
+  ADMIN
+
+  @@map("user_role")
+}
+
+/// Outcome of one search request (Phase 15 search analytics).
+enum SearchOutcome {
+  /// Every provider answered; at least one result.
+  SUCCESS
+  /// Results, but some providers failed or timed out.
+  PARTIAL
+  /// Providers answered; nothing matched.
+  EMPTY
+  /// The request failed (no results returned to the visitor).
+  FAILED
+
+  @@map("search_outcome")
+}
+
 enum UserStatus {
   ACTIVE
   SUSPENDED
@@ -200,6 +225,8 @@ model User {
   /// E.164 format, e.g. +919876543210.
   phoneE164       String?    @map("phone_e164") @db.VarChar(16)
   status          UserStatus @default(ACTIVE)
+  /// Staff role; never changed through customer APIs (docs/admin.md#provisioning).
+  role            UserRole   @default(USER)
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -213,6 +240,8 @@ model User {
   notificationPreferences NotificationPreference?
 
   @@index([status])
+  @@index([role])
+  @@index([createdAt])
   @@map("users")
 }
 
@@ -342,6 +371,8 @@ model Booking {
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, status, startsOn])
   @@index([status, paymentDueAt])
+  @@index([createdAt(sort: Desc)])
+  @@index([searchId])
   @@map("bookings")
 }
 
@@ -428,6 +459,7 @@ model Payment {
   @@unique([provider, providerReference])
   @@index([userId, createdAt(sort: Desc)])
   @@index([status, createdAt])
+  @@index([createdAt(sort: Desc)])
   @@map("payments")
 }
 
@@ -516,6 +548,31 @@ model NotificationPreference {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notification_preferences")
+}
+
+// ─── Search analytics (Phase 15) ──────────────────────────────────────────
+
+/// One search request, for operational analytics (docs/admin.md#search).
+/// Holds no request details (places, dates, travellers) and no user id:
+/// only the category, outcome, counts and provider timings.
+model SearchEvent {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  category    TravelCategory
+  outcome     SearchOutcome
+  /// The search session id (links to bookings.search_id); null when it failed.
+  searchId    String?        @map("search_id") @db.Uuid
+  resultCount Int            @map("result_count")
+  durationMs  Int            @map("duration_ms")
+  /// Safe error code when it failed, e.g. PROVIDER_TIMEOUT.
+  errorCode   String?        @map("error_code") @db.VarChar(64)
+  /// [{ id, status, durationMs }] per provider (no supplier payloads).
+  providers   Json
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@index([category, createdAt])
+  @@index([searchId])
+  @@map("search_events")
 }
 
 model BookingItem {
@@ -607,5 +664,6 @@ model AuditLog {
   @@index([entityType, entityId, createdAt])
   @@index([actorType, actorId])
   @@index([createdAt])
+  @@index([action, createdAt])
   @@map("audit_logs")
 }

@@ -67,6 +67,7 @@ Full instructions and troubleshooting: [docs/SETUP.md](docs/SETUP.md).
 | `npm run db:reset`                           | Drop, re-migrate and re-seed the dev database                                        |
 | `npm run db:studio`                          | Prisma Studio                                                                        |
 | `npm run job:example`                        | Enqueue the example worker job and wait for its result                               |
+| `npm run admin:role -- --email … --role …`   | Grant or remove a staff role (audited; [admin.md](docs/admin.md#provisioning))       |
 
 ## Environment
 
@@ -88,6 +89,7 @@ is missing. See the `.env.example` next to each app and
 - [Demo bookings](docs/bookings.md): journey, statuses, API, idempotency, database and migration (with rollback), My trips, limitations
 - [Payments](docs/payments.md): booking/payment rules, states, demo provider, API, idempotency, provider events and webhooks, refunds, migration (with rollback), steps before a real gateway
 - [Notifications](docs/notifications.md): events, idempotency, API and ownership, bell and panel, preferences, email outbox and worker, enabling an email provider, migration (with rollback)
+- [Admin dashboard](docs/admin.md): roles and permissions, provisioning, API, metric definitions, search analytics, platform health and worker heartbeat, audit log, migration (with rollback)
 - [Authentication and accounts](docs/auth.md): sessions, cookies and CSRF, endpoints, migration, how to run the account tests, limitations
 - [Security](docs/security.md): current controls and the plan for payments and providers
 
@@ -116,3 +118,4 @@ is missing. See the `.env.example` next to each app and
 | PATCH/POST            | `/api/v1/notifications/:id/read` · `/read-all`                 | Mark one or all as read                                                                           |
 | GET/PATCH             | `/api/v1/notifications/preferences`                            | Email preferences (email isn't configured yet)                                                    |
 | GET                   | `/api/v1/providers`                                            | Search provider capabilities                                                                      |
+| GET                   | `/api/v1/admin/…`                                              | Staff-only, read-only operations views ([admin.md](docs/admin.md#api))                            |

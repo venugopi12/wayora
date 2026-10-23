@@ -35,12 +35,12 @@ export function testPrisma(): PrismaClient {
  * Empties the tables these tests write to. Users cascade to sessions,
  * travellers, bookings and payments (and those to their travellers and
  * history); idempotency keys, audit logs and provider events have no foreign
- * key, so they are listed.
+ * key, so they are listed, as are search analytics events.
  * TRUNCATE doesn't fire the append-only row triggers.
  */
 export async function resetAccounts(): Promise<void> {
   await testPrisma().$executeRawUnsafe(
-    'TRUNCATE TABLE "sessions", "travellers", "users", "idempotency_keys", "audit_logs", "webhook_events" CASCADE',
+    'TRUNCATE TABLE "sessions", "travellers", "users", "idempotency_keys", "audit_logs", "webhook_events", "search_events" CASCADE',
   );
 }
 

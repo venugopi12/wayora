@@ -36,6 +36,7 @@ export const TEST_USER: SafeUser & { password: string } = {
   name: 'Asha Rao',
   email: 'asha@example.com',
   emailVerified: false,
+  role: 'user',
   createdAt: '2026-10-01T09:00:00.000Z',
   password: 'blue river morning',
 };

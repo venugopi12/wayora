@@ -61,7 +61,9 @@ export function authRouter(options: AuthRouterOptions): Router {
 
   router.post('/login', perIp, perEmail, (async (req, res) => {
     const { body } = validateRequest(req, { body: loginRequestSchema });
-    const signedIn = await auth.login(body);
+    const signedIn = await auth.login(body, {
+      requestId: typeof res.locals.requestId === 'string' ? res.locals.requestId : undefined,
+    });
     await revokeCurrent(res.locals as AuthLocals);
     setSessionCookie(res, signedIn.token, cookie);
     sendData(res, { user: signedIn.user });

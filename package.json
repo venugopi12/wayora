@@ -43,7 +43,8 @@
     "db:reset": "npm run db:reset -w @wayora/database",
     "db:seed": "npm run db:seed -w @wayora/database",
     "db:studio": "npm run db:studio -w @wayora/database",
-    "job:example": "npm run job:example -w @wayora/worker"
+    "job:example": "npm run job:example -w @wayora/worker",
+    "admin:role": "npm run admin:role -w @wayora/api --"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

@@ -20,6 +20,7 @@ import { AppError } from '../../utils/errors.js';
 import type { Logger } from '../../utils/logger.js';
 import type { SearchProvider } from '../providers/provider.js';
 import type { ProviderRegistry } from '../providers/registry.js';
+import { outcomeFor, providerCalls, type SearchEventRecorder } from './analytics.js';
 import { mapWithConcurrency } from './concurrency.js';
 import {
   PROVIDER_STATUS_MESSAGES,
@@ -75,6 +76,8 @@ export interface SearchServiceOptions {
   sessionTtlMs?: number;
   now?: () => Date;
   resilience?: Partial<ResilienceOptions>;
+  /** Search analytics (docs/admin.md#search-activity); off when absent. */
+  recordEvent?: SearchEventRecorder;
 }
 
 /** Per-request context: cancellation and log correlation. */
@@ -156,6 +159,45 @@ export class SearchService {
   }
 
   async search(request: SearchRequest, context: CallContext = {}): Promise<SearchResponse> {
+    const record = this.options.recordEvent;
+    if (!record) return this.runSearch(request, context);
+    const started = this.resilience.clock();
+    const elapsed = () => this.resilience.clock() - started;
+    const calls: { statuses: ProviderStatus[] } = { statuses: [] };
+    try {
+      const response = await this.runSearch(request, context, calls);
+      record({
+        serviceType: request.serviceType,
+        outcome: outcomeFor(response.providerStatuses, response.pagination.totalResults),
+        searchId: response.searchId,
+        resultCount: response.pagination.totalResults,
+        durationMs: elapsed(),
+        errorCode: null,
+        providers: providerCalls(calls.statuses),
+      });
+      return response;
+    } catch (error) {
+      // A visitor who left isn't a failed search.
+      if (!context.signal?.aborted) {
+        record({
+          serviceType: request.serviceType,
+          outcome: 'FAILED',
+          searchId: null,
+          resultCount: 0,
+          durationMs: elapsed(),
+          errorCode: error instanceof AppError ? error.code : 'INTERNAL_ERROR',
+          providers: providerCalls(calls.statuses),
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async runSearch(
+    request: SearchRequest,
+    context: CallContext,
+    calls?: { statuses: ProviderStatus[] },
+  ): Promise<SearchResponse> {
     const log = this.logFor(context);
     const providers = this.options.registry.searchProvidersFor(request.serviceType);
     if (providers.length === 0) {
@@ -170,7 +212,7 @@ export class SearchService {
     let session = await this.store(() => sessions.findReusable(key), log);
     const reused = session !== undefined;
     if (!session) {
-      session = await this.queryProviders(request, providers, context.signal, log);
+      session = await this.queryProviders(request, providers, context.signal, log, calls);
       const complete = session.providerStatuses.every(
         (s) => s.status === 'success' || s.status === 'empty',
       );
@@ -209,6 +251,7 @@ export class SearchService {
     providers: readonly SearchProvider[],
     signal: AbortSignal | undefined,
     log: Logger,
+    calls?: { statuses: ProviderStatus[] },
   ): Promise<SearchSession> {
     const deadline = this.resilience.clock() + this.resilience.deadlineMs;
     const rounds = await mapWithConcurrency(providers, this.concurrency, (provider) =>
@@ -217,6 +260,7 @@ export class SearchService {
     signal?.throwIfAborted();
 
     const statuses = rounds.map((r) => r.status);
+    if (calls) calls.statuses = statuses;
     if (statuses.every((s) => s.status !== 'success' && s.status !== 'empty')) {
       log.warn(
         {

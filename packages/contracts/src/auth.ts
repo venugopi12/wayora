@@ -113,12 +113,21 @@ export type UpdateProfileRequest = z.input<typeof updateProfileRequestSchema>;
 // ─── Responses ────────────────────────────────────────────────────────────
 
 /** The only user representation the API ever returns. No hashes, tokens or status internals. */
+/**
+ * Staff role (Phase 15, docs/admin.md). Set only by the server-side
+ * provisioning script; no customer endpoint accepts it.
+ */
+export const userRoleSchema = z.enum(['user', 'support', 'admin']);
+export type UserRole = z.infer<typeof userRoleSchema>;
+
 export const safeUserSchema = z.object({
   id: z.uuid(),
   name: z.string(),
   email: z.string(),
   /** True only after a real verification flow (none exists yet, so always false today). */
   emailVerified: z.boolean(),
+  /** For showing or hiding the admin link. Authorization is server-side only. */
+  role: userRoleSchema,
   createdAt: z.iso.datetime(),
 });
 export type SafeUser = z.infer<typeof safeUserSchema>;

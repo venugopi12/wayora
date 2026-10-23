@@ -16,14 +16,8 @@ import {
   type createBookingRequestSchema,
   DEMO_PAYMENT_SCENARIOS,
   type OfferResponse,
-  type SearchServiceType,
 } from '@wayora/contracts';
-import {
-  Prisma,
-  type BookingStatus as DbBookingStatus,
-  type PrismaClient,
-  type TravelCategory,
-} from '@wayora/database';
+import { Prisma, type BookingStatus as DbBookingStatus, type PrismaClient } from '@wayora/database';
 import { AppError } from '../../utils/errors.js';
 import type { Logger } from '../../utils/logger.js';
 import type { ProviderRegistry } from '../providers/registry.js';
@@ -40,6 +34,7 @@ import {
   lockBooking,
   transitionBooking,
 } from './lifecycle.js';
+import { CATEGORY } from '../../utils/categories.js';
 
 export { DEMO_CANCELLATION_NOTE, DEMO_CONFIRMATION_NOTE, TRANSITIONS } from './lifecycle.js';
 
@@ -51,16 +46,6 @@ export { DEMO_CANCELLATION_NOTE, DEMO_CONFIRMATION_NOTE, TRANSITIONS } from './l
  */
 
 export type CreateBookingInput = z.output<typeof createBookingRequestSchema>;
-
-const CATEGORY: Record<SearchServiceType, TravelCategory> = {
-  flights: 'FLIGHT',
-  hotels: 'HOTEL',
-  trains: 'TRAIN',
-  buses: 'BUS',
-  metro: 'METRO',
-  cabs: 'CAB',
-  holidays: 'HOLIDAY_PACKAGE',
-};
 
 const API_STATUS: Record<DbBookingStatus, BookingStatus> = {
   PENDING: 'pending',

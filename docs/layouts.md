@@ -52,10 +52,14 @@ shares them.
 | `headerOverlay` | The header floats, transparent, over a full-bleed dark hero (homepage).                                                                                 |
 | `crumb`         | Breadcrumb label for this level: a string, or `(params) => string \| undefined`. Returning `undefined` (e.g. unknown destination slug) drops the trail. |
 
-### Future layouts (pattern, not built yet)
+### Focused layouts
 
-Booking checkout and admin screens should not inherit the marketing footer. Add
-each as a sibling of `MarketingLayout` under `RootLayout`, as `AuthLayout` is:
+Screens that shouldn't inherit the marketing header and footer are siblings of
+`MarketingLayout` under `RootLayout`, as `AuthLayout` is. The admin dashboard
+(`features/admin/AdminLayout.tsx`, Phase 15) is the second: its own header,
+side navigation (a menu sheet on small screens) and `<main>`, behind
+`RequireAuth`; see [admin.md](admin.md#web). Booking checkout could follow the
+same pattern:
 
 ```tsx
 {
@@ -64,8 +68,7 @@ each as a sibling of `MarketingLayout` under `RootLayout`, as `AuthLayout` is:
 }
 ```
 
-Keep one `<main id="main">` and a skip link in every layout. `AuthLayout`
-(sign-in and registration) is the first; account pages (`/profile…`) stay in
+Keep one `<main id="main">` and a skip link in every layout. Account pages (`/profile…`) stay in
 `MarketingLayout` so the site navigation and account menu remain available.
 
 ## Containers and spacing

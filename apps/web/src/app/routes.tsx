@@ -59,6 +59,9 @@ const account = () => import('../features/account/routes');
 const bookings = () => import('../features/bookings/routes');
 /** Notifications page (Phase 14). */
 const notifications = () => import('../features/notifications/routes');
+/** Admin dashboard (Phase 15): its layout and pages are one chunk, never loaded by customers. */
+const admin = () => import('../features/admin/routes');
+const adminLayout = () => import('../features/admin/AdminLayout');
 
 /** /sign-in (the pre-Phase 8 link) → /login, keeping any query string. */
 function LegacySignInRedirect() {
@@ -90,6 +93,10 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *   ├─ AuthLayout              focused split-screen layout, no site nav/footer
  *   │  └─ RedirectIfSignedIn   signed-in visitors continue to ?redirect=
  *   │     └─ /login, /register
+ *   ├─ RequireAuth → AdminLayout   staff only (role from the server; docs/admin.md)
+ *   │  └─ /admin, /admin/users[/:id], /admin/bookings[/:reference],
+ *   │     /admin/payments[/:id], /admin/search, /admin/notifications,
+ *   │     /admin/audit, /admin/health
  *   └─ MarketingLayout         header + <main> + footer for the public site
  *      └─ (pages)              errorElement here, so errors keep header and footer
  *         ├─ / , /status, /discover, /discover/:slug, /about, /help,
@@ -103,8 +110,8 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *         │     /notifications
  *         └─ *                 not-found page
  *
- * Future focused layouts (checkout, admin) become siblings of MarketingLayout
- * under RootLayout, like AuthLayout (docs/layouts.md).
+ * Focused layouts (auth, admin) are siblings of MarketingLayout under
+ * RootLayout (docs/layouts.md).
  * `handle.crumb` feeds breadcrumbs; `handle.headerOverlay` floats the header.
  */
 export function createRoutes({
@@ -246,6 +253,55 @@ export function createRoutes({
                 },
                 ...(includeDevRoutes ? devRoutes : []),
                 { path: '*', element: <NotFoundRoute /> },
+              ],
+            },
+          ],
+        },
+        // Admin (Phase 15): a focused sibling layout, staff only.
+        {
+          element: <RequireAuth />,
+          children: [
+            {
+              path: 'admin',
+              errorElement: <RouteErrorBoundary />,
+              lazy: async () => ({ Component: (await adminLayout()).AdminLayout }),
+              children: [
+                { index: true, lazy: async () => ({ Component: (await admin()).OverviewRoute }) },
+                { path: 'users', lazy: async () => ({ Component: (await admin()).UsersRoute }) },
+                {
+                  path: 'users/:userId',
+                  lazy: async () => ({ Component: (await admin()).UserDetailRoute }),
+                },
+                {
+                  path: 'bookings',
+                  lazy: async () => ({ Component: (await admin()).BookingsRoute }),
+                },
+                {
+                  path: 'bookings/:reference',
+                  lazy: async () => ({ Component: (await admin()).BookingDetailRoute }),
+                },
+                {
+                  path: 'payments',
+                  lazy: async () => ({ Component: (await admin()).PaymentsRoute }),
+                },
+                {
+                  path: 'payments/:paymentId',
+                  lazy: async () => ({ Component: (await admin()).PaymentDetailRoute }),
+                },
+                {
+                  path: 'search',
+                  lazy: async () => ({ Component: (await admin()).SearchActivityRoute }),
+                },
+                {
+                  path: 'notifications',
+                  lazy: async () => ({ Component: (await admin()).NotificationHealthRoute }),
+                },
+                { path: 'audit', lazy: async () => ({ Component: (await admin()).AuditLogRoute }) },
+                { path: 'health', lazy: async () => ({ Component: (await admin()).HealthRoute }) },
+                {
+                  path: '*',
+                  lazy: async () => ({ Component: (await admin()).AdminNotFoundRoute }),
+                },
               ],
             },
           ],

@@ -31,6 +31,9 @@ import { MemorySearchSessionStore, type SearchSessionStore } from './modules/sea
 import { UsersService } from './modules/users/users.service.js';
 import { PaymentsService } from './modules/payments/payments.service.js';
 import { NotificationsService } from './modules/notifications/notifications.service.js';
+import { AdminService } from './modules/admin/admin.service.js';
+import { PlatformHealth, type HealthRedis } from './modules/admin/platform-health.js';
+import { prismaSearchEventRecorder } from './modules/search/analytics.js';
 import {
   PAYMENT_EVENTS_PATH,
   type RequestWithRawBody,
@@ -78,6 +81,13 @@ export interface AppDependencies {
    * webhooks may name.
    */
   paymentProviders?: { policy?: PaymentProvider | null; extra?: readonly PaymentProvider[] };
+  /**
+   * Redis, read by the admin health page (worker heartbeat, queue depth).
+   * Absent when Redis isn't configured; the page then says so.
+   */
+  redis?: HealthRedis;
+  /** Search analytics on/off (default: on whenever there is a database). */
+  recordSearchEvents?: boolean;
 }
 
 /** Builds the payment service from env (exported for the server's background jobs). */
@@ -148,6 +158,8 @@ export function createApp({
   searchResilience,
   providerConfig = process.env,
   paymentProviders,
+  redis,
+  recordSearchEvents = true,
 }: AppDependencies): Express {
   const app = express();
 
@@ -196,7 +208,8 @@ export function createApp({
   );
 
   let accounts:
-    Omit<AccountsRouterOptions, 'bookings' | 'payments' | 'logger' | 'notifications'> | undefined;
+    | Omit<AccountsRouterOptions, 'bookings' | 'payments' | 'logger' | 'notifications' | 'admin'>
+    | undefined;
   if (prisma) {
     const secure = env.NODE_ENV === 'production';
     const sessions = createSessionService(prisma, env, now);
@@ -245,6 +258,9 @@ export function createApp({
       },
       ...searchResilience,
     },
+    ...(prisma && recordSearchEvents
+      ? { recordEvent: prismaSearchEventRecorder(prisma, logger, now) }
+      : {}),
   });
   const searchStore = createRateLimitStore?.('search');
   const bookingStore = createRateLimitStore?.('bookings');
@@ -271,6 +287,18 @@ export function createApp({
           payments,
           // No email provider exists yet: delivery is reported as not configured.
           notifications: new NotificationsService(prisma, { active: false }, now),
+          admin: {
+            prisma,
+            logger,
+            service: new AdminService({ prisma, emailConfigured: false, ...(now ? { now } : {}) }),
+            health: new PlatformHealth({
+              prisma,
+              ...(redis ? { redis } : {}),
+              logger: logger.child({ component: 'admin-health' }),
+              timeoutMs: env.HEALTH_CHECK_TIMEOUT_MS,
+              ...(now ? { now } : {}),
+            }),
+          },
           logger,
           paymentLimiter: bookingWriteRateLimiter({
             max: env.PAYMENT_RATE_LIMIT_MAX,

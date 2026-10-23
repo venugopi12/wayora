@@ -131,6 +131,11 @@ On `SIGTERM`/`SIGINT`:
 - Add a job: define its schema and name in contracts, write a pure handler in
   `apps/worker/src/jobs/`, register it in `processor.ts`, add tests.
 
+While running, the worker also writes a liveness heartbeat to Redis
+(`wayora:worker:heartbeat`, every 15 s, 60 s expiry), which the admin health
+page reads so "worker running" isn't confused with "Redis reachable"
+([admin.md](admin.md#platform-health)).
+
 Jobs today: `system.heartbeat`, and `notifications.dispatch` (Phase 14), a
 BullMQ job scheduler that works through the notification email outbox in
 PostgreSQL (the worker has database access for it; see
@@ -166,6 +171,9 @@ by a user, with an immutable offer snapshot) and added `booking_travellers` and
 payment mode and due time to bookings; see [payments.md](payments.md#database).
 Phase 14 added `notifications`, the `notification_deliveries` outbox and
 `notification_preferences`; see [notifications.md](notifications.md#database).
+Phase 15 added `users.role` (with a trigger that audits every change) and
+`search_events` (search analytics without personal data), plus indexes for
+the admin views; see [admin.md](admin.md#database).
 
 ### Conventions
 
@@ -262,7 +270,7 @@ src/
   A metric-matched local fallback (`Plus Jakarta Sans Fallback` in
   `packages/ui/src/styles/base.css`) keeps text from rewrapping when the font
   swaps in.
-- **Routes:** `/` (cinematic homepage, header overlay), `/status` (API readiness), `/discover` (filters in the URL: `?q`, `?mood`, `?region`; old `?destination=` links redirect), `/discover/:slug` (destination pages), `/about`, `/help`, `/legal/privacy` and `/legal/terms` (draft placeholders), `/login` and `/register` (auth layout; `/sign-in` redirects), `/profile` and `/profile/travellers` (signed in only), one route per travel service (`/flights` … `/holidays`, search and results pages since Phases 9–10, see [search.md](search.md); `?to=<destination>` prefills the destination), `/offers/:serviceType/:resultId` (offer details), `/book/:serviceType/:resultId` (demo checkout), `/trips`, `/trips/:reference` and `/trips/:reference/confirmation` (demo bookings, signed in only, see [bookings.md](bookings.md)), `/trips/:reference/pay` and `/trips/:reference/payments/:paymentId` (demo payments, see [payments.md](payments.md)), `/notifications` (see [notifications.md](notifications.md)), dev-only `/design-system`, and a not-found fallback. Layouts, route handles, containers, breadcrumbs and the footer: see [layouts.md](layouts.md).
+- **Routes:** `/` (cinematic homepage, header overlay), `/status` (API readiness), `/discover` (filters in the URL: `?q`, `?mood`, `?region`; old `?destination=` links redirect), `/discover/:slug` (destination pages), `/about`, `/help`, `/legal/privacy` and `/legal/terms` (draft placeholders), `/login` and `/register` (auth layout; `/sign-in` redirects), `/profile` and `/profile/travellers` (signed in only), one route per travel service (`/flights` … `/holidays`, search and results pages since Phases 9–10, see [search.md](search.md); `?to=<destination>` prefills the destination), `/offers/:serviceType/:resultId` (offer details), `/book/:serviceType/:resultId` (demo checkout), `/trips`, `/trips/:reference` and `/trips/:reference/confirmation` (demo bookings, signed in only, see [bookings.md](bookings.md)), `/trips/:reference/pay` and `/trips/:reference/payments/:paymentId` (demo payments, see [payments.md](payments.md)), `/notifications` (see [notifications.md](notifications.md)), `/admin…` (staff-only dashboard in its own layout, see [admin.md](admin.md)), dev-only `/design-system`, and a not-found fallback. Layouts, route handles, containers, breadcrumbs and the footer: see [layouts.md](layouts.md).
 - **Code splitting:** the homepage, not-found page and error boundary ship in the
   main bundle. `/status`, `/discover`, `/discover/:slug`, `/sign-in`, the info
   and legal pages and the seven service pages load on first visit through React

@@ -60,6 +60,8 @@ describe.skipIf(!TEST_DATABASE_URL)('accounts (integration, real PostgreSQL)', (
         name: 'Asha Rao',
         email: 'asha@example.com',
         emailVerified: false,
+        // Every new account is an ordinary user; staff roles are provisioned server-side.
+        role: 'user',
         createdAt: expect.any(String),
       });
       expect(JSON.stringify(res.body)).not.toMatch(/argon2|passwordHash|blue river/);

@@ -1,4 +1,5 @@
 import { Router, type RequestHandler } from 'express';
+import { adminRouter, type AdminRouterOptions } from '../modules/admin/admin.routes.js';
 import { authRouter, type AuthRouterOptions } from '../modules/auth/auth.routes.js';
 import { bookingsRouter } from '../modules/bookings/bookings.routes.js';
 import type { BookingsService } from '../modules/bookings/bookings.service.js';
@@ -34,6 +35,8 @@ export interface AccountsRouterOptions {
   paymentLimiter?: RequestHandler;
   /** Notifications (Phase 14). */
   notifications: NotificationsService;
+  /** Admin dashboard (Phase 15, docs/admin.md). */
+  admin: AdminRouterOptions;
   logger: Logger;
 }
 
@@ -64,6 +67,7 @@ export function v1Router(options: V1RouterOptions): Router {
       payments,
       paymentLimiter,
       notifications,
+      admin,
       logger,
     } = options.accounts;
     router.use('/auth', loadSession, authRouter(auth));
@@ -76,6 +80,7 @@ export function v1Router(options: V1RouterOptions): Router {
     router.use('/bookings', loadSession, bookingsRouter(bookings, bookingLimiter));
     router.use('/payments', loadSession, paymentsRouter(payments, paymentLimiter));
     router.use('/notifications', loadSession, notificationsRouter(notifications));
+    router.use('/admin', loadSession, adminRouter(admin));
     // Signed provider webhooks: no session; only providers that verify signatures.
     router.use('/payment-events', paymentEventsRouter(payments, logger));
   }

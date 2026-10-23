@@ -32,6 +32,15 @@ npm run dev
 
 Postgres and Redis ports bind to `127.0.0.1` only.
 
+To use the admin dashboard (`/admin`), register an account in the app, then
+make it an administrator from the command line (there is no UI for roles):
+
+```bash
+npm run admin:role -- --email you@example.com --role admin --reason "Local development"
+```
+
+See [admin.md](admin.md#provisioning).
+
 ### Run the example background job
 
 With `npm run dev` (or `npm run dev:worker`) running:
