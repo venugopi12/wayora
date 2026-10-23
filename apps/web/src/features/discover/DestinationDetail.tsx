@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Compass, MapPin } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarRange, Compass, MapPin } from 'lucide-react';
 import { Link } from 'react-router';
 import type { Destination, DestinationSummary, TravelCategorySlug } from '@wayora/contracts';
 import {
@@ -17,6 +17,7 @@ import {
 import { ImageReveal, LineReveal, Reveal, RevealGroup, RevealItem } from '@wayora/ui/motion';
 import { useRouteBreadcrumbs } from '../../components/layout/route-handle';
 import { DISCOVER, serviceBySlug } from '../navigation/config';
+import { newPlanPath } from '../planner/paths';
 import { PAIRINGS, moodBySlug } from './data';
 import { placeLine } from './format';
 import { destinationPath, discoverPath, serviceForPlace, servicePathFor } from './paths';
@@ -90,6 +91,12 @@ function Hero({ destination }: { destination: Destination }) {
                     See travel options
                     <ArrowRight aria-hidden="true" />
                   </a>
+                </Button>
+                <Button asChild size="lg" variant="secondary">
+                  <Link to={newPlanPath(destination.id)}>
+                    <CalendarRange aria-hidden="true" />
+                    Plan this trip
+                  </Link>
                 </Button>
                 <Button asChild size="lg" variant="secondary">
                   <Link to={DISCOVER.path}>

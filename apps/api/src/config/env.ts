@@ -130,6 +130,8 @@ export const envSchema = z.object({
   PAYMENT_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   /** Notification writes (mark read, read all, preferences) per signed-in user per minute. */
   NOTIFICATION_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+  /** Trip-planner writes (trips, activities, reorders) per signed-in user per minute. */
+  PLANNER_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
   /**
    * Travel-status provider (Phase 17, docs/trips.md#providers): `demo`
    * (simulated, labelled as such) or `none`. No live provider exists yet.

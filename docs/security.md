@@ -60,8 +60,9 @@ for later phases, so they are built the same way from day one.
   spoof IPs via `X-Forwarded-For` (production warns when it's off).
 - Stricter limits on sensitive endpoints: sign-in/registration per IP and failed
   sign-ins per email (15 min), searches per IP, and per signed-in user: booking
-  writes, payment writes and (Phase 16) notification writes
-  (`NOTIFICATION_RATE_LIMIT_MAX`). Profile and saved-traveller writes rely on the
+  writes, payment writes, (Phase 16) notification writes
+  (`NOTIFICATION_RATE_LIMIT_MAX`) and (Phase 18) trip-planner writes
+  (`PLANNER_RATE_LIMIT_MAX`). Profile and saved-traveller writes rely on the
   API-wide limit (and travellers are capped at 20 per account).
 - Strict query schemas reject unknown parameters.
 - Inbound `X-Request-Id` values are accepted only if they match a short safe pattern
@@ -302,6 +303,24 @@ Details: [trips.md](trips.md).
   of a disruption.
 - Live-update messages carry ids only; browsers re-read through the
   authorized endpoints. Timeline rows are append-only.
+
+### Trip planner (Phase 18)
+
+Details: [planner.md](planner.md).
+
+- Every planner endpoint needs a session and looks plans up by (id, owner):
+  another user's plan or activity is a 404 with the same message as a
+  missing one, for reads and for every write (edit, move, reorder, duplicate,
+  delete), including attempts routed through the attacker's own plan.
+- Strict request schemas: ownership, ids, versions and timestamps can't be
+  mass-assigned. Free text is length-limited, refuses control characters and
+  bidirectional overrides, and is rendered as text only.
+- Writes need a trusted `Origin`, are rate-limited per user
+  (`PLANNER_RATE_LIMIT_MAX`), run in transactions that lock the plan, and
+  creating POSTs are idempotent. A reorder must match the day exactly.
+- A linked booking must be the user's own and confirmed; a database trigger
+  enforces same-owner links too. Linking never changes the booking.
+- Plan contents (titles, notes, places) are never logged.
 
 ## Planned approach for later phases
 

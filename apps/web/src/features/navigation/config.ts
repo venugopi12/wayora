@@ -69,6 +69,8 @@ export const ACCOUNT_PATHS = {
   trips: '/trips',
   /** Notifications and email preferences (Phase 14). */
   notifications: '/notifications',
+  /** Trip planner: planned trips and itineraries, distinct from bookings (Phase 18). */
+  plans: '/plans',
 } as const satisfies Record<string, AppPath>;
 
 export const SIGN_IN_PATH: AppPath = ACCOUNT_PATHS.login;

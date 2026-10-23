@@ -7,12 +7,12 @@ inventory: no prices, fares, availability, ratings, reviews or deals.
 
 ## Pages
 
-| Route                 | What it is                                                                                                                                                                                                                    |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/discover`           | Hero with destination search → explore by mood → the collection (results) → browse by region → editor's picks → trip ideas → closing CTA.                                                                                     |
-| `/discover/:slug`     | One destination: breadcrumb, hero image, mood tags, editorial intro and highlights, travel options, related destinations (and a paired destination where one exists).                                                         |
-| `/discover/<unknown>` | "We couldn't find that destination", with close matches ("Did you mean Jaipur?") and a link back to Discover. Deeper unknown paths (`/discover/goa/extra`) fall through to the site's not-found page.                         |
-| `/flights?to=goa` …   | The service's demo search page (Phase 9, docs/search.md), with the destination prefilled where the demo covers it, a note when it doesn't, and a link back to the destination. Nothing is searched until the visitor submits. |
+| Route                 | What it is                                                                                                                                                                                                                                                                              |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/discover`           | Hero with destination search → explore by mood → the collection (results) → browse by region → editor's picks → trip ideas → closing CTA.                                                                                                                                               |
+| `/discover/:slug`     | One destination: breadcrumb, hero image, mood tags, editorial intro and highlights, a **Plan this trip** link (Phase 18, opens the trip planner with this destination; see [planner.md](planner.md)), travel options, related destinations (and a paired destination where one exists). |
+| `/discover/<unknown>` | "We couldn't find that destination", with close matches ("Did you mean Jaipur?") and a link back to Discover. Deeper unknown paths (`/discover/goa/extra`) fall through to the site's not-found page.                                                                                   |
+| `/flights?to=goa` …   | The service's demo search page (Phase 9, docs/search.md), with the destination prefilled where the demo covers it, a note when it doesn't, and a link back to the destination. Nothing is searched until the visitor submits.                                                           |
 
 Both Discover routes are one lazily loaded chunk
 (`apps/web/src/features/discover/routes.tsx`). Direct visits and refreshes on

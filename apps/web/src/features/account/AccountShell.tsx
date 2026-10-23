@@ -1,4 +1,4 @@
-import { Bell, Luggage, UserRound, Users } from 'lucide-react';
+import { Bell, CalendarRange, Luggage, UserRound, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router';
 import { Container, cn } from '@wayora/ui';
@@ -6,8 +6,8 @@ import { ACCOUNT_PATHS } from '../navigation/config';
 
 /*
  * The signed-in area's frame: side navigation (Profile, Saved travellers,
- * My trips) and a page heading. Used by /profile, /profile/travellers and
- * /trips.
+ * My trips, Trip planner, Notifications) and a page heading. Used by
+ * /profile, /profile/travellers, /trips, /plans and /notifications.
  */
 
 const ACCOUNT_NAV = [
@@ -15,6 +15,8 @@ const ACCOUNT_NAV = [
   { to: ACCOUNT_PATHS.travellers, label: 'Saved travellers', icon: Users, end: true },
   // Not `end`: trip details (/trips/WYD-…) keep "My trips" marked as current.
   { to: ACCOUNT_PATHS.trips, label: 'My trips', icon: Luggage, end: false },
+  // Plans are not bookings: a separate entry (/plans, /plans/:id).
+  { to: ACCOUNT_PATHS.plans, label: 'Trip planner', icon: CalendarRange, end: false },
   { to: ACCOUNT_PATHS.notifications, label: 'Notifications', icon: Bell, end: true },
 ] as const;
 

@@ -35,6 +35,7 @@ import { NotificationsService } from './modules/notifications/notifications.serv
 import { AdminService } from './modules/admin/admin.service.js';
 import { PlatformHealth, type HealthRedis } from './modules/admin/platform-health.js';
 import { prismaSearchEventRecorder } from './modules/search/analytics.js';
+import { PlannerService } from './modules/planner/planner.service.js';
 import { DemoTravelStatusProvider } from './modules/trips/providers/demo.js';
 import type { TravelStatusProvider } from './modules/trips/providers/types.js';
 import { LocalTripEventHub, type TripEventHub } from './modules/trips/stream.js';
@@ -276,7 +277,7 @@ export function createApp({
   let accounts:
     | Omit<
         AccountsRouterOptions,
-        'bookings' | 'payments' | 'logger' | 'notifications' | 'admin' | 'trips'
+        'bookings' | 'payments' | 'logger' | 'notifications' | 'admin' | 'trips' | 'planner'
       >
     | undefined;
   let sessionValid: (token: string | undefined) => Promise<boolean> = () => Promise.resolve(false);
@@ -338,6 +339,7 @@ export function createApp({
   const paymentStore = createRateLimitStore?.('payments');
   const notificationStore = createRateLimitStore?.('notifications');
   const tripStatusStore = createRateLimitStore?.('trip-status');
+  const plannerStore = createRateLimitStore?.('planner');
   const payments = prisma
     ? createPaymentsService(prisma, env, logger, {
         ...(now ? { now } : {}),
@@ -398,6 +400,17 @@ export function createApp({
               ...(tripStatusStore ? { store: tripStatusStore } : {}),
             }),
           },
+          planner: new PlannerService({
+            prisma,
+            logger: logger.child({ component: 'planner' }),
+            ...(now ? { now } : {}),
+          }),
+          plannerLimiter: bookingWriteRateLimiter({
+            max: env.PLANNER_RATE_LIMIT_MAX,
+            subject: 'itinerary changes',
+            userIdOf: (res) => currentUser(res).id,
+            ...(plannerStore ? { store: plannerStore } : {}),
+          }),
           logger,
           notificationLimiter: bookingWriteRateLimiter({
             max: env.NOTIFICATION_RATE_LIMIT_MAX,

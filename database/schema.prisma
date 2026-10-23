@@ -301,6 +301,8 @@ model User {
   notifications           Notification[]
   notificationPreferences NotificationPreference?
 
+  plannedTrips PlannedTrip[]
+
   @@index([status])
   @@index([role])
   @@index([createdAt])
@@ -427,6 +429,8 @@ model Booking {
   payments      Payment[]
   notifications Notification[]
   tripEvents    TripEvent[]
+  /// Planned trips the owner chose to link to this booking (Phase 18).
+  plannedTrips  PlannedTrip[]
   tripStatus    TripStatus?
   disruptions   TripDisruption[]
 
@@ -810,4 +814,109 @@ model TripDisruption {
   @@unique([bookingId, providerId, externalKey])
   @@index([bookingId, state])
   @@map("trip_disruptions")
+}
+
+// ─── Trip planner (Phase 18) ──────────────────────────────────────────────
+
+/// Kind of planned activity. Mirrors `activityCategorySchema` in @wayora/contracts.
+enum ActivityCategory {
+  SIGHTSEEING
+  CULTURE
+  FOOD
+  NATURE
+  BEACH
+  ADVENTURE
+  SHOPPING
+  NIGHTLIFE
+  WELLNESS
+  TRANSPORT
+  OTHER
+
+  @@map("activity_category")
+}
+
+enum PlanningPace {
+  RELAXED
+  BALANCED
+  PACKED
+
+  @@map("planning_pace")
+}
+
+enum PlanningBudget {
+  SHOESTRING
+  MODERATE
+  PREMIUM
+
+  @@map("planning_budget")
+}
+
+enum PlanningGroup {
+  SOLO
+  COUPLE
+  FAMILY
+  FRIENDS
+
+  @@map("planning_group")
+}
+
+/// A user's own trip plan (docs/planner.md#data-model). A plan, never a
+/// booking: it reserves nothing. Its days are the dates from start to end
+/// (destination-local calendar dates, no time zone).
+model PlannedTrip {
+  id              String             @id @default(uuid(7)) @db.Uuid
+  userId          String             @map("user_id") @db.Uuid
+  title           String             @db.VarChar(120)
+  /// Curated sample destination id (e.g. "goa"); null for a free-text destination.
+  destinationId   String?            @map("destination_id") @db.VarChar(40)
+  destinationName String             @map("destination_name") @db.VarChar(120)
+  startDate       DateTime           @map("start_date") @db.Date
+  endDate         DateTime           @map("end_date") @db.Date
+  notes           String?            @db.VarChar(2000)
+  /// Optional planning preferences (all nullable / empty = no preference).
+  pace            PlanningPace?
+  budget          PlanningBudget?
+  groupType       PlanningGroup?     @map("group_type")
+  interests       ActivityCategory[] @default([])
+  /// A confirmed booking of the same user, linked only by explicit choice.
+  bookingId       String?            @map("booking_id") @db.Uuid
+  /// Bumped on every trip-detail change; edits based on an older one are refused.
+  version         Int                @default(1)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  booking Booking?        @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  items   ItineraryItem[]
+
+  @@index([userId, startDate, id])
+  @@index([bookingId])
+  @@map("planned_trips")
+}
+
+/// One planned activity on one day of a planned trip. (trip_id, day, position)
+/// is unique (deferrable, so a reorder can swap positions in one statement);
+/// that constraint also serves the itinerary read. Hand-written in the migration.
+model ItineraryItem {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  tripId          String           @map("trip_id") @db.Uuid
+  /// Destination-local calendar date.
+  day             DateTime         @db.Date
+  /// 0-based order within the day, gap-free.
+  position        Int
+  title           String           @db.VarChar(120)
+  category        ActivityCategory
+  /// Wall-clock start at the destination, minutes after midnight (0–1439).
+  startMinute     Int?             @map("start_minute") @db.SmallInt
+  durationMinutes Int?             @map("duration_minutes") @db.SmallInt
+  location        String?          @db.VarChar(160)
+  notes           String?          @db.VarChar(1000)
+  /// Curated sample suggestion it came from; at most once per trip.
+  suggestionId    String?          @map("suggestion_id") @db.VarChar(102)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  trip PlannedTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@map("itinerary_items")
 }

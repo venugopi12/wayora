@@ -57,6 +57,8 @@ const auth = () => import('../features/auth/routes');
 const account = () => import('../features/account/routes');
 /** Checkout, confirmation, My trips, booking details (Phase 12) and demo payments (Phase 13). */
 const bookings = () => import('../features/bookings/routes');
+/** Trip planner (Phase 18): plan list, new plan and plan pages share one chunk. */
+const planner = () => import('../features/planner/routes');
 /** Notifications page (Phase 14). */
 const notifications = () => import('../features/notifications/routes');
 /** Admin dashboard (Phase 15): its layout and pages are one chunk, never loaded by customers. */
@@ -107,7 +109,7 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *         │  └─ /profile, /profile/travellers, /book/:serviceType/:resultId (demo
  *         │     checkout), /trips, /trips/:reference, /trips/:reference/confirmation,
  *         │     /trips/:reference/pay, /trips/:reference/payments/:paymentId (demo payments),
- *         │     /notifications
+ *         │     /notifications, /plans, /plans/new, /plans/:tripId (trip planner)
  *         └─ *                 not-found page
  *
  * Focused layouts (auth, admin) are siblings of MarketingLayout under
@@ -199,6 +201,18 @@ export function createRoutes({
                     {
                       path: ACCOUNT_PATHS.notifications.slice(1),
                       lazy: async () => ({ Component: (await notifications()).NotificationsRoute }),
+                    },
+                    {
+                      path: ACCOUNT_PATHS.plans.slice(1),
+                      lazy: async () => ({ Component: (await planner()).PlansRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.plans.slice(1)}/new`,
+                      lazy: async () => ({ Component: (await planner()).NewPlanRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.plans.slice(1)}/:tripId`,
+                      lazy: async () => ({ Component: (await planner()).PlanDetailRoute }),
                     },
                     {
                       path: 'book/:serviceType/:resultId',

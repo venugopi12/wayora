@@ -32,6 +32,9 @@ const DEFAULT_STATUS: Record<ApiErrorCode, number> = {
   PAYMENT_NOT_CANCELLABLE: 409,
   // Trip tracking (docs/trips.md#api).
   TRIP_TRACKING_UNAVAILABLE: 409,
+  // Trip planner (docs/planner.md#errors).
+  PLAN_OUT_OF_DATE: 409,
+  PLAN_LIMIT_REACHED: 409,
 };
 
 /**

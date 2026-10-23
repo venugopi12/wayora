@@ -58,6 +58,11 @@ export const apiErrorCodeSchema = z.enum([
   // Trip tracking (docs/trips.md#api).
   /** This booking's travel status can't be checked (category, booking state, or no provider). */
   'TRIP_TRACKING_UNAVAILABLE',
+  // Trip planner (docs/planner.md#errors).
+  /** The plan changed since it was loaded (another tab or device): reload, then edit. */
+  'PLAN_OUT_OF_DATE',
+  /** A planner limit was reached (trips per account, activities per day or trip). */
+  'PLAN_LIMIT_REACHED',
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

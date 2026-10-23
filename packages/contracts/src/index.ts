@@ -9,5 +9,6 @@ export * from './jobs.js';
 export * from './money.js';
 export * from './notifications.js';
 export * from './payments.js';
+export * from './planner.js';
 export * from './search/index.js';
 export * from './trips.js';
