@@ -132,8 +132,70 @@ enum NotificationType {
   PAYMENT_FAILED
   PAYMENT_REFUNDED
   TRAVEL_REMINDER
+  /// A travel disruption reported, changed or resolved (Phase 17, docs/trips.md).
+  TRIP_DISRUPTION
 
   @@map("notification_type")
+}
+
+/// Trip timeline entries (Phase 17, docs/trips.md#timeline).
+enum TripEventType {
+  BOOKING_CREATED
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  BOOKING_EXPIRED
+  BOOKING_FAILED
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  PAYMENT_REFUND_PENDING
+  PAYMENT_REFUNDED
+  TRAVEL_REMINDER
+  CHECK_OUT_REMINDER
+  STATUS_CHANGED
+  DISRUPTION_REPORTED
+  DISRUPTION_UPDATED
+  DISRUPTION_RESOLVED
+
+  @@map("trip_event_type")
+}
+
+/// Where a timeline entry, status or disruption came from.
+enum TripEventSource {
+  /// Wayora's own records (bookings, payments, reminders).
+  WAYORA
+  /// The simulated travel-status provider: never verified travel information.
+  DEMO_PROVIDER
+  /// A configured, real travel-status provider.
+  LIVE_PROVIDER
+
+  @@map("trip_event_source")
+}
+
+enum DisruptionType {
+  DEPARTURE_DELAY
+  ARRIVAL_DELAY
+  CANCELLATION
+  SCHEDULE_CHANGE
+  SERVICE_DISRUPTION
+  BOOKING_CHANGE
+
+  @@map("disruption_type")
+}
+
+enum DisruptionSeverity {
+  INFO
+  MINOR
+  MAJOR
+  SEVERE
+
+  @@map("disruption_severity")
+}
+
+enum DisruptionState {
+  ACTIVE
+  RESOLVED
+
+  @@map("disruption_state")
 }
 
 enum NotificationChannel {
@@ -364,6 +426,9 @@ model Booking {
   events        BookingStatusEvent[]
   payments      Payment[]
   notifications Notification[]
+  tripEvents    TripEvent[]
+  tripStatus    TripStatus?
+  disruptions   TripDisruption[]
 
   @@unique([provider, providerReference])
   @@index([orderId])
@@ -666,4 +731,83 @@ model AuditLog {
   @@index([createdAt])
   @@index([action, createdAt])
   @@map("audit_logs")
+}
+
+/// The trip timeline (Phase 17, docs/trips.md#timeline). Append-only (a
+/// trigger blocks UPDATE and DELETE); corrections are new entries. Booking and
+/// payment status changes are copied in by database triggers from their
+/// history tables; reminders, travel status and disruptions are written by
+/// the API. `dedupe_key` makes every write idempotent.
+model TripEvent {
+  id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Insertion order, for tie-breaking and realtime event ids.
+  seq        BigInt          @unique @default(autoincrement())
+  bookingId  String          @map("booking_id") @db.Uuid
+  type       TripEventType
+  source     TripEventSource
+  dedupeKey  String          @unique @map("dedupe_key") @db.VarChar(200)
+  /// When it happened (for provider data: when the provider says it changed).
+  occurredAt DateTime        @map("occurred_at") @db.Timestamptz(3)
+  /// When the provider observed it; null for Wayora's own events.
+  observedAt DateTime?       @map("observed_at") @db.Timestamptz(3)
+  /// Safe display data only (statuses, times, amounts); no names or contact details.
+  data       Json
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, occurredAt, seq])
+  @@map("trip_events")
+}
+
+/// The latest travel-status observation for a booking (one row per booking).
+/// Only a newer observation replaces it (docs/trips.md#freshness).
+model TripStatus {
+  bookingId     String          @id @map("booking_id") @db.Uuid
+  providerId    String          @map("provider_id") @db.VarChar(64)
+  source        TripEventSource
+  /// Normalized legs: state, scheduled and estimated times, delay.
+  legs          Json
+  /// When the provider observed this status.
+  observedAt    DateTime?       @map("observed_at") @db.Timestamptz(3)
+  /// When Wayora last asked (successfully or not).
+  checkedAt     DateTime        @map("checked_at") @db.Timestamptz(3)
+  /// Normalized code of the last failed check (never provider text); null after a success.
+  lastErrorCode String?         @map("last_error_code") @db.VarChar(32)
+  updatedAt     DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([checkedAt])
+  @@map("trip_statuses")
+}
+
+/// A travel disruption affecting a booking, from a provider (docs/trips.md#disruptions).
+/// One row per provider disruption; its changes are timeline entries.
+model TripDisruption {
+  id              String             @id @default(uuid(7)) @db.Uuid
+  bookingId       String             @map("booking_id") @db.Uuid
+  providerId      String             @map("provider_id") @db.VarChar(64)
+  source          TripEventSource
+  /// The provider's identifier for this disruption (stable across polls).
+  externalKey     String             @map("external_key") @db.VarChar(128)
+  type            DisruptionType
+  severity        DisruptionSeverity
+  state           DisruptionState
+  /// Leg it affects (index into the booking's legs), if one.
+  legIndex        Int?               @map("leg_index") @db.SmallInt
+  /// What changed, normalized (times, delay minutes); no provider text.
+  details         Json
+  firstDetectedAt DateTime           @map("first_detected_at") @db.Timestamptz(3)
+  /// Provider observation time of the latest information.
+  lastObservedAt  DateTime           @map("last_observed_at") @db.Timestamptz(3)
+  resolvedAt      DateTime?          @map("resolved_at") @db.Timestamptz(3)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, providerId, externalKey])
+  @@index([bookingId, state])
+  @@map("trip_disruptions")
 }

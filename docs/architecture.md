@@ -173,7 +173,11 @@ Phase 14 added `notifications`, the `notification_deliveries` outbox and
 `notification_preferences`; see [notifications.md](notifications.md#database).
 Phase 15 added `users.role` (with a trigger that audits every change) and
 `search_events` (search analytics without personal data), plus indexes for
-the admin views; see [admin.md](admin.md#database).
+the admin views; see [admin.md](admin.md#database). Phase 17 added the
+append-only `trip_events` timeline (filled by triggers on the booking and
+payment histories, and by the API), `trip_statuses` and `trip_disruptions`;
+new timeline rows are announced with `pg_notify` and streamed to browsers over
+Server-Sent Events; see [trips.md](trips.md).
 
 ### Conventions
 

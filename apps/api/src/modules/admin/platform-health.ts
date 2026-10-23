@@ -30,6 +30,12 @@ export interface PlatformHealthOptions {
   uptime?: () => number;
   /** How long a report is reused, so the page can't hammer dependencies. */
   cacheMs?: number;
+  /** The travel-status provider, if one is configured (docs/trips.md#providers). */
+  travelStatus?: {
+    providerName: string;
+    simulated: boolean;
+    recentFailures: () => Promise<number>;
+  } | null;
 }
 
 /** Outbox or payment work older than this is a backlog worth looking at. */
@@ -99,7 +105,8 @@ export class PlatformHealth {
     const now = this.now();
     const prefix = `bull:${QUEUE_NAMES.system}`;
 
-    const [db, outbox, payments, ping, beacon, queue] = await Promise.all([
+    const travel = this.options.travelStatus ?? null;
+    const [db, outbox, payments, ping, beacon, queue, tripFailures] = await Promise.all([
       this.probe('database', () => prisma.$queryRaw`SELECT 1`),
       this.probe('outbox', async () => {
         const [byStatus, oldest] = await Promise.all([
@@ -144,6 +151,7 @@ export class PlatformHealth {
             return { waiting: wait + prioritized, active, delayed, failed };
           })
         : undefined,
+      travel ? this.probe('travel-status', () => travel.recentFailures()) : undefined,
     ]);
 
     const age = (d: Date | null) => (d ? now.getTime() - d.getTime() : 0);
@@ -231,6 +239,26 @@ export class PlatformHealth {
             oldestInProgressAt: payments.value.oldest?.toISOString() ?? null,
           }
         : { status: 'unknown', inProgress: null, oldestInProgressAt: null },
+      travelStatus: !travel
+        ? {
+            status: 'not-configured',
+            providerName: null,
+            simulated: false,
+            failedChecksLastHour: null,
+          }
+        : !tripFailures?.ok
+          ? {
+              status: 'unknown',
+              providerName: travel.providerName,
+              simulated: travel.simulated,
+              failedChecksLastHour: null,
+            }
+          : {
+              status: tripFailures.value > 0 ? 'degraded' : 'up',
+              providerName: travel.providerName,
+              simulated: travel.simulated,
+              failedChecksLastHour: tripFailures.value,
+            },
     };
   }
 }

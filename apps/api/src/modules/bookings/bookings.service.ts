@@ -69,7 +69,7 @@ export function newBookingReference(): string {
 }
 
 /** What is kept of the offer: validated, versioned, never changed (a DB trigger enforces it). */
-const snapshotSchema = z.object({
+export const bookingSnapshotSchema = z.object({
   v: z.literal(1),
   offer: searchResultSchema,
   providerName: z.string(),
@@ -77,7 +77,7 @@ const snapshotSchema = z.object({
   searchGeneratedAt: z.string(),
   searchExpiresAt: z.string(),
 });
-type Snapshot = z.infer<typeof snapshotSchema>;
+type Snapshot = z.infer<typeof bookingSnapshotSchema>;
 
 const toDate = (isoDate: string | null) => (isoDate ? new Date(`${isoDate}T00:00:00Z`) : null);
 const fromDate = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : null);
@@ -85,7 +85,7 @@ const fromDate = (date: Date | null) => (date ? date.toISOString().slice(0, 10) 
 const isUniqueViolation = (error: unknown) =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 
-const NOT_FOUND_MESSAGE = "We couldn't find that booking.";
+export const NOT_FOUND_MESSAGE = "We couldn't find that booking.";
 
 const paymentsSelect = {
   payments: {
@@ -518,7 +518,7 @@ export class BookingsService {
   // ─── Presentation ───────────────────────────────────────────────────────
 
   private snapshot(row: BookingSummaryRow): Snapshot {
-    const parsed = snapshotSchema.safeParse(row.offerSnapshot);
+    const parsed = bookingSnapshotSchema.safeParse(row.offerSnapshot);
     if (!parsed.success) {
       // The column is write-once and validated on write: this means corruption.
       this.options.logger.error({ bookingId: row.id }, 'Stored booking snapshot is invalid');

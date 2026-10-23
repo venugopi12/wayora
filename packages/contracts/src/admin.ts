@@ -470,6 +470,15 @@ export const adminHealthSchema = z.object({
     inProgress: z.number().int().nullable(),
     oldestInProgressAt: z.iso.datetime().nullable(),
   }),
+  /** Travel-status provider (Phase 17, docs/trips.md#providers). */
+  travelStatus: z.object({
+    status: adminCheckStatusSchema,
+    providerName: z.string().nullable(),
+    /** The demo provider: simulated data. */
+    simulated: z.boolean(),
+    /** Bookings whose latest status check failed within the last hour. */
+    failedChecksLastHour: z.number().int().nullable(),
+  }),
 });
 export type AdminHealth = z.infer<typeof adminHealthSchema>;
 

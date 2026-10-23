@@ -42,6 +42,8 @@ const CATEGORY: Record<DbNotificationType, 'emailBookings' | 'emailPayments' | '
   PAYMENT_FAILED: 'emailPayments',
   PAYMENT_REFUNDED: 'emailPayments',
   TRAVEL_REMINDER: 'emailReminders',
+  // A trip change is about the booking (Phase 17).
+  TRIP_DISRUPTION: 'emailBookings',
 };
 
 /** Events worth an email; "processing" updates stay in-app only. */
@@ -54,6 +56,7 @@ const EMAILED = new Set<DbNotificationType>([
   'PAYMENT_FAILED',
   'PAYMENT_REFUNDED',
   'TRAVEL_REMINDER',
+  'TRIP_DISRUPTION',
 ]);
 
 /** Creates the notification (once per dedupe key) and queues its email. Returns whether it was new. */

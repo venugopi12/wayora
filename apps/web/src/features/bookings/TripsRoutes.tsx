@@ -40,7 +40,13 @@ import { OfferDetails, offerHeading } from '../offers/OfferDetails';
 import { DemoBadge, money } from '../search/cards/shared';
 import { BookingPriceSummary } from './BookingPriceSummary';
 import {
-  STATUS_LABEL,
+  DisruptionsPanel,
+  TravelStatusPanel,
+  TripTimelinePanel,
+  useTripLiveUpdates,
+  useTripStatus,
+} from './TripTracking';
+import {
   bookingStatusLabel,
   formatMoment,
   partyText,
@@ -54,8 +60,9 @@ import { payPath, paymentPath, tripPath } from './paths';
 /*
  * /trips, /trips/:reference and /trips/:reference/confirmation
  * (docs/bookings.md#web). Signed-in only; the API returns only this
- * account's bookings. Nothing here tracks live flights, trains or hotel
- * reservations: these are demo bookings stored by Wayora.
+ * account's bookings. These are demo bookings stored by Wayora. Travel
+ * status and disruptions (TripTracking.tsx, Phase 17) come only from the
+ * configured status provider, today a simulated one, and say so.
  */
 
 const PAGE_SIZE = 10;
@@ -461,6 +468,12 @@ function TripDetail({ booking }: { booking: Booking }) {
   const heading = offerHeading(booking.offer);
   const service = serviceBySlug[booking.serviceType];
   const [cancelledNow, setCancelledNow] = useState(false);
+  // Updates matter only while the booking can still change.
+  const live = useTripLiveUpdates(
+    booking.reference,
+    booking.status === 'pending' || booking.status === 'confirmed',
+  );
+  const status = useTripStatus(booking.reference);
   return (
     <Container className="flex flex-col gap-6 py-section-sm">
       <Breadcrumbs
@@ -494,8 +507,11 @@ function TripDetail({ booking }: { booking: Booking }) {
         {DEMO_BOOKING_NOTICE}
       </Alert>
 
+      <DisruptionsPanel reference={booking.reference} />
+
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-10">
         <div className="flex min-w-0 flex-col gap-6">
+          <TravelStatusPanel reference={booking.reference} query={status} live={live} />
           <Panel title="Trip">
             <dl className="grid gap-x-8 gap-y-3 text-body-sm sm:grid-cols-[9rem_minmax(0,1fr)]">
               <dt className="text-ink-secondary">Travel dates</dt>
@@ -533,31 +549,7 @@ function TripDetail({ booking }: { booking: Booking }) {
               </p>
             ) : null}
           </Panel>
-          <Panel title="History">
-            <ol className="flex flex-col gap-4">
-              {booking.history.map((event, i) => (
-                <li key={i} className="flex gap-3">
-                  <span
-                    aria-hidden="true"
-                    className="mt-1.5 size-2 shrink-0 rounded-full bg-brand"
-                  />
-                  <div className="flex flex-col gap-0.5">
-                    <p className="text-body-sm">
-                      <span className="font-semibold">{STATUS_LABEL[event.status].label}</span>
-                      <span className="text-ink-secondary">
-                        {' '}
-                        · {event.by === 'you' ? 'by you' : 'by Wayora'} ·{' '}
-                        <time dateTime={event.at}>{formatMoment(event.at)}</time>
-                      </span>
-                    </p>
-                    {event.note ? (
-                      <p className="text-caption text-ink-secondary">{event.note}</p>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </Panel>
+          <TripTimelinePanel reference={booking.reference} />
         </div>
         <aside
           aria-label="Price and cancellation"

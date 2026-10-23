@@ -871,6 +871,7 @@ export class AdminService {
           'PAYMENT_FAILED',
           'PAYMENT_REFUNDED',
           'TRAVEL_REMINDER',
+          'TRIP_DISRUPTION',
         ],
         byType.map((r) => ({ key: r.type, n: r._count._all })),
       ),

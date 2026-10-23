@@ -8,6 +8,7 @@ import {
   demoPaymentScenariosEnabled,
   demoProvidersEnabled,
   paymentProvider,
+  travelStatusProvider,
   type Env,
 } from './config/env.js';
 import { requireTrustedOrigin } from './middleware/csrf.js';
@@ -34,6 +35,10 @@ import { NotificationsService } from './modules/notifications/notifications.serv
 import { AdminService } from './modules/admin/admin.service.js';
 import { PlatformHealth, type HealthRedis } from './modules/admin/platform-health.js';
 import { prismaSearchEventRecorder } from './modules/search/analytics.js';
+import { DemoTravelStatusProvider } from './modules/trips/providers/demo.js';
+import type { TravelStatusProvider } from './modules/trips/providers/types.js';
+import { LocalTripEventHub, type TripEventHub } from './modules/trips/stream.js';
+import { TripsService } from './modules/trips/trips.service.js';
 import {
   PAYMENT_EVENTS_PATH,
   type RequestWithRawBody,
@@ -41,6 +46,7 @@ import {
 import { DemoPaymentProvider } from './modules/payments/providers/demo.js';
 import type { PaymentProvider } from './modules/payments/providers/types.js';
 import { v1Router, type AccountsRouterOptions } from './routes/v1.js';
+import type { StreamTimings } from './modules/trips/trips.routes.js';
 import type { DependencyCheck } from './services/health.js';
 import type { Logger } from './utils/logger.js';
 
@@ -88,6 +94,37 @@ export interface AppDependencies {
   redis?: HealthRedis;
   /** Search analytics on/off (default: on whenever there is a database). */
   recordSearchEvents?: boolean;
+  /**
+   * Live trip updates (docs/trips.md#live-updates). The server passes the
+   * PostgreSQL-fed hub; without one, streams fall back to periodic re-reads.
+   */
+  tripEvents?: TripEventHub;
+  /** Overrides the travel-status provider chosen by env (tests); null = none. */
+  travelStatus?: { provider?: TravelStatusProvider | null; stream?: Partial<StreamTimings> };
+}
+
+/** Builds the trip service from env (exported for the server's background checks). */
+export function createTripsService(
+  prisma: PrismaClient,
+  env: Env,
+  logger: Logger,
+  options: { now?: () => Date; provider?: TravelStatusProvider | null } = {},
+): TripsService {
+  const provider =
+    options.provider !== undefined
+      ? options.provider
+      : travelStatusProvider(env) === 'demo'
+        ? new DemoTravelStatusProvider(options.now ? { now: options.now } : {})
+        : null;
+  return new TripsService({
+    prisma,
+    logger: logger.child({ component: 'trips' }),
+    provider,
+    freshMs: env.TRAVEL_STATUS_FRESH_SECONDS * 1000,
+    minRefreshMs: env.TRAVEL_STATUS_MIN_REFRESH_SECONDS * 1000,
+    timeoutMs: env.TRAVEL_STATUS_TIMEOUT_MS,
+    ...(options.now ? { now: options.now } : {}),
+  });
 }
 
 /** Builds the payment service from env (exported for the server's background jobs). */
@@ -187,6 +224,8 @@ export function createApp({
   paymentProviders,
   redis,
   recordSearchEvents = true,
+  tripEvents,
+  travelStatus,
 }: AppDependencies): Express {
   const app = express();
 
@@ -235,11 +274,16 @@ export function createApp({
   );
 
   let accounts:
-    | Omit<AccountsRouterOptions, 'bookings' | 'payments' | 'logger' | 'notifications' | 'admin'>
+    | Omit<
+        AccountsRouterOptions,
+        'bookings' | 'payments' | 'logger' | 'notifications' | 'admin' | 'trips'
+      >
     | undefined;
+  let sessionValid: (token: string | undefined) => Promise<boolean> = () => Promise.resolve(false);
   if (prisma) {
     const secure = env.NODE_ENV === 'production';
     const sessions = createSessionService(prisma, env, now);
+    sessionValid = async (token) => Boolean(await sessions.resolve(token));
     accounts = {
       loadSession: loadSession(sessions, secure),
       auth: {
@@ -293,6 +337,7 @@ export function createApp({
   const bookingStore = createRateLimitStore?.('bookings');
   const paymentStore = createRateLimitStore?.('payments');
   const notificationStore = createRateLimitStore?.('notifications');
+  const tripStatusStore = createRateLimitStore?.('trip-status');
   const payments = prisma
     ? createPaymentsService(prisma, env, logger, {
         ...(now ? { now } : {}),
@@ -300,8 +345,14 @@ export function createApp({
       })
     : undefined;
   // Bookings need the database and the search sessions their offers come from.
+  const trips = prisma
+    ? createTripsService(prisma, env, logger, {
+        ...(now ? { now } : {}),
+        ...(travelStatus?.provider !== undefined ? { provider: travelStatus.provider } : {}),
+      })
+    : undefined;
   const accountRoutes: AccountsRouterOptions | undefined =
-    accounts && prisma && payments
+    accounts && prisma && payments && trips
       ? {
           ...accounts,
           bookings: new BookingsService({
@@ -325,6 +376,26 @@ export function createApp({
               logger: logger.child({ component: 'admin-health' }),
               timeoutMs: env.HEALTH_CHECK_TIMEOUT_MS,
               ...(now ? { now } : {}),
+              travelStatus: trips.provider
+                ? {
+                    providerName: trips.provider.name,
+                    simulated: trips.provider.kind === 'demo',
+                    recentFailures: () => trips.recentFailures(),
+                  }
+                : null,
+            }),
+          },
+          trips: {
+            trips,
+            hub: tripEvents ?? new LocalTripEventHub(),
+            logger: logger.child({ component: 'trip-stream' }),
+            sessionValid,
+            ...(travelStatus?.stream ? { stream: travelStatus.stream } : {}),
+            refreshLimiter: bookingWriteRateLimiter({
+              max: env.TRAVEL_STATUS_REFRESH_RATE_LIMIT_MAX,
+              subject: 'status refreshes',
+              userIdOf: (res) => currentUser(res).id,
+              ...(tripStatusStore ? { store: tripStatusStore } : {}),
             }),
           },
           logger,

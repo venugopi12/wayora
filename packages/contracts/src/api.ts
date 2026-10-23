@@ -55,6 +55,9 @@ export const apiErrorCodeSchema = z.enum([
   'PAYMENT_AMOUNT_MISMATCH',
   /** The payment is no longer pending, so it can't be cancelled. */
   'PAYMENT_NOT_CANCELLABLE',
+  // Trip tracking (docs/trips.md#api).
+  /** This booking's travel status can't be checked (category, booking state, or no provider). */
+  'TRIP_TRACKING_UNAVAILABLE',
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

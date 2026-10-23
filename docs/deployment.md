@@ -71,6 +71,7 @@ such as `REDIS_URL=redis://localhost:6379` are not).
 | `SEARCH_DEMO_PROVIDERS`  | **`true` for now**       | Off by default in production. There are no live suppliers yet, so without it search answers "unavailable" (warned at start-up when on)                                                                                                                                                     |
 | `PAYMENT_PROVIDER`       | `demo` or `none`         | Default `none` in production. `demo` simulates payments; no money moves (warned)                                                                                                                                                                                                           |
 | `PAYMENT_DEMO_SCENARIOS` | unset (off)              | Lets requests choose demo outcomes; keep off outside testing                                                                                                                                                                                                                               |
+| `TRAVEL_STATUS_PROVIDER` | `demo` or `none`         | Default `none` in production. `demo` simulates travel status and disruptions, labelled as simulated (warned). No live provider exists; other `TRAVEL_STATUS_*` tuning in docs/trips.md#configuration                                                                                       |
 | Rate limits, timeouts    | defaults                 | `RATE_LIMIT_*`, `AUTH_RATE_LIMIT_MAX`, `LOGIN_FAILURES_PER_EMAIL_MAX`, `SEARCH_RATE_LIMIT_MAX`, `BOOKING_RATE_LIMIT_MAX`, `PAYMENT_RATE_LIMIT_MAX`, `NOTIFICATION_RATE_LIMIT_MAX`, `HEALTH_CHECK_TIMEOUT_MS`, `SHUTDOWN_TIMEOUT_MS`, `SESSION_*`, `SEARCH_*` — see `apps/api/.env.example` |
 
 There are no signing secrets to provision: session tokens are random values
@@ -182,7 +183,11 @@ npm run start:api        # node apps/api/dist/server.js
 Several instances can run behind a load balancer: sessions are in
 PostgreSQL, search sessions and rate limits in Redis, and the background jobs
 it runs (session purge, payment reconciliation and booking expiry, travel
-reminders) are idempotent and row-locked. On `SIGTERM` it stops accepting
+reminders, travel-status checks) are idempotent and row-locked. Each
+instance holds one extra PostgreSQL connection for `LISTEN` (live trip
+updates, docs/trips.md#live-updates); any proxy in front of the API must not
+buffer `text/event-stream` responses and must allow requests that stay open
+for up to 30 minutes (streams end themselves then, and on shutdown). On `SIGTERM` it stops accepting
 connections, finishes in-flight requests, closes PostgreSQL and Redis, and
 exits (forced after `SHUTDOWN_TIMEOUT_MS`). Point the load balancer's
 **liveness** probe at `/api/v1/health` and its **readiness** probe at
@@ -253,11 +258,16 @@ contacts a supplier.
 5. **Payment** (if `PAYMENT_PROVIDER=demo`): pay; it says no real money was
    charged; the booking becomes a demo confirmation.
 6. **Notifications:** the bell shows the booking and payment notifications.
-7. **Admin authorization:** as the test customer, `/admin` says "no access" and
+7. **Trip page** (`/trips/<reference>` of a flight, train or bus booking, if
+   `TRAVEL_STATUS_PROVIDER=demo`): the travel status says "Simulated", "Check
+   now" works, the timeline lists the booking and payment, and the page says it
+   "updates automatically" (the live-update stream got through the proxy).
+   With `none`, the status says no provider is configured.
+8. **Admin authorization:** as the test customer, `/admin` says "no access" and
    `GET /api/v1/admin/overview` answers 403. As an administrator, `/admin`
    opens, the overview shows real revenue as unavailable, and `/admin/health`
    shows the worker healthy.
-8. **Readiness:** `ready`.
+9. **Readiness:** `ready`.
 
 Afterwards, demote or leave the test accounts; they hold only demo data.
 
@@ -317,6 +327,8 @@ shipping.
   reservation, ticket or PNR exists.
 - **Demo payments only.** No payment gateway is integrated; demo payments move
   no money, and refunds are not available.
+- **No real travel status.** Trip status and disruptions come from a
+  simulated provider (when enabled), clearly labelled; nothing is tracked live.
 - **No email delivery.** Notifications are in-app; email deliveries are
   recorded as not configured.
 - No email verification or password reset yet (docs/auth.md#limitations-and-future-work).

@@ -110,6 +110,12 @@ export const HEALTH: AdminHealth = adminHealthSchema.parse({
     oldestPendingAt: '2026-10-23T09:59:00.000Z',
   },
   payments: { status: 'up', inProgress: 0, oldestInProgressAt: null },
+  travelStatus: {
+    status: 'up',
+    providerName: 'Wayora demo status (simulated)',
+    simulated: true,
+    failedChecksLastHour: 0,
+  },
 });
 
 const REFS = ['WYD-AAAA-AAAA', 'WYD-BBBB-BBBB', 'WYD-CCCC-CCCC'];

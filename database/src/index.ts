@@ -4,6 +4,7 @@ import { PrismaClient } from './generated/prisma/client.js';
 export { Prisma, PrismaClient } from './generated/prisma/client.js';
 export * from './generated/prisma/enums.js';
 export type * from './generated/prisma/models.js';
+export { listen, type Listener, type ListenerEvents } from './listen.js';
 
 export interface CreatePrismaClientOptions {
   /** PostgreSQL connection string. Defaults to process.env.DATABASE_URL. */

@@ -170,15 +170,16 @@ time limit (`HEALTH_CHECK_TIMEOUT_MS`), and the report is cached in memory
 for 10 seconds (it is identical for every staff member, so caching can't leak
 anything user-specific).
 
-| Check        | How                                                                     | States                                                    |
-| ------------ | ----------------------------------------------------------------------- | --------------------------------------------------------- |
-| API          | The process answering                                                   | up                                                        |
-| Database     | `SELECT 1`                                                              | up / down                                                 |
-| Redis        | `PING`                                                                  | up / down / not-configured                                |
-| Worker       | The worker's own heartbeat (below)                                      | up / down / unknown                                       |
-| Queue        | BullMQ key sizes for `wayora-system` (waiting, active, delayed, failed) | up / degraded (> 1000 waiting) / unknown / not-configured |
-| Email outbox | `notification_deliveries` by status, oldest pending                     | up / degraded (oldest > 15 min) / unknown                 |
-| Payments     | Attempts `CREATED`/`PENDING`, oldest                                    | up / degraded (oldest > 15 min) / unknown                 |
+| Check         | How                                                                                                          | States                                                    |
+| ------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| API           | The process answering                                                                                        | up                                                        |
+| Database      | `SELECT 1`                                                                                                   | up / down                                                 |
+| Redis         | `PING`                                                                                                       | up / down / not-configured                                |
+| Worker        | The worker's own heartbeat (below)                                                                           | up / down / unknown                                       |
+| Queue         | BullMQ key sizes for `wayora-system` (waiting, active, delayed, failed)                                      | up / degraded (> 1000 waiting) / unknown / not-configured |
+| Email outbox  | `notification_deliveries` by status, oldest pending                                                          | up / degraded (oldest > 15 min) / unknown                 |
+| Payments      | Attempts `CREATED`/`PENDING`, oldest                                                                         | up / degraded (oldest > 15 min) / unknown                 |
+| Travel status | Provider configured (and whether simulated), bookings with a failed status check in the last hour (Phase 17) | up / degraded (any failure) / unknown / not-configured    |
 
 **Worker heartbeat.** Redis being reachable says nothing about the worker.
 While its job loop is running (`worker.isRunning()` and not paused) the

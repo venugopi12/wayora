@@ -131,6 +131,22 @@ export const envSchema = z.object({
   /** Notification writes (mark read, read all, preferences) per signed-in user per minute. */
   NOTIFICATION_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
   /**
+   * Travel-status provider (Phase 17, docs/trips.md#providers): `demo`
+   * (simulated, labelled as such) or `none`. No live provider exists yet.
+   * Unset: `demo` in development and test, `none` in production.
+   */
+  TRAVEL_STATUS_PROVIDER: z.preprocess(emptyToUndefined, z.enum(['none', 'demo']).optional()),
+  /** A status observed within this many seconds is shown as current; older is stale. */
+  TRAVEL_STATUS_FRESH_SECONDS: z.coerce.number().int().min(30).max(3600).default(300),
+  /** A booking's provider is asked at most once per this many seconds. */
+  TRAVEL_STATUS_MIN_REFRESH_SECONDS: z.coerce.number().int().min(10).max(3600).default(60),
+  /** Time limit for one provider request. */
+  TRAVEL_STATUS_TIMEOUT_MS: z.coerce.number().int().min(100).max(30_000).default(5000),
+  /** Status refreshes per signed-in user per minute. */
+  TRAVEL_STATUS_REFRESH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+  /** How often active trips are checked in the background; 0 turns it off. */
+  TRAVEL_STATUS_SWEEP_SECONDS: z.coerce.number().int().min(0).max(86_400).default(300),
+  /**
    * Where search sessions live (docs/search.md#search-sessions). `redis` keeps
    * them across API restarts and instances; `memory` is per process and only
    * allowed outside production. Unset: `redis` when REDIS_URL is set, else `memory`.
@@ -157,6 +173,10 @@ export const envSchema = z.object({
 /** Which search-session store this configuration selects. */
 export function searchSessionStore(env: Env): 'redis' | 'memory' {
   return env.SEARCH_SESSION_STORE ?? (env.REDIS_URL ? 'redis' : 'memory');
+}
+
+export function travelStatusProvider(env: Env): 'none' | 'demo' {
+  return env.TRAVEL_STATUS_PROVIDER ?? (env.NODE_ENV === 'production' ? 'none' : 'demo');
 }
 
 /** Whether demo providers are on, given the environment. */
@@ -251,6 +271,11 @@ export function productionWarnings(env: Env): string[] {
   }
   if (paymentProvider(env) === 'demo') {
     warnings.push('PAYMENT_PROVIDER is demo: payments are simulated; no money moves.');
+  }
+  if (travelStatusProvider(env) === 'demo') {
+    warnings.push(
+      'TRAVEL_STATUS_PROVIDER is demo: trip status and disruptions are simulated, not real travel information.',
+    );
   }
   if (env.LOG_FORMAT === 'pretty') {
     warnings.push('LOG_FORMAT=pretty is ignored in production; logs are JSON.');

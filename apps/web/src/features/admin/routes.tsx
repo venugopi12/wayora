@@ -1109,6 +1109,28 @@ export function HealthRoute() {
                   </>
                 )}
               </Check>
+              <Check title="Travel status" status={h.travelStatus.status}>
+                {h.travelStatus.providerName === null ? (
+                  <p>No travel-status provider is configured; trips show their booked times.</p>
+                ) : (
+                  <>
+                    <p>
+                      {h.travelStatus.providerName}
+                      {h.travelStatus.simulated
+                        ? ': simulated data, not real travel information.'
+                        : '.'}
+                    </p>
+                    {h.travelStatus.failedChecksLastHour !== null ? (
+                      <p>
+                        {formatCount(h.travelStatus.failedChecksLastHour)} bookings with a failed
+                        check in the last hour.
+                      </p>
+                    ) : (
+                      <p>Recent failures are unknown.</p>
+                    )}
+                  </>
+                )}
+              </Check>
             </div>
             <Note>
               “Unknown” means the check couldn’t run; it is never shown as healthy. No connection

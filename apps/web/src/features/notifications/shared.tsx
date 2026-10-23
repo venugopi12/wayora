@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BellRing, Check, Luggage, Wallet } from 'lucide-react';
+import { BellRing, Check, Luggage, TriangleAlert, Wallet } from 'lucide-react';
 import { Link } from 'react-router';
 import type { Notification, NotificationCategory } from '@wayora/contracts';
 import { Badge, Button, cn } from '@wayora/ui';
@@ -63,6 +63,7 @@ const ICON: Record<NotificationCategory, typeof Luggage> = {
   booking: Luggage,
   payment: Wallet,
   reminder: BellRing,
+  trip: TriangleAlert,
 };
 
 const relative = new Intl.RelativeTimeFormat('en-IN', { numeric: 'auto' });

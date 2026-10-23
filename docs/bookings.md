@@ -288,12 +288,12 @@ Then deploy the Phase 11 code. The `idempotency_keys` rows with scope
 
 ## Web
 
-| Route                            | Component           | Notes                                            |
-| -------------------------------- | ------------------- | ------------------------------------------------ |
-| `/book/:serviceType/:resultId`   | `CheckoutRoute`     | `?sid=&from=&step=`                              |
-| `/trips`                         | `TripsRoute`        | `?view=upcoming                                  | past | cancelled&page=` |
-| `/trips/:reference`              | `TripDetailRoute`   | Details, history, cancel                         |
-| `/trips/:reference/confirmation` | `ConfirmationRoute` | After booking (replaces the checkout in history) |
+| Route                            | Component           | Notes                                                               |
+| -------------------------------- | ------------------- | ------------------------------------------------------------------- |
+| `/book/:serviceType/:resultId`   | `CheckoutRoute`     | `?sid=&from=&step=`                                                 |
+| `/trips`                         | `TripsRoute`        | `?view=upcoming                                                     | past | cancelled&page=` |
+| `/trips/:reference`              | `TripDetailRoute`   | Details, travel status, timeline, cancel ([trips.md](trips.md#web)) |
+| `/trips/:reference/confirmation` | `ConfirmationRoute` | After booking (replaces the checkout in history)                    |
 
 All are under `RequireAuth` (signed-out visitors go to `/login?redirect=…`
 and come back) and share one lazily loaded chunk (`features/bookings`). My

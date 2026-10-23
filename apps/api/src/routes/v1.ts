@@ -1,5 +1,6 @@
 import { Router, type RequestHandler } from 'express';
 import { adminRouter, type AdminRouterOptions } from '../modules/admin/admin.routes.js';
+import { tripsRouter, type TripsRouterOptions } from '../modules/trips/trips.routes.js';
 import { authRouter, type AuthRouterOptions } from '../modules/auth/auth.routes.js';
 import { bookingsRouter } from '../modules/bookings/bookings.routes.js';
 import type { BookingsService } from '../modules/bookings/bookings.service.js';
@@ -39,6 +40,8 @@ export interface AccountsRouterOptions {
   notificationLimiter?: RequestHandler;
   /** Admin dashboard (Phase 15, docs/admin.md). */
   admin: AdminRouterOptions;
+  /** Trip timeline, status, disruptions and live updates (Phase 17, docs/trips.md). */
+  trips: TripsRouterOptions;
   logger: Logger;
 }
 
@@ -71,6 +74,7 @@ export function v1Router(options: V1RouterOptions): Router {
       notifications,
       notificationLimiter,
       admin,
+      trips,
       logger,
     } = options.accounts;
     router.use('/auth', loadSession, authRouter(auth));
@@ -80,7 +84,13 @@ export function v1Router(options: V1RouterOptions): Router {
       loadSession,
       bookingPaymentsRouter(payments, paymentLimiter),
     );
-    router.use('/bookings', loadSession, bookingsRouter(bookings, bookingLimiter));
+    // One session lookup for both (trip tracking routes are /bookings/:reference/…).
+    router.use(
+      '/bookings',
+      loadSession,
+      tripsRouter(trips),
+      bookingsRouter(bookings, bookingLimiter),
+    );
     router.use('/payments', loadSession, paymentsRouter(payments, paymentLimiter));
     router.use(
       '/notifications',

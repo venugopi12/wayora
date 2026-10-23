@@ -2,7 +2,12 @@ import type { Server } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPrismaClient } from '@wayora/database';
-import { createApp, createPaymentsService, createSessionService } from './app.js';
+import {
+  createApp,
+  createPaymentsService,
+  createSessionService,
+  createTripsService,
+} from './app.js';
 import {
   EnvValidationError,
   parseEnv,
@@ -15,6 +20,7 @@ import { ResilientRedisStore } from './middleware/rate-limit.js';
 import { IdempotencyService } from './modules/bookings/idempotency.js';
 import { createTravelReminders } from './modules/notifications/reminders.js';
 import { RedisSearchSessionStore, type SearchSessionStore } from './modules/search/sessions.js';
+import { PgTripEventHub } from './modules/trips/stream.js';
 import type { DependencyCheck } from './services/health.js';
 import { createRedisConnection, type RedisConnection } from './services/redis.js';
 import { workerHeartbeatCheck } from './services/worker-heartbeat.js';
@@ -92,11 +98,15 @@ async function main(): Promise<void> {
     );
   }
 
+  // Live trip updates: one LISTEN connection per instance (docs/trips.md#live-updates).
+  const tripEvents = new PgTripEventHub(env.DATABASE_URL, logger);
+
   const app = createApp({
     env,
     logger,
     healthChecks,
     prisma,
+    tripEvents,
     ...(redis ? { redis: redis.client } : {}),
     ...(searchSessions ? { searchSessions } : {}),
     ...(redis
@@ -179,6 +189,30 @@ async function main(): Promise<void> {
         logger.warn({ err: unexpectedErrorForLog(err) }, 'Travel reminders failed; will retry'),
       );
   const reminderTimer = setInterval(() => void reminders(), 30 * 60 * 1000);
+
+  // Travel status (docs/trips.md#background-checks): trips travelling around
+  // today are re-checked when their status is older than the freshness
+  // window. Idempotent (dedupe keys, newer-observation-wins), so every
+  // instance may run it.
+  const trips = createTripsService(prisma, env, logger);
+  let sweeping = false;
+  const sweepTrips = async () => {
+    if (sweeping) return;
+    sweeping = true;
+    try {
+      const { checked } = await trips.sweep();
+      if (checked > 0) logger.debug({ checked }, 'Checked travel status');
+    } catch (err) {
+      logger.warn({ err: unexpectedErrorForLog(err) }, 'Travel status checks failed; will retry');
+    } finally {
+      sweeping = false;
+    }
+  };
+  const tripTimer =
+    env.TRAVEL_STATUS_SWEEP_SECONDS > 0 && trips.providerConfigured
+      ? setInterval(() => void sweepTrips(), env.TRAVEL_STATUS_SWEEP_SECONDS * 1000)
+      : undefined;
+  tripTimer?.unref();
   reminderTimer.unref();
   void reminders();
 
@@ -208,6 +242,9 @@ async function main(): Promise<void> {
     clearInterval(purgeTimer);
     clearInterval(paymentTimer);
     clearInterval(reminderTimer);
+    clearInterval(tripTimer);
+    // Live-update streams never finish on their own: end them (browsers reconnect).
+    await tripEvents.close();
     // 1. Stop accepting connections and let in-flight requests finish.
     await new Promise<void>((resolve) => {
       server.close(() => resolve());

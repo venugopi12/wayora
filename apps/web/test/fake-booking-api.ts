@@ -23,6 +23,11 @@ import {
   type SearchResponse,
   type SearchResult,
   type Traveller,
+  tripEventSchema,
+  tripStatusSchema,
+  type TripDisruption,
+  type TripEvent,
+  type TripStatus,
 } from '@wayora/contracts';
 import { installFakeAccountApi } from './fake-account-api';
 import { installFakeSearchApi, searchResponse } from './fake-search-api';
@@ -346,7 +351,99 @@ export function installFakeBookingApi({
     return fail(404, 'NOT_FOUND', 'Not found.');
   };
 
+  // ─── Trip tracking (Phase 17) ───────────────────────────────────────────
+  const trips = new Map<
+    string,
+    {
+      timeline?: TripEvent[];
+      status?: TripStatus;
+      refreshed?: TripStatus;
+      disruptions?: TripDisruption[];
+      failing?: RegExp;
+    }
+  >();
+  const tripRequests: string[] = [];
+  const tripState = (reference: string) => {
+    let t = trips.get(reference);
+    if (!t) {
+      t = {};
+      trips.set(reference, t);
+    }
+    return t;
+  };
+  const defaultTimeline = (booking: Booking): TripEvent[] =>
+    booking.history.map((h, i) =>
+      tripEventSchema.parse({
+        id: `01890000-0000-7000-8000-${String(900 + i).padStart(12, '0')}`,
+        type: i === 0 ? 'booking_created' : `booking_${h.status}`,
+        kind: 'booking',
+        source: 'wayora',
+        title: i === 0 ? 'Booking requested' : `Booking ${h.status}`,
+        description: h.note,
+        occurredAt: h.at,
+        observedAt: null,
+        amount: null,
+        paymentId: null,
+      }),
+    );
+  const defaultStatus = (booking: Booking): TripStatus =>
+    tripStatusSchema.parse({
+      reference: booking.reference,
+      freshness: 'unsupported',
+      explanation: 'Travel status isn’t available for this kind of booking.',
+      source: null,
+      providerName: null,
+      simulated: false,
+      observedAt: null,
+      checkedAt: null,
+      legs: [],
+      refresh: { available: false, nextAllowedAt: null },
+    });
+  const handleTrips = (method: string, booking: Booking, what: string): Response => {
+    const t = tripState(booking.reference);
+    if (t.failing?.test(what)) return fail(503, 'SERVICE_UNAVAILABLE', 'Try again later.');
+    if (method === 'GET' && what === 'timeline') {
+      return ok({
+        reference: booking.reference,
+        items: t.timeline ?? defaultTimeline(booking),
+        nextCursor: null,
+      });
+    }
+    if (method === 'GET' && what === 'status') return ok(t.status ?? defaultStatus(booking));
+    if (method === 'GET' && what === 'disruptions') {
+      return ok({
+        reference: booking.reference,
+        items: t.disruptions ?? [],
+        notice:
+          'Wayora doesn’t change your booking because of a disruption: nothing is cancelled, rebooked, refunded or compensated automatically.',
+      });
+    }
+    if (method === 'POST' && what === 'status/refresh') {
+      if (!t.refreshed) {
+        return fail(
+          409,
+          'TRIP_TRACKING_UNAVAILABLE',
+          'Travel status isn’t available for this booking.',
+        );
+      }
+      t.status = t.refreshed;
+      return ok(t.refreshed);
+    }
+    return fail(404, 'NOT_FOUND', 'Not found.');
+  };
+
   const handle = async (method: string, url: URL, init?: RequestInit): Promise<Response> => {
+    const trip =
+      /^\/api\/v1\/bookings\/([^/]+)\/(timeline|status|disruptions|status\/refresh)$/.exec(
+        url.pathname,
+      );
+    if (trip) {
+      tripRequests.push(`${method} ${trip[2]}`);
+      if (!account.state.signedIn) return fail(401, 'UNAUTHENTICATED', 'Sign in to continue.');
+      const booking = store.find((b) => b.reference === decodeURIComponent(trip[1]!));
+      if (!booking) return fail(404, 'NOT_FOUND', "We couldn't find that booking.");
+      return handleTrips(method, booking, trip[2]!);
+    }
     if (/^\/api\/v1\/(payments|bookings\/[^/]+\/payments)/.test(url.pathname)) {
       const full = url.pathname.replace(/^\/api\/v1/, '');
       requests.push(`${method} ${full}${url.search}`);
@@ -598,6 +695,9 @@ export function installFakeBookingApi({
     requests,
     payments,
     paymentPosts,
+    /** Trip tracking state per booking reference (timeline, status, disruptions). */
+    trip: tripState,
+    tripRequests,
     /** The demo provider settles a pending payment. */
     settle(id: string, outcome: 'succeeded' | 'failed') {
       return setPaymentStatus(id, outcome);

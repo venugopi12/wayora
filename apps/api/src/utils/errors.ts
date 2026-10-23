@@ -30,6 +30,8 @@ const DEFAULT_STATUS: Record<ApiErrorCode, number> = {
   PAYMENT_NOT_ALLOWED: 409,
   PAYMENT_AMOUNT_MISMATCH: 409,
   PAYMENT_NOT_CANCELLABLE: 409,
+  // Trip tracking (docs/trips.md#api).
+  TRIP_TRACKING_UNAVAILABLE: 409,
 };
 
 /**

@@ -89,6 +89,7 @@ is missing. See the `.env.example` next to each app and
 - [Demo bookings](docs/bookings.md): journey, statuses, API, idempotency, database and migration (with rollback), My trips, limitations
 - [Payments](docs/payments.md): booking/payment rules, states, demo provider, API, idempotency, provider events and webhooks, refunds, migration (with rollback), steps before a real gateway
 - [Notifications](docs/notifications.md): events, idempotency, API and ownership, bell and panel, preferences, email outbox and worker, enabling an email provider, migration (with rollback)
+- [Trip tracking](docs/trips.md): trip timeline, travel status and freshness, the (simulated) demo status provider, disruptions, notifications, live updates (Server-Sent Events), migration (with rollback)
 - [Admin dashboard](docs/admin.md): roles and permissions, provisioning, API, metric definitions, search analytics, platform health and worker heartbeat, audit log, migration (with rollback)
 - [Authentication and accounts](docs/auth.md): sessions, cookies and CSRF, endpoints, migration, how to run the account tests, limitations
 - [Security](docs/security.md): current controls and the plan for payments and providers
@@ -96,27 +97,30 @@ is missing. See the `.env.example` next to each app and
 
 ## API at a glance
 
-| Method                | Path                                                           | Description                                                                                       |
-| --------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| GET                   | `/api/v1/health`                                               | Liveness. Always 200 while the process is up                                                      |
-| GET                   | `/api/v1/health/ready`                                         | Readiness. 200 ready/degraded, 503 unready                                                        |
-| GET                   | `/api/v1/catalog/categories`                                   | Travel categories (`?availability=beta`)                                                          |
-| GET                   | `/api/v1/catalog/categories/:slug`                             | One category                                                                                      |
-| POST                  | `/api/v1/auth/register` · `/login` · `/logout` · `/logout-all` | Accounts and sessions ([auth.md](docs/auth.md))                                                   |
-| GET                   | `/api/v1/auth/session`                                         | The signed-in user, or `null` (always 200; used on app start-up)                                  |
-| GET                   | `/api/v1/auth/me`                                              | The signed-in user (401 when signed out)                                                          |
-| GET/PATCH             | `/api/v1/users/me`                                             | Profile                                                                                           |
-| GET/POST/PATCH/DELETE | `/api/v1/users/me/travellers[/:id]`                            | Saved travellers                                                                                  |
-| POST                  | `/api/v1/search/:serviceType`                                  | Demo search for one category ([search.md](docs/search.md))                                        |
-| GET                   | `/api/v1/search/:serviceType/sessions/:searchId/offer`         | One validated offer from a stored search ([search.md](docs/search.md#offer-validation))           |
-| POST                  | `/api/v1/bookings`                                             | Create a demo booking (`Idempotency-Key` required; [bookings.md](docs/bookings.md))               |
-| GET                   | `/api/v1/bookings[/:reference]`                                | Your demo bookings (`?view=upcoming\|past\|cancelled&page=`), or one                              |
-| POST                  | `/api/v1/bookings/:reference/cancel`                           | Cancel a demo booking (status change only)                                                        |
-| POST/GET              | `/api/v1/bookings/:reference/payments`                         | Start a demo payment (`Idempotency-Key`), or list attempts ([payments.md](docs/payments.md))      |
-| GET                   | `/api/v1/payments/:paymentId`                                  | One payment (reconciled with the provider while in progress)                                      |
-| POST                  | `/api/v1/payments/:paymentId/cancel`                           | Cancel a payment still in progress                                                                |
-| GET                   | `/api/v1/notifications[/unread-count]`                         | Your notifications, newest first, or the unread count ([notifications.md](docs/notifications.md)) |
-| PATCH/POST            | `/api/v1/notifications/:id/read` · `/read-all`                 | Mark one or all as read                                                                           |
-| GET/PATCH             | `/api/v1/notifications/preferences`                            | Email preferences (email isn't configured yet)                                                    |
-| GET                   | `/api/v1/providers`                                            | Search provider capabilities                                                                      |
-| GET                   | `/api/v1/admin/…`                                              | Staff-only, read-only operations views ([admin.md](docs/admin.md#api))                            |
+| Method                | Path                                                                | Description                                                                                       |
+| --------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| GET                   | `/api/v1/health`                                                    | Liveness. Always 200 while the process is up                                                      |
+| GET                   | `/api/v1/health/ready`                                              | Readiness. 200 ready/degraded, 503 unready                                                        |
+| GET                   | `/api/v1/catalog/categories`                                        | Travel categories (`?availability=beta`)                                                          |
+| GET                   | `/api/v1/catalog/categories/:slug`                                  | One category                                                                                      |
+| POST                  | `/api/v1/auth/register` · `/login` · `/logout` · `/logout-all`      | Accounts and sessions ([auth.md](docs/auth.md))                                                   |
+| GET                   | `/api/v1/auth/session`                                              | The signed-in user, or `null` (always 200; used on app start-up)                                  |
+| GET                   | `/api/v1/auth/me`                                                   | The signed-in user (401 when signed out)                                                          |
+| GET/PATCH             | `/api/v1/users/me`                                                  | Profile                                                                                           |
+| GET/POST/PATCH/DELETE | `/api/v1/users/me/travellers[/:id]`                                 | Saved travellers                                                                                  |
+| POST                  | `/api/v1/search/:serviceType`                                       | Demo search for one category ([search.md](docs/search.md))                                        |
+| GET                   | `/api/v1/search/:serviceType/sessions/:searchId/offer`              | One validated offer from a stored search ([search.md](docs/search.md#offer-validation))           |
+| POST                  | `/api/v1/bookings`                                                  | Create a demo booking (`Idempotency-Key` required; [bookings.md](docs/bookings.md))               |
+| GET                   | `/api/v1/bookings[/:reference]`                                     | Your demo bookings (`?view=upcoming\|past\|cancelled&page=`), or one                              |
+| POST                  | `/api/v1/bookings/:reference/cancel`                                | Cancel a demo booking (status change only)                                                        |
+| POST/GET              | `/api/v1/bookings/:reference/payments`                              | Start a demo payment (`Idempotency-Key`), or list attempts ([payments.md](docs/payments.md))      |
+| GET                   | `/api/v1/payments/:paymentId`                                       | One payment (reconciled with the provider while in progress)                                      |
+| POST                  | `/api/v1/payments/:paymentId/cancel`                                | Cancel a payment still in progress                                                                |
+| GET                   | `/api/v1/notifications[/unread-count]`                              | Your notifications, newest first, or the unread count ([notifications.md](docs/notifications.md)) |
+| PATCH/POST            | `/api/v1/notifications/:id/read` · `/read-all`                      | Mark one or all as read                                                                           |
+| GET/PATCH             | `/api/v1/notifications/preferences`                                 | Email preferences (email isn't configured yet)                                                    |
+| GET                   | `/api/v1/providers`                                                 | Search provider capabilities                                                                      |
+| GET                   | `/api/v1/bookings/:reference/timeline` · `/status` · `/disruptions` | Trip timeline, travel status and disruptions ([trips.md](docs/trips.md#api))                      |
+| POST                  | `/api/v1/bookings/:reference/status/refresh`                        | Ask the (demo) status provider now (throttled)                                                    |
+| GET                   | `/api/v1/bookings/:reference/events`                                | Live updates for one booking (Server-Sent Events)                                                 |
+| GET                   | `/api/v1/admin/…`                                                   | Staff-only, read-only operations views ([admin.md](docs/admin.md#api))                            |

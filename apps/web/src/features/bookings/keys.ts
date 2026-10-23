@@ -19,3 +19,12 @@ export const paymentKeys = {
   forBooking: (reference: string) =>
     [...authKeys.account, 'payments', 'booking', reference] as const,
 };
+
+/** Trip tracking (Phase 17), also under `account`. */
+export const tripKeys = {
+  all: (reference: string) => [...authKeys.account, 'trips', reference] as const,
+  timeline: (reference: string) => [...authKeys.account, 'trips', reference, 'timeline'] as const,
+  status: (reference: string) => [...authKeys.account, 'trips', reference, 'status'] as const,
+  disruptions: (reference: string) =>
+    [...authKeys.account, 'trips', reference, 'disruptions'] as const,
+};

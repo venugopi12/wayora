@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@wayora/database';
 import { BOOKING_CALENDAR_TIME_ZONE } from '../bookings/bookings.service.js';
+import { TripsService } from '../trips/trips.service.js';
 import { notify } from './notify.js';
 
 /*
@@ -7,6 +8,9 @@ import { notify } from './notify.js';
  * confirmed booking, the day before it starts (India calendar, like every
  * booking date rule). Run periodically by the API (server.ts); the dedupe key
  * makes repeated runs, and several API instances, harmless.
+ *
+ * Each reminder also goes on the trip timeline (Phase 17, docs/trips.md), and
+ * stays get a timeline-only check-out reminder the day before they end.
  */
 
 const dayFormat = new Intl.DateTimeFormat('en-IN', {
@@ -47,6 +51,12 @@ export async function createTravelReminders(prisma: PrismaClient, now: Date): Pr
         select: { status: true },
       });
       if (current?.status !== 'CONFIRMED') return false;
+      await TripsService.reminder(tx, {
+        bookingId: booking.id,
+        type: 'TRAVEL_REMINDER',
+        on: calendarDay(now, 1),
+        now,
+      });
       return notify(tx, now, {
         type: 'TRAVEL_REMINDER',
         title: booking.isDemo ? 'Your demo trip is tomorrow' : 'Your trip is tomorrow',
@@ -57,6 +67,34 @@ export async function createTravelReminders(prisma: PrismaClient, now: Date): Pr
         isDemo: booking.isDemo,
         bookingId: booking.id,
         dedupeKey: `booking:${booking.id}:REMINDER`,
+      });
+    });
+    if (made) created += 1;
+  }
+
+  // Stays: check-out tomorrow (timeline only; the trip itself is underway).
+  const checkingOut = await prisma.booking.findMany({
+    where: {
+      status: 'CONFIRMED',
+      category: 'HOTEL',
+      endsOn: tomorrow,
+      tripEvents: { none: { type: 'CHECK_OUT_REMINDER' } },
+    },
+    select: { id: true },
+    take: 500,
+  });
+  for (const booking of checkingOut) {
+    const made = await prisma.$transaction(async (tx) => {
+      const current = await tx.booking.findUnique({
+        where: { id: booking.id },
+        select: { status: true },
+      });
+      if (current?.status !== 'CONFIRMED') return false;
+      return TripsService.reminder(tx, {
+        bookingId: booking.id,
+        type: 'CHECK_OUT_REMINDER',
+        on: calendarDay(now, 1),
+        now,
       });
     });
     if (made) created += 1;

@@ -21,16 +21,19 @@ export const NOTIFICATION_TYPES = [
   'payment_failed',
   'payment_refunded',
   'travel_reminder',
+  /** A travel disruption reported, changed or resolved (Phase 17, docs/trips.md#notifications). */
+  'trip_disruption',
 ] as const;
 export const notificationTypeSchema = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof notificationTypeSchema>;
 
 /** For icons and preferences: what the notification is about. */
-export const notificationCategorySchema = z.enum(['booking', 'payment', 'reminder']);
+export const notificationCategorySchema = z.enum(['booking', 'payment', 'reminder', 'trip']);
 export type NotificationCategory = z.infer<typeof notificationCategorySchema>;
 
 export function notificationCategory(type: NotificationType): NotificationCategory {
   if (type === 'travel_reminder') return 'reminder';
+  if (type === 'trip_disruption') return 'trip';
   return type.startsWith('payment_') ? 'payment' : 'booking';
 }
 

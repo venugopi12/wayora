@@ -285,6 +285,24 @@ Details: [admin.md](admin.md#security).
   heartbeat.
 - Search analytics store no user, IP, route, dates or traveller data.
 
+### Trip tracking (Phase 17)
+
+Details: [trips.md](trips.md).
+
+- Every trip endpoint, including the live-update stream, needs a session and
+  checks booking ownership; another user's booking is 404. The stream
+  re-checks the session every minute, ends on sign-out, and is capped per
+  user.
+- Users can't write travel status or disruptions (no endpoints); only
+  validated provider observations create them. Refreshes need a trusted
+  `Origin`, are rate-limited per user and throttled per booking.
+- Provider answers are validated before use; provider text is never stored
+  or shown (normalized error codes only; logs scrubbed). Simulated data is
+  labelled everywhere, and Wayora never cancels, rebooks or refunds because
+  of a disruption.
+- Live-update messages carry ids only; browsers re-read through the
+  authorized endpoints. Timeline rows are append-only.
+
 ## Planned approach for later phases
 
 ### Authentication extensions
