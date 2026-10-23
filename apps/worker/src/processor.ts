@@ -4,10 +4,10 @@ import { JOB_NAMES } from '@wayora/contracts';
 import { processHeartbeat } from './jobs/heartbeat.js';
 import type { Logger } from './logger.js';
 
-type Handler = (data: unknown) => Promise<unknown> | unknown;
+export type Handler = (data: unknown) => Promise<unknown> | unknown;
 
 /** Registry of job handlers for the system queue. Add new jobs here. */
-const handlers: Record<string, Handler> = {
+const builtIn: Record<string, Handler> = {
   [JOB_NAMES.systemHeartbeat]: (data) => processHeartbeat(data),
 };
 
@@ -16,7 +16,8 @@ const handlers: Record<string, Handler> = {
  * `UnrecoverableError`s — retrying them can never succeed, so BullMQ fails
  * them immediately instead of burning retries. Payloads are never logged.
  */
-export function createProcessor(logger: Logger) {
+export function createProcessor(logger: Logger, extra: Record<string, Handler> = {}) {
+  const handlers: Record<string, Handler> = { ...builtIn, ...extra };
   return async function process(job: Job): Promise<unknown> {
     const handler = handlers[job.name];
     const log = logger.child({ jobId: job.id, jobName: job.name, attempt: job.attemptsMade + 1 });

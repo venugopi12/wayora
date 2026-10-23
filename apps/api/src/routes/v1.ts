@@ -9,6 +9,8 @@ import {
   paymentsRouter,
 } from '../modules/payments/payments.routes.js';
 import type { PaymentsService } from '../modules/payments/payments.service.js';
+import { notificationsRouter } from '../modules/notifications/notifications.routes.js';
+import type { NotificationsService } from '../modules/notifications/notifications.service.js';
 import { providersRouter } from '../modules/providers/providers.routes.js';
 import type { ProviderRegistry } from '../modules/providers/registry.js';
 import { searchRouter } from '../modules/search/search.routes.js';
@@ -30,6 +32,8 @@ export interface AccountsRouterOptions {
   payments: PaymentsService;
   /** Per-user limit on payment writes (start, cancel). */
   paymentLimiter?: RequestHandler;
+  /** Notifications (Phase 14). */
+  notifications: NotificationsService;
   logger: Logger;
 }
 
@@ -51,8 +55,17 @@ export function v1Router(options: V1RouterOptions): Router {
   router.use('/search', searchRouter(options.search.service, options.search.limiter));
   router.use('/providers', providersRouter(options.search.registry));
   if (options.accounts) {
-    const { loadSession, auth, users, bookings, bookingLimiter, payments, paymentLimiter, logger } =
-      options.accounts;
+    const {
+      loadSession,
+      auth,
+      users,
+      bookings,
+      bookingLimiter,
+      payments,
+      paymentLimiter,
+      notifications,
+      logger,
+    } = options.accounts;
     router.use('/auth', loadSession, authRouter(auth));
     router.use('/users', loadSession, usersRouter(users));
     router.use(
@@ -62,6 +75,7 @@ export function v1Router(options: V1RouterOptions): Router {
     );
     router.use('/bookings', loadSession, bookingsRouter(bookings, bookingLimiter));
     router.use('/payments', loadSession, paymentsRouter(payments, paymentLimiter));
+    router.use('/notifications', loadSession, notificationsRouter(notifications));
     // Signed provider webhooks: no session; only providers that verify signatures.
     router.use('/payment-events', paymentEventsRouter(payments, logger));
   }

@@ -44,6 +44,7 @@ import { offerPath, readOfferParams, resultsPathFor } from '../offers/paths';
 import { offerKeys } from '../offers/routes';
 import { BookingPriceSummary } from './BookingPriceSummary';
 import { BookingSteps } from './BookingSteps';
+import { notificationKeys } from '../notifications/keys';
 import { bookingKeys } from './keys';
 import { travelDates } from './format';
 import { confirmationPath, payPath, readStep, type CheckoutStep } from './paths';
@@ -346,6 +347,7 @@ function CheckoutFlow({
     onSuccess: (booking) => {
       queryClient.setQueryData(bookingKeys.detail(booking.reference), booking);
       void queryClient.invalidateQueries({ queryKey: bookingKeys.lists });
+      void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
       // With a payment step, the booking waits for its demo payment.
       void navigate(
         booking.payment.canPay ? payPath(booking.reference) : confirmationPath(booking.reference),

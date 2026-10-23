@@ -30,6 +30,7 @@ import { SearchService, type ResilienceOptions } from './modules/search/search.s
 import { MemorySearchSessionStore, type SearchSessionStore } from './modules/search/sessions.js';
 import { UsersService } from './modules/users/users.service.js';
 import { PaymentsService } from './modules/payments/payments.service.js';
+import { NotificationsService } from './modules/notifications/notifications.service.js';
 import {
   PAYMENT_EVENTS_PATH,
   type RequestWithRawBody,
@@ -194,7 +195,8 @@ export function createApp({
     }),
   );
 
-  let accounts: Omit<AccountsRouterOptions, 'bookings' | 'payments' | 'logger'> | undefined;
+  let accounts:
+    Omit<AccountsRouterOptions, 'bookings' | 'payments' | 'logger' | 'notifications'> | undefined;
   if (prisma) {
     const secure = env.NODE_ENV === 'production';
     const sessions = createSessionService(prisma, env, now);
@@ -267,6 +269,8 @@ export function createApp({
             ...(now ? { now } : {}),
           }),
           payments,
+          // No email provider exists yet: delivery is reported as not configured.
+          notifications: new NotificationsService(prisma, { active: false }, now),
           logger,
           paymentLimiter: bookingWriteRateLimiter({
             max: env.PAYMENT_RATE_LIMIT_MAX,

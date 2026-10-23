@@ -12,6 +12,22 @@ export const workerEnvSchema = z.object({
     .string({ error: 'REDIS_URL is required' })
     .regex(/^rediss?:\/\//, 'REDIS_URL must start with redis:// or rediss://'),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(5),
+  /**
+   * PostgreSQL, for the notification outbox (Phase 14). Without it the worker
+   * runs its other jobs and logs that notification delivery is off; the
+   * outbox rows wait in the database until a worker with access runs.
+   */
+  DATABASE_URL: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z
+      .string()
+      .regex(/^postgres(ql)?:\/\//, 'DATABASE_URL must start with postgresql://')
+      .optional(),
+  ),
+  /** Public web origin for links in emails, e.g. https://wayora.example. */
+  WEB_ORIGIN: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
+  /** How often the outbox is checked. */
+  NOTIFICATION_DISPATCH_INTERVAL_MS: z.coerce.number().int().min(1000).max(600_000).default(15_000),
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
 });
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;

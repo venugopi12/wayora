@@ -13,6 +13,7 @@ import { AppError } from '../../utils/errors.js';
 import type { Logger } from '../../utils/logger.js';
 import { IdempotencyService, requestHash } from '../bookings/idempotency.js';
 import { expireIfOverdue, lockBooking } from '../bookings/lifecycle.js';
+import { notifyPaymentChange } from '../notifications/events.js';
 import { errorForLog } from '../search/errors.js';
 import type { CallContext } from '../search/search.service.js';
 import { IN_PROGRESS, PaymentEventProcessor } from './events.js';
@@ -382,6 +383,13 @@ export class PaymentsService {
           note: 'The provider refused to start the payment; nothing was taken.',
           createdAt: now,
         },
+      });
+      const { mode } = await tx.payment.findUniqueOrThrow({
+        where: { id: paymentId },
+        select: { mode: true },
+      });
+      await notifyPaymentChange(tx, now, paymentId, 'FAILED', mode === 'DEMO', {
+        eventKey: 'FAILED',
       });
     });
   }

@@ -8,6 +8,8 @@ export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
 export const JOB_NAMES = {
   systemHeartbeat: 'system.heartbeat',
+  /** Works through the notification email outbox (Phase 14, docs/notifications.md#delivery). */
+  notificationsDispatch: 'notifications.dispatch',
 } as const;
 
 /**
@@ -29,3 +31,7 @@ export const heartbeatJobResultSchema = z.object({
   queueLatencyMs: z.number().int().nonnegative(),
 });
 export type HeartbeatJobResult = z.infer<typeof heartbeatJobResultSchema>;
+
+/** The dispatch job carries nothing: the work is in the database outbox. */
+export const notificationsDispatchJobSchema = z.object({}).strict();
+export type NotificationsDispatchJob = z.infer<typeof notificationsDispatchJobSchema>;

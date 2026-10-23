@@ -197,6 +197,24 @@ Details: [payments.md](payments.md).
 - Logs carry payment ids, statuses and scrubbed provider errors, never keys,
   names or secrets (tested).
 
+### Notifications (Phase 14)
+
+Details: [notifications.md](notifications.md).
+
+- Created only inside the transaction of the change they report, once per
+  event (unique dedupe key); text written by Wayora, no traveller names,
+  contact details or provider text; rendered as text (escaped in emails).
+  Demo notifications never claim a reservation, ticket, real payment or refund.
+- Every route needs a session; the recipient is the session's user; others'
+  notifications are 404; writes need a trusted `Origin`; inputs are strict
+  (`userId` in a query is a 400). Links lead only to the owner's own
+  booking/payment pages, which check ownership again.
+- Notification content can't be changed in the database (trigger), only its
+  read time.
+- The email outbox stores no addresses or bodies: the worker reads the address
+  at send time; `last_error` holds a short code. No email provider or
+  credentials exist; deliveries are recorded `NOT_CONFIGURED`, never `SENT`.
+
 ## Planned approach for later phases
 
 ### Authentication extensions

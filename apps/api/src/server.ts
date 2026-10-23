@@ -7,6 +7,7 @@ import { EnvValidationError, parseEnv, searchSessionStore, type Env } from './co
 import { loadEnvFile } from './config/load-env-file.js';
 import { ResilientRedisStore } from './middleware/rate-limit.js';
 import { IdempotencyService } from './modules/bookings/idempotency.js';
+import { createTravelReminders } from './modules/notifications/reminders.js';
 import { RedisSearchSessionStore, type SearchSessionStore } from './modules/search/sessions.js';
 import type { DependencyCheck } from './services/health.js';
 import { createRedisConnection, type RedisConnection } from './services/redis.js';
@@ -144,6 +145,19 @@ async function main(): Promise<void> {
   const paymentTimer = setInterval(() => void paymentMaintenance(), 30 * 1000);
   paymentTimer.unref();
 
+  // Travel reminders (docs/notifications.md#events): the day before a
+  // confirmed booking starts. Idempotent (one per booking), so every
+  // instance may run it.
+  const reminders = () =>
+    createTravelReminders(prisma, new Date())
+      .then((count) => {
+        if (count > 0) logger.info({ count }, 'Created travel reminders');
+      })
+      .catch((err: unknown) => logger.warn({ err }, 'Travel reminders failed; will retry'));
+  const reminderTimer = setInterval(() => void reminders(), 30 * 60 * 1000);
+  reminderTimer.unref();
+  void reminders();
+
   const server: Server = app.listen(env.PORT, env.HOST, () => {
     logger.info({ url: `http://localhost:${env.PORT}`, host: env.HOST }, 'Wayora API listening');
   });
@@ -169,6 +183,7 @@ async function main(): Promise<void> {
 
     clearInterval(purgeTimer);
     clearInterval(paymentTimer);
+    clearInterval(reminderTimer);
     // 1. Stop accepting connections and let in-flight requests finish.
     await new Promise<void>((resolve) => {
       server.close(() => resolve());

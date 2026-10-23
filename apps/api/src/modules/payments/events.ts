@@ -5,6 +5,7 @@ import {
   lockBooking,
   transitionBooking,
 } from '../bookings/lifecycle.js';
+import { notifyPaymentChange } from '../notifications/events.js';
 import { errorForLog } from '../search/errors.js';
 import {
   providerPaymentEventSchema,
@@ -245,8 +246,11 @@ export class PaymentEventProcessor {
       }
 
       let note = NOTES[target] ?? null;
+      let closedBooking: string | null = null;
       if (target === 'SUCCEEDED' && current.status !== 'REFUND_PENDING') {
-        note = await this.onSucceeded(tx, payment, now, provider);
+        const effect = await this.onSucceeded(tx, payment, now, provider);
+        note = effect.note;
+        closedBooking = effect.closedBookingStatus;
       }
       await tx.paymentStatusEvent.create({
         data: {
@@ -274,6 +278,13 @@ export class PaymentEventProcessor {
           },
         },
       });
+      // The owner's notification, in this same transaction (Phase 14).
+      if (current.status !== 'REFUND_PENDING' || target === 'REFUNDED') {
+        await notifyPaymentChange(tx, now, payment.id, target, provider.mode === 'DEMO', {
+          eventKey: target,
+          closedBookingStatus: closedBooking,
+        });
+      }
       return { kind: 'applied' as const };
     });
   }
@@ -289,7 +300,7 @@ export class PaymentEventProcessor {
     payment: { id: string; bookingId: string },
     now: Date,
     provider: PaymentProvider,
-  ): Promise<string> {
+  ): Promise<{ note: string; closedBookingStatus: string | null }> {
     const booking = await tx.booking.findUniqueOrThrow({
       where: { id: payment.bookingId },
       select: { status: true, paymentMode: true },
@@ -307,9 +318,13 @@ export class PaymentEventProcessor {
         },
       );
       if (confirmed) {
-        return provider.mode === 'DEMO'
-          ? 'Demo payment succeeded (simulated; no real money was charged). The booking got its demo confirmation.'
-          : 'Payment succeeded. The booking was confirmed.';
+        return {
+          note:
+            provider.mode === 'DEMO'
+              ? 'Demo payment succeeded (simulated; no real money was charged). The booking got its demo confirmation.'
+              : 'Payment succeeded. The booking was confirmed.',
+          closedBookingStatus: null,
+        };
       }
     }
     await tx.payment.update({ where: { id: payment.id }, data: { refundRequired: true } });
@@ -322,8 +337,11 @@ export class PaymentEventProcessor {
         metadata: { bookingStatus: booking.status },
       },
     });
-    return provider.capabilities.refund
-      ? 'Succeeded after the booking was closed: the booking stays closed and a refund is required.'
-      : 'Succeeded after the booking was closed: the booking stays closed. A refund would be owed, but this provider can’t refund (demo: no real money was charged).';
+    return {
+      note: provider.capabilities.refund
+        ? 'Succeeded after the booking was closed: the booking stays closed and a refund is required.'
+        : 'Succeeded after the booking was closed: the booking stays closed. A refund would be owed, but this provider can’t refund (demo: no real money was charged).',
+      closedBookingStatus: booking.status === 'EXPIRED' ? 'expired' : 'cancelled',
+    };
   }
 }

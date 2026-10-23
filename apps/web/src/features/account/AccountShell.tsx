@@ -1,4 +1,4 @@
-import { Luggage, UserRound, Users } from 'lucide-react';
+import { Bell, Luggage, UserRound, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router';
 import { Container, cn } from '@wayora/ui';
@@ -15,6 +15,7 @@ const ACCOUNT_NAV = [
   { to: ACCOUNT_PATHS.travellers, label: 'Saved travellers', icon: Users, end: true },
   // Not `end`: trip details (/trips/WYD-…) keep "My trips" marked as current.
   { to: ACCOUNT_PATHS.trips, label: 'My trips', icon: Luggage, end: false },
+  { to: ACCOUNT_PATHS.notifications, label: 'Notifications', icon: Bell, end: true },
 ] as const;
 
 export function AccountShell({

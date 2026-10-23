@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import { Link } from 'react-router';
 import { Container, Wordmark, cn } from '@wayora/ui';
 import { AccountAction, HeaderCta } from '../../features/navigation/AccountAction';
+import { NotificationsAction } from '../../features/notifications/NotificationsAction';
 import { type HeaderTone } from '../../features/navigation/config';
 import { CurrencySelector } from '../../features/navigation/CurrencySelector';
 import { DesktopNavigation } from '../../features/navigation/DesktopNavigation';
@@ -72,6 +73,8 @@ export function SiteHeader({ overlay = false }: SiteHeaderProps) {
 
           <div className="ml-auto flex items-center gap-1 lg:ml-0 lg:gap-1.5">
             <DestinationSearch tone={tone} />
+            {/* Signed-in only; on every screen size (docs/notifications.md#web). */}
+            <NotificationsAction tone={tone} />
             {/* Visibility lives on wrappers so it never fights a component's own display. */}
             <div className="hidden items-center gap-1.5 lg:flex">
               <CurrencySelector tone={tone} />

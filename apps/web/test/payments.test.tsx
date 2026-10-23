@@ -25,6 +25,10 @@ function setup(booking: Partial<Parameters<typeof demoBooking>[1]> = {}) {
   return { api, booking: pending };
 }
 
+/** The payment page's live region (the header bell has its own). */
+const paymentStatusRegion = () =>
+  screen.getAllByRole('status').find((el) => el.textContent?.startsWith('Payment status:'))!;
+
 const payButton = () => screen.findByRole('button', { name: 'Pay ₹23,400 (demo)' });
 
 describe('the demo payment step', JOURNEY, () => {
@@ -102,7 +106,7 @@ describe('the demo payment step', JOURNEY, () => {
     const [payment] = [...api.payments.values()];
     expect(router.state.location.pathname).toBe(paymentPath(booking.reference, payment!.id));
     expect(screen.getByText(DEMO_PAYMENT_NOTICE)).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('Payment status: Demo payment succeeded.');
+    expect(paymentStatusRegion()).toHaveTextContent('Payment status: Demo payment succeeded.');
 
     fireEvent.click(screen.getByRole('link', { name: 'View confirmation' }));
     expect(
@@ -137,7 +141,7 @@ describe('the demo payment step', JOURNEY, () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Processing your demo payment' }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('Payment status: Processing (demo).');
+    expect(paymentStatusRegion()).toHaveTextContent('Payment status: Processing (demo).');
     expect(screen.queryByText(DEMO_PAYMENT_NOTICE)).toBeNull();
     const [payment] = [...api.payments.values()];
     api.settle(payment!.id, 'succeeded');
@@ -148,7 +152,7 @@ describe('the demo payment step', JOURNEY, () => {
         { timeout: 5000 },
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('Demo payment succeeded');
+    expect(paymentStatusRegion()).toHaveTextContent('Demo payment succeeded');
   });
 
   it('cancels a pending payment; it is shown as cancelled, never refunded', async () => {

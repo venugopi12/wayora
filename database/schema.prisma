@@ -96,6 +96,41 @@ enum PaymentStatus {
   @@map("payment_status")
 }
 
+/// Notification events (Phase 14, docs/notifications.md#events).
+enum NotificationType {
+  BOOKING_CREATED
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  BOOKING_EXPIRED
+  PAYMENT_PENDING
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  PAYMENT_REFUNDED
+  TRAVEL_REMINDER
+
+  @@map("notification_type")
+}
+
+enum NotificationChannel {
+  EMAIL
+
+  @@map("notification_channel")
+}
+
+/// Outbox states of one delivery (docs/notifications.md#delivery).
+enum NotificationDeliveryStatus {
+  /// Waiting for (or between) delivery attempts.
+  PENDING
+  /// The provider accepted it.
+  SENT
+  /// Gave up: permanent error, or retries exhausted.
+  FAILED
+  /// No email provider is configured: nothing was sent.
+  NOT_CONFIGURED
+
+  @@map("notification_delivery_status")
+}
+
 /// DEMO: simulated, no money moves. LIVE: reserved for a real gateway.
 enum PaymentMode {
   DEMO
@@ -173,6 +208,9 @@ model User {
   sessions   Session[]
   bookings   Booking[]
   payments   Payment[]
+
+  notifications           Notification[]
+  notificationPreferences NotificationPreference?
 
   @@index([status])
   @@map("users")
@@ -290,12 +328,13 @@ model Booking {
   createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  user       User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
-  order      Order?               @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  items      BookingItem[]
-  travellers BookingTraveller[]
-  events     BookingStatusEvent[]
-  payments   Payment[]
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  order         Order?               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items         BookingItem[]
+  travellers    BookingTraveller[]
+  events        BookingStatusEvent[]
+  payments      Payment[]
+  notifications Notification[]
 
   @@unique([provider, providerReference])
   @@index([orderId])
@@ -380,9 +419,10 @@ model Payment {
   /// When it first reached succeeded, failed or cancelled.
   completedAt        DateTime?     @map("completed_at") @db.Timestamptz(3)
 
-  booking Booking              @relation(fields: [bookingId], references: [id], onDelete: Restrict)
-  user    User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
-  events  PaymentStatusEvent[]
+  booking       Booking              @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  events        PaymentStatusEvent[]
+  notifications Notification[]
 
   @@unique([bookingId, attempt])
   @@unique([provider, providerReference])
@@ -408,6 +448,74 @@ model PaymentStatusEvent {
 
   @@index([paymentId, createdAt])
   @@map("payment_status_events")
+}
+
+// ─── Notifications (Phase 14) ─────────────────────────────────────────────
+
+/// One in-app notification for one user, created in the same transaction as
+/// the state change it reports (docs/notifications.md).
+model Notification {
+  id        String           @id @default(uuid(7)) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  type      NotificationType
+  /// Plain text, written by Wayora (never provider text). No traveller names.
+  title     String           @db.VarChar(120)
+  message   String           @db.VarChar(500)
+  /// The event concerns a demo booking or demo payment.
+  isDemo    Boolean          @map("is_demo")
+  bookingId String?          @map("booking_id") @db.Uuid
+  paymentId String?          @map("payment_id") @db.Uuid
+  /// One notification per event: e.g. "payment:<id>:SUCCEEDED".
+  dedupeKey String           @unique @map("dedupe_key") @db.VarChar(200)
+  readAt    DateTime?        @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  booking    Booking?               @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  payment    Payment?               @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  deliveries NotificationDelivery[]
+
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)])
+  @@map("notifications")
+}
+
+/// Outbox: one optional channel delivery of a notification, written with it
+/// and processed by the worker (docs/notifications.md#delivery).
+model NotificationDelivery {
+  id                String                     @id @default(uuid(7)) @db.Uuid
+  notificationId    String                     @map("notification_id") @db.Uuid
+  channel           NotificationChannel
+  status            NotificationDeliveryStatus @default(PENDING)
+  attempts          Int                        @default(0)
+  nextAttemptAt     DateTime                   @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  /// A worker's lease while it works on this row.
+  lockedUntil       DateTime?                  @map("locked_until") @db.Timestamptz(3)
+  /// Safe, short error class/code (never provider bodies or addresses).
+  lastError         String?                    @map("last_error") @db.VarChar(255)
+  providerMessageId String?                    @map("provider_message_id") @db.VarChar(255)
+  sentAt            DateTime?                  @map("sent_at") @db.Timestamptz(3)
+  createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, channel])
+  @@index([status, nextAttemptAt])
+  @@map("notification_deliveries")
+}
+
+/// Optional-channel preferences. No row means the defaults (all on).
+/// In-app notifications are always kept, whatever these say.
+model NotificationPreference {
+  userId         String   @id @map("user_id") @db.Uuid
+  emailBookings  Boolean  @default(true) @map("email_bookings")
+  emailPayments  Boolean  @default(true) @map("email_payments")
+  emailReminders Boolean  @default(true) @map("email_reminders")
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
 }
 
 model BookingItem {

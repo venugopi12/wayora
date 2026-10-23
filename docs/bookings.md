@@ -17,6 +17,10 @@ confirmation code, supplier reference, ticket download or supplier document.
 The only identifier is Wayora's own reference (`WYD-XXXX-XXXX`), which the UI
 labels as internal to Wayora.
 
+> **Since Phase 14** booking changes (created, confirmed, cancelled,
+> expired) also create an in-app notification in the same transaction
+> ([notifications.md](notifications.md)).
+
 ## Journey
 
 1. Search (Phase 9) → results → offer page (Phase 10). The offer page shows

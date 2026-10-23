@@ -47,6 +47,7 @@ import {
   paymentStatusLabel,
   travelDates,
 } from './format';
+import { notificationKeys } from '../notifications/keys';
 import { bookingKeys, paymentKeys } from './keys';
 import { payPath, paymentPath, tripPath } from './paths';
 
@@ -585,6 +586,7 @@ function CancelPanel({ booking, onCancelled }: { booking: Booking; onCancelled: 
     onSuccess: (updated) => {
       queryClient.setQueryData(bookingKeys.detail(updated.reference), updated);
       void queryClient.invalidateQueries({ queryKey: bookingKeys.lists });
+      void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
       setOpen(false);
       onCancelled();
       toast({ tone: 'success', title: 'Demo booking cancelled' });

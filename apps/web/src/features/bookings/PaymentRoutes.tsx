@@ -33,6 +33,7 @@ import { offerHeading } from '../offers/OfferDetails';
 import { money } from '../search/cards/shared';
 import { BookingPriceSummary } from './BookingPriceSummary';
 import { formatMoment, partyText, paymentStatusLabel, travelDates } from './format';
+import { notificationKeys } from '../notifications/keys';
 import { bookingKeys, paymentKeys } from './keys';
 import { confirmationPath, payPath, paymentPath, tripPath } from './paths';
 import { BookingLoadState, BookingNotFound, referenceParam, useBooking } from './TripsRoutes';
@@ -204,6 +205,7 @@ function PayReview({ booking }: { booking: Booking }) {
       queryClient.setQueryData(paymentKeys.detail(payment.id), payment);
       void queryClient.invalidateQueries({ queryKey: bookingKeys.detail(booking.reference) });
       void queryClient.invalidateQueries({ queryKey: bookingKeys.lists });
+      void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
       void navigate(paymentPath(booking.reference, payment.id), { replace: true });
     },
     onError: (error, vars) => {
@@ -426,6 +428,7 @@ function PaymentStatus({ reference, paymentId }: { reference: string; paymentId:
       void queryClient.invalidateQueries({ queryKey: bookingKeys.detail(reference) });
       void queryClient.invalidateQueries({ queryKey: bookingKeys.lists });
       void queryClient.invalidateQueries({ queryKey: paymentKeys.forBooking(reference) });
+      void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
     }
     previous.current = status;
   }, [status, queryClient, reference]);

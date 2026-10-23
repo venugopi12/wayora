@@ -67,6 +67,8 @@ export const ACCOUNT_PATHS = {
   travellers: '/profile/travellers',
   /** Demo bookings (Phase 12). */
   trips: '/trips',
+  /** Notifications and email preferences (Phase 14). */
+  notifications: '/notifications',
 } as const satisfies Record<string, AppPath>;
 
 export const SIGN_IN_PATH: AppPath = ACCOUNT_PATHS.login;

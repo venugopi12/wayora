@@ -1,13 +1,38 @@
-import { Worker } from 'bullmq';
-import { QUEUE_NAMES } from '@wayora/contracts';
+import { Queue, Worker } from 'bullmq';
+import { JOB_NAMES, QUEUE_NAMES, notificationsDispatchJobSchema } from '@wayora/contracts';
+import { createPrismaClient, type PrismaClient } from '@wayora/database';
 import { bullConnection, loadWorkerEnv } from './config.js';
 import { createLogger } from './logger.js';
-import { createProcessor } from './processor.js';
+import { NotificationDispatcher } from './notifications/dispatcher.js';
+import { NotConfiguredEmailProvider } from './notifications/email.js';
+import { createProcessor, type Handler } from './processor.js';
 
 const env = loadWorkerEnv();
 const logger = createLogger(env);
 
-const worker = new Worker(QUEUE_NAMES.system, createProcessor(logger), {
+// Notification outbox (docs/notifications.md#delivery). No email provider is
+// configured, so deliveries are recorded as NOT_CONFIGURED; nothing is sent.
+let prisma: PrismaClient | undefined;
+const extraHandlers: Record<string, Handler> = {};
+if (env.DATABASE_URL) {
+  prisma = createPrismaClient({ url: env.DATABASE_URL, maxConnections: 4 });
+  const dispatcher = new NotificationDispatcher({
+    prisma,
+    provider: new NotConfiguredEmailProvider(),
+    logger: logger.child({ component: 'notifications' }),
+    webOrigin: env.WEB_ORIGIN,
+  });
+  extraHandlers[JOB_NAMES.notificationsDispatch] = async (data) => {
+    notificationsDispatchJobSchema.parse(data);
+    return dispatcher.run();
+  };
+} else {
+  logger.warn(
+    'DATABASE_URL not set: notification delivery is off (outbox rows wait in the database)',
+  );
+}
+
+const worker = new Worker(QUEUE_NAMES.system, createProcessor(logger, extraHandlers), {
   connection: bullConnection(env.REDIS_URL),
   concurrency: env.WORKER_CONCURRENCY,
   // Keep a bounded history so Redis memory stays flat.
@@ -26,6 +51,25 @@ worker.on('error', (err) => {
 worker.on('failed', (job, err) => {
   logger.warn({ jobId: job?.id, jobName: job?.name, err: { message: err.message } }, 'Job failed');
 });
+// The dispatch schedule lives in Redis (one per queue, upserted at start), so
+// running several workers doesn't multiply it; leases in the database keep
+// concurrent dispatchers from taking the same row.
+const queue = new Queue(QUEUE_NAMES.system, { connection: bullConnection(env.REDIS_URL) });
+if (prisma) {
+  void queue
+    .upsertJobScheduler(
+      'notifications-dispatch',
+      { every: env.NOTIFICATION_DISPATCH_INTERVAL_MS },
+      { name: JOB_NAMES.notificationsDispatch, data: {}, opts: { attempts: 1 } },
+    )
+    .catch((err: unknown) =>
+      logger.error(
+        { err: { message: (err as Error).message } },
+        'Could not schedule notification dispatch',
+      ),
+    );
+}
+
 worker.on('ready', () => {
   logger.info(
     { queue: QUEUE_NAMES.system, concurrency: env.WORKER_CONCURRENCY },
@@ -47,6 +91,8 @@ async function shutdown(signal: string): Promise<void> {
 
   try {
     await worker.close(); // stops fetching, waits for in-flight jobs
+    await queue.close();
+    await prisma?.$disconnect();
     logger.info('Worker shutdown complete');
     process.exit(0);
   } catch (err) {

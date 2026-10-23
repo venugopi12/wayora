@@ -1,4 +1,4 @@
-import { ChevronDown, LogOut, Luggage, UserRound, Users } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, Luggage, UserRound, Users } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import {
   Avatar,
@@ -22,7 +22,7 @@ import { ACCOUNT_PATHS, DISCOVER, type HeaderTone } from './config';
  * three states, driven by the single /auth/session check:
  *   loading          → same-size placeholders (no flash of the wrong state)
  *   unauthenticated  → Sign in / Create account
- *   authenticated    → account menu: my trips, profile, saved travellers, sign out
+ *   authenticated    → account menu: my trips, notifications, profile, saved travellers, sign out
  */
 
 const firstName = (name: string) => name.split(' ')[0] ?? name;
@@ -60,6 +60,12 @@ function AccountMenu({ tone }: { tone: HeaderTone }) {
         <DropdownMenuSeparator />
         <DropdownMenuItem icon={<Luggage />} onSelect={() => void navigate(ACCOUNT_PATHS.trips)}>
           My trips
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          icon={<Bell />}
+          onSelect={() => void navigate(ACCOUNT_PATHS.notifications)}
+        >
+          Notifications
         </DropdownMenuItem>
         <DropdownMenuItem
           icon={<UserRound />}
@@ -149,6 +155,12 @@ export function DrawerAccount({ onNavigate }: { onNavigate: () => void }) {
             <Link to={ACCOUNT_PATHS.trips} onClick={onNavigate} className={linkRow}>
               <Luggage aria-hidden="true" />
               My trips
+            </Link>
+          </li>
+          <li>
+            <Link to={ACCOUNT_PATHS.notifications} onClick={onNavigate} className={linkRow}>
+              <Bell aria-hidden="true" />
+              Notifications
             </Link>
           </li>
           <li>

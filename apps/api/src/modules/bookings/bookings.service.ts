@@ -27,6 +27,7 @@ import {
 import { AppError } from '../../utils/errors.js';
 import type { Logger } from '../../utils/logger.js';
 import type { ProviderRegistry } from '../providers/registry.js';
+import { messages, notify } from '../notifications/notify.js';
 import type { PaymentsService } from '../payments/payments.service.js';
 import { pricesEqual, type CallContext, type SearchService } from '../search/search.service.js';
 import { IdempotencyService, requestHash } from './idempotency.js';
@@ -325,6 +326,17 @@ export class BookingsService {
               note: DEMO_CONFIRMATION_NOTE,
             });
           }
+          // One notification for what happened (created-and-confirmed is one event).
+          const dueAt = paymentMode === 'DEMO' ? new Date(now.getTime() + policy!.windowMs) : null;
+          await notify(tx, now, {
+            ...(dueAt
+              ? messages.bookingAwaitingPayment(reference, dueAt)
+              : messages.bookingConfirmed(reference)),
+            userId,
+            isDemo: true,
+            bookingId: booking.id,
+            dedupeKey: `booking:${booking.id}:${dueAt ? 'CREATED' : 'CONFIRMED'}`,
+          });
           await tx.auditLog.create({
             data: {
               actorType: 'USER',
@@ -495,6 +507,13 @@ export class BookingsService {
       // Lost a race with another cancellation: report the state it ended in.
       if (!changed)
         throw new AppError('BOOKING_NOT_CANCELLABLE', 'This booking is already cancelled.');
+      await notify(tx, this.now(), {
+        ...messages.bookingCancelled(reference, paid.count > 0),
+        userId,
+        isDemo: true,
+        bookingId: row.id,
+        dedupeKey: `booking:${row.id}:CANCELLED`,
+      });
       await tx.auditLog.create({
         data: {
           actorType: 'USER',

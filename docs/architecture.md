@@ -56,20 +56,21 @@ service later, if scale or team structure demands it, without a rewrite.
 
 ### Planned module boundaries
 
-| Module        | Owns                                                      | Notes                                                                     |
-| ------------- | --------------------------------------------------------- | ------------------------------------------------------------------------- |
-| identity      | `users`, `travellers`, `sessions`                         | Built (Phase 8): `modules/auth`, `modules/users`                          |
-| flights       | flight search cache, fare rules                           | Provider adapters behind a `FlightProvider` interface                     |
-| hotels        | hotel content, rate snapshots                             | `HotelProvider` interface                                                 |
-| trains        | train availability, PNR status                            | `RailProvider` interface                                                  |
-| buses         | operators, seat layouts                                   | `BusProvider` interface                                                   |
-| metro         | city ticket products                                      | Per-city adapters                                                         |
-| cabs          | quotes, rides                                             | Quote → book → track                                                      |
-| holidays      | packages, itineraries                                     | Composes other modules' services                                          |
-| bookings      | `bookings`, `booking_travellers`, `booking_status_events` | Built (Phase 12, demo only): `modules/bookings`                           |
-| orders        | `orders`, `booking_items`, `idempotency_keys`             | The only writer of order state                                            |
-| payments      | `payments`, `payment_status_events`, `webhook_events`     | Built (Phase 13, demo provider): `modules/payments`; never sees card data |
-| notifications | templates, delivery log                                   | Executed by the worker                                                    |
+| Module        | Owns                                                                   | Notes                                                                      |
+| ------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| identity      | `users`, `travellers`, `sessions`                                      | Built (Phase 8): `modules/auth`, `modules/users`                           |
+| flights       | flight search cache, fare rules                                        | Provider adapters behind a `FlightProvider` interface                      |
+| hotels        | hotel content, rate snapshots                                          | `HotelProvider` interface                                                  |
+| trains        | train availability, PNR status                                         | `RailProvider` interface                                                   |
+| buses         | operators, seat layouts                                                | `BusProvider` interface                                                    |
+| metro         | city ticket products                                                   | Per-city adapters                                                          |
+| cabs          | quotes, rides                                                          | Quote → book → track                                                       |
+| holidays      | packages, itineraries                                                  | Composes other modules' services                                           |
+| bookings      | `bookings`, `booking_travellers`, `booking_status_events`              | Built (Phase 12, demo only): `modules/bookings`                            |
+| orders        | `orders`, `booking_items`, `idempotency_keys`                          | The only writer of order state                                             |
+| notifications | `notifications`, `notification_deliveries`, `notification_preferences` | Built (Phase 14): `modules/notifications` (API), `notifications/` (worker) |
+| payments      | `payments`, `payment_status_events`, `webhook_events`                  | Built (Phase 13, demo provider): `modules/payments`; never sees card data  |
+| notifications | templates, delivery log                                                | Executed by the worker                                                     |
 
 Every travel vertical produces `Booking` + `BookingItem` rows through the orders
 module, so one order can combine a flight, a hotel and a cab, and payment happens once.
@@ -130,8 +131,13 @@ On `SIGTERM`/`SIGINT`:
 - Add a job: define its schema and name in contracts, write a pure handler in
   `apps/worker/src/jobs/`, register it in `processor.ts`, add tests.
 
-Planned jobs: idempotency-key purge, webhook processing, notification delivery,
-booking status polling with providers.
+Jobs today: `system.heartbeat`, and `notifications.dispatch` (Phase 14), a
+BullMQ job scheduler that works through the notification email outbox in
+PostgreSQL (the worker has database access for it; see
+[notifications.md](notifications.md#delivery)). Payment reconciliation, booking
+expiry and travel reminders run in the API process (`server.ts`) because they
+use the API's services. Planned: webhook processing in the worker, booking
+status polling with providers.
 
 ## Database
 
@@ -158,6 +164,8 @@ by a user, with an immutable offer snapshot) and added `booking_travellers` and
 `payments` (one row per attempt) and `payment_status_events`, gave
 `webhook_events` its first writer (provider-event de-duplication), and added a
 payment mode and due time to bookings; see [payments.md](payments.md#database).
+Phase 14 added `notifications`, the `notification_deliveries` outbox and
+`notification_preferences`; see [notifications.md](notifications.md#database).
 
 ### Conventions
 
@@ -223,6 +231,7 @@ src/
 │                account (profile, saved travellers),
 │                bookings (demo checkout, confirmation, My trips, Phase 12;
 │                  demo payment review and status, Phase 13),
+│                notifications (header bell, panel, /notifications, Phase 14),
 │                preferences (display currency),
 │                design-system (dev-only showcase)
 ├── services/    API calls per domain, built on the shared api client
@@ -253,7 +262,7 @@ src/
   A metric-matched local fallback (`Plus Jakarta Sans Fallback` in
   `packages/ui/src/styles/base.css`) keeps text from rewrapping when the font
   swaps in.
-- **Routes:** `/` (cinematic homepage, header overlay), `/status` (API readiness), `/discover` (filters in the URL: `?q`, `?mood`, `?region`; old `?destination=` links redirect), `/discover/:slug` (destination pages), `/about`, `/help`, `/legal/privacy` and `/legal/terms` (draft placeholders), `/login` and `/register` (auth layout; `/sign-in` redirects), `/profile` and `/profile/travellers` (signed in only), one route per travel service (`/flights` … `/holidays`, search and results pages since Phases 9–10, see [search.md](search.md); `?to=<destination>` prefills the destination), `/offers/:serviceType/:resultId` (offer details), `/book/:serviceType/:resultId` (demo checkout), `/trips`, `/trips/:reference` and `/trips/:reference/confirmation` (demo bookings, signed in only, see [bookings.md](bookings.md)), `/trips/:reference/pay` and `/trips/:reference/payments/:paymentId` (demo payments, see [payments.md](payments.md)), dev-only `/design-system`, and a not-found fallback. Layouts, route handles, containers, breadcrumbs and the footer: see [layouts.md](layouts.md).
+- **Routes:** `/` (cinematic homepage, header overlay), `/status` (API readiness), `/discover` (filters in the URL: `?q`, `?mood`, `?region`; old `?destination=` links redirect), `/discover/:slug` (destination pages), `/about`, `/help`, `/legal/privacy` and `/legal/terms` (draft placeholders), `/login` and `/register` (auth layout; `/sign-in` redirects), `/profile` and `/profile/travellers` (signed in only), one route per travel service (`/flights` … `/holidays`, search and results pages since Phases 9–10, see [search.md](search.md); `?to=<destination>` prefills the destination), `/offers/:serviceType/:resultId` (offer details), `/book/:serviceType/:resultId` (demo checkout), `/trips`, `/trips/:reference` and `/trips/:reference/confirmation` (demo bookings, signed in only, see [bookings.md](bookings.md)), `/trips/:reference/pay` and `/trips/:reference/payments/:paymentId` (demo payments, see [payments.md](payments.md)), `/notifications` (see [notifications.md](notifications.md)), dev-only `/design-system`, and a not-found fallback. Layouts, route handles, containers, breadcrumbs and the footer: see [layouts.md](layouts.md).
 - **Code splitting:** the homepage, not-found page and error boundary ship in the
   main bundle. `/status`, `/discover`, `/discover/:slug`, `/sign-in`, the info
   and legal pages and the seven service pages load on first visit through React

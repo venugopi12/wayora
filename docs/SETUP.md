@@ -105,12 +105,15 @@ memory and logs a warning; if a configured Redis goes down, search answers
 
 ### `apps/worker/.env`
 
-| Variable                              | Required | Default | Notes                               |
-| ------------------------------------- | -------- | ------- | ----------------------------------- |
-| `REDIS_URL`                           | **yes**  |         | The worker cannot run without Redis |
-| `WORKER_CONCURRENCY`                  | no       | `5`     |                                     |
-| `SHUTDOWN_TIMEOUT_MS`                 | no       | `15000` | Time allowed for in-flight jobs     |
-| `NODE_ENV`, `LOG_LEVEL`, `LOG_FORMAT` | no       |         | As for the API                      |
+| Variable                              | Required | Default | Notes                                                                                                                         |
+| ------------------------------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `REDIS_URL`                           | **yes**  |         | The worker cannot run without Redis                                                                                           |
+| `WORKER_CONCURRENCY`                  | no       | `5`     |                                                                                                                               |
+| `SHUTDOWN_TIMEOUT_MS`                 | no       | `15000` | Time allowed for in-flight jobs                                                                                               |
+| `DATABASE_URL`                        | no       |         | Needed for notification delivery (the email outbox); without it that job is off ([notifications.md](notifications.md#worker)) |
+| `WEB_ORIGIN`                          | no       |         | Public web origin for links in emails                                                                                         |
+| `NOTIFICATION_DISPATCH_INTERVAL_MS`   | no       | `15000` | How often the outbox is checked (1 s–10 min)                                                                                  |
+| `NODE_ENV`, `LOG_LEVEL`, `LOG_FORMAT` | no       |         | As for the API                                                                                                                |
 
 ### `apps/web/.env`
 

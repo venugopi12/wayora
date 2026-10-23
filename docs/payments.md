@@ -10,6 +10,9 @@ touching booking logic.
 A payment is not a booking, and a successful payment never means a supplier
 reserved anything. Bookings are still demo bookings (docs/bookings.md).
 
+Every payment and booking change described here also creates an in-app
+notification in the same transaction (Phase 14, [notifications.md](notifications.md#events)).
+
 ## Booking and payment
 
 ### Booking payment mode

@@ -11,8 +11,13 @@ import {
   offerTravelDates,
   paymentListResponseSchema,
   paymentSchema,
+  notificationListResponseSchema,
+  notificationPreferencesSchema,
+  notificationSchema,
   type Booking,
   type BookingPayment,
+  type Notification,
+  type NotificationPreferences,
   type Payment,
   type BookingView,
   type SearchResponse,
@@ -165,6 +170,7 @@ export function installFakeBookingApi({
   bookings = [],
   signedIn = true,
   payments: paymentMode = 'none',
+  notifications: initialNotifications = [],
 }: {
   results: SearchResult[];
   travellers?: Traveller[];
@@ -172,6 +178,8 @@ export function installFakeBookingApi({
   signedIn?: boolean;
   /** `demo`: new bookings wait for a demo payment (Phase 13). */
   payments?: 'none' | 'demo';
+  /** The signed-in user's notifications, newest first (Phase 14). */
+  notifications?: Notification[];
 }) {
   const account = installFakeAccountApi({ signedIn, travellers });
   const accountFetch = globalThis.fetch;
@@ -490,9 +498,80 @@ export function installFakeBookingApi({
     return fail(404, 'NOT_FOUND', 'Not found.');
   };
 
+  // ─── Notifications (Phase 14) ──────────────────────────────────────────
+  const notifications: Notification[] = initialNotifications.map((n) =>
+    notificationSchema.parse(n),
+  );
+  let preferences: NotificationPreferences = notificationPreferencesSchema.parse({
+    emailBookings: true,
+    emailPayments: true,
+    emailReminders: true,
+    email: {
+      active: false,
+      status: 'Email isn’t set up on this server yet, so no emails are sent.',
+    },
+  });
+  const notificationFailures: { path: RegExp; times: number }[] = [];
+  const preferencePatches: Record<string, unknown>[] = [];
+  const unreadCount = () => notifications.filter((n) => !n.read).length;
+  const handleNotifications = (method: string, url: URL, init?: RequestInit): Response => {
+    const path = url.pathname.replace(/^\/api\/v1/, '');
+    requests.push(`${method} ${path}${url.search}`);
+    if (!account.state.signedIn) return fail(401, 'UNAUTHENTICATED', 'Sign in to continue.');
+    const failure = notificationFailures.find((f) => f.path.test(path) && f.times > 0);
+    if (failure) {
+      failure.times -= 1;
+      return fail(503, 'SERVICE_UNAVAILABLE', 'Down.');
+    }
+    if (method === 'GET' && path === '/notifications/unread-count')
+      return ok({ unread: unreadCount() });
+    if (method === 'GET' && path === '/notifications') {
+      const page = Number(url.searchParams.get('page') ?? '1');
+      const pageSize = Number(url.searchParams.get('pageSize') ?? '20');
+      return ok(
+        notificationListResponseSchema.parse({
+          items: notifications.slice((page - 1) * pageSize, page * pageSize),
+          pagination: {
+            page,
+            pageSize,
+            totalResults: notifications.length,
+            totalPages: Math.ceil(notifications.length / pageSize),
+          },
+          unreadCount: unreadCount(),
+        }),
+      );
+    }
+    if (method === 'POST' && path === '/notifications/read-all') {
+      const updated = unreadCount();
+      notifications.forEach((n, i) => {
+        if (!n.read) notifications[i] = { ...n, read: true, readAt: at };
+      });
+      return ok({ updated, unread: 0 });
+    }
+    if (path === '/notifications/preferences') {
+      if (method === 'PATCH') {
+        const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+        preferencePatches.push(body);
+        preferences = notificationPreferencesSchema.parse({ ...preferences, ...body });
+      }
+      return ok(preferences);
+    }
+    const read = /^\/notifications\/([^/]+)\/read$/.exec(path);
+    if (method === 'PATCH' && read) {
+      const index = notifications.findIndex((n) => n.id === read[1]);
+      if (index === -1) return fail(404, 'NOT_FOUND', "We couldn't find that notification.");
+      const n = notifications[index]!;
+      if (!n.read) notifications[index] = { ...n, read: true, readAt: at };
+      return ok(notifications[index]);
+    }
+    return fail(404, 'NOT_FOUND', 'Not found.');
+  };
+
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     const method = init?.method ?? 'GET';
+    if (url.pathname.startsWith('/api/v1/notifications'))
+      return handleNotifications(method, url, init);
     if (
       url.pathname.startsWith('/api/v1/bookings') ||
       url.pathname.startsWith('/api/v1/payments')
@@ -508,6 +587,12 @@ export function installFakeBookingApi({
     account,
     search,
     response,
+    notifications,
+    preferencePatches,
+    /** Answer the next `times` notification requests matching `path` with a 503. */
+    failNotifications(path: RegExp, times = 1) {
+      notificationFailures.push({ path, times });
+    },
     store,
     posts,
     requests,

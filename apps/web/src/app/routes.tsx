@@ -57,6 +57,8 @@ const auth = () => import('../features/auth/routes');
 const account = () => import('../features/account/routes');
 /** Checkout, confirmation, My trips, booking details (Phase 12) and demo payments (Phase 13). */
 const bookings = () => import('../features/bookings/routes');
+/** Notifications page (Phase 14). */
+const notifications = () => import('../features/notifications/routes');
 
 /** /sign-in (the pre-Phase 8 link) → /login, keeping any query string. */
 function LegacySignInRedirect() {
@@ -97,7 +99,8 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *         ├─ RequireAuth       loader until /auth/session answers; else /login?redirect=
  *         │  └─ /profile, /profile/travellers, /book/:serviceType/:resultId (demo
  *         │     checkout), /trips, /trips/:reference, /trips/:reference/confirmation,
- *         │     /trips/:reference/pay, /trips/:reference/payments/:paymentId (demo payments)
+ *         │     /trips/:reference/pay, /trips/:reference/payments/:paymentId (demo payments),
+ *         │     /notifications
  *         └─ *                 not-found page
  *
  * Future focused layouts (checkout, admin) become siblings of MarketingLayout
@@ -185,6 +188,10 @@ export function createRoutes({
                     {
                       path: ACCOUNT_PATHS.travellers.slice(1),
                       lazy: async () => ({ Component: (await account()).TravellersRoute }),
+                    },
+                    {
+                      path: ACCOUNT_PATHS.notifications.slice(1),
+                      lazy: async () => ({ Component: (await notifications()).NotificationsRoute }),
                     },
                     {
                       path: 'book/:serviceType/:resultId',

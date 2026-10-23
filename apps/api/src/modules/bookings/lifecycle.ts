@@ -1,4 +1,5 @@
 import type { BookingStatus as DbBookingStatus, Prisma } from '@wayora/database';
+import { messages, notify } from '../notifications/notify.js';
 
 /*
  * The booking lifecycle (docs/bookings.md#statuses, docs/payments.md#booking-and-payment),
@@ -96,8 +97,22 @@ export async function expireIfOverdue(tx: Tx, now: Date, bookingId: string): Pro
     where: { bookingId, status: { in: ['CREATED', 'PENDING', 'SUCCEEDED'] } },
   });
   if (active > 0) return false;
-  return transitionBooking(tx, now, bookingId, 'PENDING', 'EXPIRED', {
+  const expired = await transitionBooking(tx, now, bookingId, 'PENDING', 'EXPIRED', {
     actorType: 'SYSTEM',
     note: EXPIRED_NOTE,
   });
+  if (expired) {
+    const { reference, userId } = await tx.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      select: { reference: true, userId: true },
+    });
+    await notify(tx, now, {
+      ...messages.bookingExpired(reference),
+      userId,
+      isDemo: true,
+      bookingId,
+      dedupeKey: `booking:${bookingId}:EXPIRED`,
+    });
+  }
+  return expired;
 }
