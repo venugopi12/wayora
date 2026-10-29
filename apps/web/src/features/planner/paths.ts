@@ -12,3 +12,5 @@ export const newPlanPath = (destinationId?: string) =>
 /** An invitation addressed to the signed-in user (Phase 19). */
 export const invitationPath = (id: string) =>
   `${ACCOUNT_PATHS.plans}/invitations/${encodeURIComponent(id)}`;
+/** A plan's budget and expenses (Phase 20). */
+export const budgetPath = (id: string) => `${planPath(id)}/budget`;

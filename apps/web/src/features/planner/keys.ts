@@ -19,4 +19,10 @@ export const plannerKeys = {
   activity: (id: string) => [...authKeys.account, 'planner', 'activity', id] as const,
   invitations: [...authKeys.account, 'planner', 'invitations'] as const,
   invitation: (id: string) => [...authKeys.account, 'planner', 'invitations', id] as const,
+  /** Budget and expenses (Phase 20). */
+  budget: (id: string) => [...authKeys.account, 'planner', 'budget', id] as const,
+  expenses: (id: string) => [...authKeys.account, 'planner', 'expenses', id] as const,
+  expensesFor: (id: string, filters: Record<string, string | undefined>) =>
+    [...authKeys.account, 'planner', 'expenses', id, filters] as const,
+  balances: (id: string) => [...authKeys.account, 'planner', 'balances', id] as const,
 };

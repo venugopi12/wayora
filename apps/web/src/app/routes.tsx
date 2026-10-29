@@ -110,6 +110,7 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *         │     checkout), /trips, /trips/:reference, /trips/:reference/confirmation,
  *         │     /trips/:reference/pay, /trips/:reference/payments/:paymentId (demo payments),
  *         │     /notifications, /plans, /plans/new, /plans/:tripId (trip planner),
+ *         │     /plans/:tripId/budget (budget and expenses),
  *         │     /plans/invitations/:invitationId (plan invitations)
  *         └─ *                 not-found page
  *
@@ -218,6 +219,10 @@ export function createRoutes({
                     {
                       path: `${ACCOUNT_PATHS.plans.slice(1)}/:tripId`,
                       lazy: async () => ({ Component: (await planner()).PlanDetailRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.plans.slice(1)}/:tripId/budget`,
+                      lazy: async () => ({ Component: (await planner()).BudgetRoute }),
                     },
                     {
                       path: 'book/:serviceType/:resultId',

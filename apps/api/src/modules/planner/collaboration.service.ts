@@ -1,5 +1,8 @@
 import {
+  BUDGET_CURRENCY_DIGITS,
   COLLABORATION_LIMITS,
+  minorToInput,
+  type BudgetCurrency,
   type InvitationResponse,
   type MemberRole,
   type PlannerActivity,
@@ -439,7 +442,7 @@ export class CollaborationService {
     const subjectIds = new Set<string>();
     for (const r of page) {
       const data = r.data as Record<string, unknown>;
-      for (const key of ['memberUserId', 'inviteeId']) {
+      for (const key of ['memberUserId', 'inviteeId', 'fromId', 'toId']) {
         if (typeof data[key] === 'string') subjectIds.add(data[key]);
       }
     }
@@ -544,6 +547,16 @@ const FIELD_LABEL: Record<string, string> = {
   location: 'location',
 };
 
+/** "INR 900.00": exact, from minor units; unknown currencies shown as stored. */
+const money = (amountMinor: unknown, currency: unknown) => {
+  const code = String(currency);
+  return typeof amountMinor === 'string' &&
+    /^\d+$/.test(amountMinor) &&
+    code in BUDGET_CURRENCY_DIGITS
+    ? `${code} ${minorToInput(amountMinor, code as BudgetCurrency)}`
+    : 'an amount';
+};
+
 const list = (fields: unknown) =>
   Array.isArray(fields)
     ? fields.map((f) => FIELD_LABEL[String(f)] ?? null).filter((f): f is string => f !== null)
@@ -572,6 +585,7 @@ function describeActivity(
     return id === viewerId ? 'you' : (names.get(id) ?? 'a former member');
   };
   const role = (key: string) => (d[key] === 'editor' ? 'editor' : 'viewer');
+  const quoted = (key: string) => (typeof d[key] === 'string' ? `“${d[key]}”` : '');
   let summary: string;
   let day: string | null = typeof d.day === 'string' ? d.day : null;
   switch (row.type) {
@@ -625,6 +639,28 @@ function describeActivity(
       break;
     case 'MEMBER_LEFT':
       summary = `${who} left the plan`;
+      break;
+    // Budget and expenses (Phase 20): amounts in their own currency, never converted.
+    case 'BUDGET_UPDATED':
+      summary = `${who} set the budget to ${money(d.totalMinor, d.currency)}`;
+      break;
+    case 'BUDGET_REMOVED':
+      summary = `${who} removed the budget`;
+      break;
+    case 'EXPENSE_ADDED':
+      summary = `${who} added the ${d.status === 'planned' ? 'planned expense' : 'expense'} ${quoted('description')} (${money(d.amountMinor, d.currency)})`;
+      break;
+    case 'EXPENSE_UPDATED':
+      summary = `${who} edited the expense ${quoted('description')} (${money(d.amountMinor, d.currency)})`;
+      break;
+    case 'EXPENSE_DELETED':
+      summary = `${who} deleted the expense ${quoted('description')} (${money(d.amountMinor, d.currency)})`;
+      break;
+    case 'SETTLEMENT_RECORDED':
+      summary = `${who} recorded that ${subject('fromId')} paid ${subject('toId')} ${money(d.amountMinor, d.currency)} (outside Wayora)`;
+      break;
+    case 'SETTLEMENT_DELETED':
+      summary = `${who} deleted a recorded payment of ${money(d.amountMinor, d.currency)}`;
       break;
   }
   return {

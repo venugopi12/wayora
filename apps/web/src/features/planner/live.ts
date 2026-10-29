@@ -56,6 +56,9 @@ export function usePlanLiveUpdates(
       void queryClient.invalidateQueries({ queryKey: plannerKeys.members(tripId) });
       void queryClient.invalidateQueries({ queryKey: plannerKeys.activity(tripId) });
       void queryClient.invalidateQueries({ queryKey: plannerKeys.suggestions(tripId) });
+      void queryClient.invalidateQueries({ queryKey: plannerKeys.budget(tripId) });
+      void queryClient.invalidateQueries({ queryKey: plannerKeys.expenses(tripId) });
+      void queryClient.invalidateQueries({ queryKey: plannerKeys.balances(tripId) });
       void queryClient.invalidateQueries({ queryKey: notificationKeys.unread });
     };
     const source = new EventSource(planEventsUrl(tripId), { withCredentials: true });
@@ -113,6 +116,9 @@ export function usePlanLiveUpdates(
       if (document.visibilityState !== 'visible') return;
       void queryClient.invalidateQueries({ queryKey: plannerKeys.detail(tripId) });
       void queryClient.invalidateQueries({ queryKey: plannerKeys.members(tripId) });
+      void queryClient.invalidateQueries({ queryKey: plannerKeys.budget(tripId) });
+      void queryClient.invalidateQueries({ queryKey: plannerKeys.expenses(tripId) });
+      void queryClient.invalidateQueries({ queryKey: plannerKeys.balances(tripId) });
     }, PLAN_POLL_MS);
     return () => clearInterval(timer);
   }, [mode, queryClient, tripId]);

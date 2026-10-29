@@ -316,6 +316,12 @@ model User {
   plannerActivities     PlannerActivity[]
   itineraryItemsCreated ItineraryItem[]
 
+  planExpensesCreated  PlanExpense[]
+  planExpenseParts     PlanExpensePart[]
+  settlementsSent      PlanSettlement[] @relation("SettlementFrom")
+  settlementsReceived  PlanSettlement[] @relation("SettlementTo")
+  settlementsRecorded  PlanSettlement[] @relation("SettlementRecordedBy")
+
   @@index([status])
   @@index([role])
   @@index([createdAt])
@@ -444,6 +450,8 @@ model Booking {
   tripEvents    TripEvent[]
   /// Planned trips the owner chose to link to this booking (Phase 18).
   plannedTrips  PlannedTrip[]
+  /// Plan expenses imported from this booking (Phase 20).
+  planExpenses  PlanExpense[]
   tripStatus    TripStatus?
   disruptions   TripDisruption[]
 
@@ -917,6 +925,11 @@ model PlannedTrip {
   activities    PlannerActivity[]
   notifications Notification[]
 
+  /// The plan's money budget (Phase 20); `budget` above is the planning preference.
+  moneyBudget PlanBudget?
+  expenses    PlanExpense[]
+  settlements PlanSettlement[]
+
   @@index([userId, startDate, id])
   @@index([bookingId])
   @@map("planned_trips")
@@ -990,6 +1003,14 @@ enum PlannerActivityType {
   MEMBER_ROLE_CHANGED
   MEMBER_REMOVED
   MEMBER_LEFT
+  /// Budget and expenses (Phase 20).
+  BUDGET_UPDATED
+  BUDGET_REMOVED
+  EXPENSE_ADDED
+  EXPENSE_UPDATED
+  EXPENSE_DELETED
+  SETTLEMENT_RECORDED
+  SETTLEMENT_DELETED
 
   @@map("planner_activity_type")
 }
@@ -1057,4 +1078,134 @@ model PlannerActivity {
 
   @@unique([tripId, revision])
   @@map("planner_activities")
+}
+
+// ─── Trip budget and group expenses (Phase 20) ────────────────────────────
+
+/// Mirrors `expenseCategorySchema` in @wayora/contracts.
+enum ExpenseCategory {
+  FLIGHTS
+  HOTELS
+  TRAINS
+  BUSES
+  LOCAL_TRANSPORT
+  FOOD
+  ACTIVITIES
+  SHOPPING
+  OTHER
+
+  @@map("expense_category")
+}
+
+/// PAID: money actually spent (split, counts in balances). PLANNED: an estimate.
+enum ExpenseStatus {
+  PAID
+  PLANNED
+
+  @@map("expense_status")
+}
+
+enum ExpenseSplitMethod {
+  EQUAL
+  CUSTOM
+  PERCENT
+
+  @@map("expense_split_method")
+}
+
+/// A plan's budget (one per plan), in one currency (docs/planner.md#budget).
+model PlanBudget {
+  tripId           String   @id @map("trip_id") @db.Uuid
+  currency         String   @db.Char(3)
+  totalAmountMinor BigInt   @map("total_amount_minor")
+  version          Int      @default(1)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  trip       PlannedTrip          @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  categories PlanCategoryBudget[]
+
+  @@map("plan_budgets")
+}
+
+/// Optional per-category budget, in the budget's currency.
+model PlanCategoryBudget {
+  tripId      String          @map("trip_id") @db.Uuid
+  category    ExpenseCategory
+  amountMinor BigInt          @map("amount_minor")
+
+  budget PlanBudget @relation(fields: [tripId], references: [tripId], onDelete: Cascade)
+
+  @@id([tripId, category])
+  @@map("plan_category_budgets")
+}
+
+/// One expense on a plan. Amount in integer minor units of `currency`.
+/// A PAID expense's parts add up exactly (deferred constraint trigger).
+model PlanExpense {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  tripId      String              @map("trip_id") @db.Uuid
+  description String              @db.VarChar(120)
+  category    ExpenseCategory
+  amountMinor BigInt              @map("amount_minor")
+  currency    String              @db.Char(3)
+  /// Calendar date it was spent (or is planned for).
+  spentOn     DateTime            @map("spent_on") @db.Date
+  status      ExpenseStatus
+  splitMethod ExpenseSplitMethod? @map("split_method")
+  notes       String?             @db.VarChar(500)
+  /// The owner's booking it came from (at most once per plan).
+  bookingId   String?             @map("booking_id") @db.Uuid
+  createdById String?             @map("created_by_id") @db.Uuid
+  /// Bumped on every edit; an edit based on an older version is refused.
+  version     Int                 @default(1)
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  trip      PlannedTrip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  booking   Booking?          @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  createdBy User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  parts     PlanExpensePart[]
+
+  @@index([tripId, spentOn, id])
+  @@map("plan_expenses")
+}
+
+/// One person's part of a paid expense: what they paid and their share.
+model PlanExpensePart {
+  expenseId   String  @map("expense_id") @db.Uuid
+  userId      String  @map("user_id") @db.Uuid
+  paidMinor   BigInt  @map("paid_minor")
+  shareMinor  BigInt  @map("share_minor")
+  /// Percentage splits: this person's percentage in basis points.
+  basisPoints Int?    @map("basis_points")
+
+  expense PlanExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user    User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([expenseId, userId])
+  @@index([userId])
+  @@map("plan_expense_parts")
+}
+
+/// A payment between two people, made outside Wayora and recorded here.
+model PlanSettlement {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  tripId       String   @map("trip_id") @db.Uuid
+  fromUserId   String   @map("from_user_id") @db.Uuid
+  toUserId     String   @map("to_user_id") @db.Uuid
+  amountMinor  BigInt   @map("amount_minor")
+  currency     String   @db.Char(3)
+  settledOn    DateTime @map("settled_on") @db.Date
+  note         String?  @db.VarChar(500)
+  recordedById String?  @map("recorded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  trip       PlannedTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  from       User        @relation("SettlementFrom", fields: [fromUserId], references: [id], onDelete: Restrict)
+  to         User        @relation("SettlementTo", fields: [toUserId], references: [id], onDelete: Restrict)
+  recordedBy User?       @relation("SettlementRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([tripId, createdAt])
+  @@map("plan_settlements")
 }

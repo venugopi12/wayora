@@ -1,5 +1,14 @@
 import { Router, type RequestHandler } from 'express';
 import {
+  budgetVersionQuerySchema,
+  createExpenseSchema,
+  createSettlementSchema,
+  expenseFromBookingSchema,
+  expenseListQuerySchema,
+  expenseParamsSchema,
+  putBudgetSchema,
+  settlementParamsSchema,
+  updateExpenseSchema,
   createTripInvitationSchema,
   invitationParamsSchema,
   plannerActivityQuerySchema,
@@ -34,6 +43,7 @@ import { sendData } from '../../utils/respond.js';
 import { validateRequest } from '../../utils/validate.js';
 import { IDEMPOTENCY_KEY_HEADER, validateIdempotencyKey } from '../bookings/idempotency.js';
 import { canView, tripAccess } from './access.js';
+import type { BudgetService } from './budget.service.js';
 import type { CollaborationService } from './collaboration.service.js';
 import type { PlannerService } from './planner.service.js';
 
@@ -43,6 +53,8 @@ export const PLANNER_EVENTS_CHANNEL = 'wayora_planner_activity';
 export interface PlannerRouterOptions {
   planner: PlannerService;
   collaboration: CollaborationService;
+  /** Budget, expenses and group split (Phase 20). */
+  budget: BudgetService;
   prisma: PrismaClient;
   /** Live updates: announcements of new plan history rows (Phase 19). */
   hub: SignalHub;
@@ -89,10 +101,24 @@ export interface PlannerRouterOptions {
  * POST   /planner/invitations/:invitationId/accept      join the plan
  * POST   /planner/invitations/:invitationId/decline
  *
+ * Budget and expenses (Phase 20, docs/planner.md#budget):
+ * GET    /planner/trips/:tripId/budget                   budget, progress, totals per currency
+ * PUT    /planner/trips/:tripId/budget                   create or replace (owner, editors)
+ * DELETE /planner/trips/:tripId/budget?version=          remove (owner, editors)
+ * GET    /planner/trips/:tripId/expenses?filters         expenses, filtered and sorted
+ * POST   /planner/trips/:tripId/expenses                 add (owner, editors; Idempotency-Key) 201
+ * POST   /planner/trips/:tripId/expenses/from-booking    add the linked booking (owner; key)   201
+ * GET    /planner/trips/:tripId/expenses/:expenseId
+ * PUT    /planner/trips/:tripId/expenses/:expenseId      replace (owner, or the editor who added it)
+ * DELETE /planner/trips/:tripId/expenses/:expenseId      delete (same)
+ * GET    /planner/trips/:tripId/balances                 balances per currency + suggestions
+ * POST   /planner/trips/:tripId/settlements              record a payment made outside Wayora 201
+ * DELETE /planner/trips/:tripId/settlements/:settlementId
+ *
  * Writes return the whole updated trip, so the client never has to merge.
  */
 export function plannerRouter(options: PlannerRouterOptions): Router {
-  const { planner, collaboration, hub, logger } = options;
+  const { planner, collaboration, budget, hub, logger } = options;
   const limit: RequestHandler[] = options.writeLimiter ? [options.writeLimiter] : [];
   const inviteLimit: RequestHandler[] = options.inviteLimiter ? [options.inviteLimiter] : [];
   const timings = { ...DEFAULT_STREAM_TIMINGS, ...options.stream };
@@ -239,6 +265,110 @@ export function plannerRouter(options: PlannerRouterOptions): Router {
     const { params } = validateRequest(req, { params: tripMemberParamsSchema });
     await collaboration.removeMember(currentUser(res).id, params.tripId, params.memberId);
     sendData(res, { removed: true });
+  });
+
+  // ─── Budget and expenses (Phase 20) ───────────────────────────────────
+
+  router.get('/trips/:tripId/budget', async (req, res) => {
+    const { params } = validateRequest(req, { params: plannedTripParamsSchema });
+    sendData(res, await budget.overview(currentUser(res).id, params.tripId));
+  });
+
+  router.put('/trips/:tripId/budget', ...limit, async (req, res) => {
+    const { params, body } = validateRequest(req, {
+      params: plannedTripParamsSchema,
+      body: putBudgetSchema,
+    });
+    sendData(res, await budget.putBudget(currentUser(res).id, params.tripId, body));
+  });
+
+  router.delete('/trips/:tripId/budget', ...limit, async (req, res) => {
+    const { params, query } = validateRequest(req, {
+      params: plannedTripParamsSchema,
+      query: budgetVersionQuerySchema,
+    });
+    sendData(res, await budget.removeBudget(currentUser(res).id, params.tripId, query.version));
+  });
+
+  router.get('/trips/:tripId/expenses', async (req, res) => {
+    const { params, query } = validateRequest(req, {
+      params: plannedTripParamsSchema,
+      query: expenseListQuerySchema,
+    });
+    sendData(res, await budget.listExpenses(currentUser(res).id, params.tripId, query));
+  });
+
+  router.post('/trips/:tripId/expenses', ...limit, async (req, res) => {
+    const { params, body } = validateRequest(req, {
+      params: plannedTripParamsSchema,
+      body: createExpenseSchema,
+    });
+    const key = validateIdempotencyKey(req.get(IDEMPOTENCY_KEY_HEADER), 'expense');
+    const result = await budget.createExpense(currentUser(res).id, params.tripId, body, key);
+    if (result.replayed) res.setHeader('Idempotent-Replayed', 'true');
+    sendData(res, result.expense, 201);
+  });
+
+  router.post('/trips/:tripId/expenses/from-booking', ...limit, async (req, res) => {
+    const { params, body } = validateRequest(req, {
+      params: plannedTripParamsSchema,
+      body: expenseFromBookingSchema,
+    });
+    const key = validateIdempotencyKey(req.get(IDEMPOTENCY_KEY_HEADER), 'expense');
+    const result = await budget.addBookingExpense(
+      currentUser(res).id,
+      params.tripId,
+      body.split,
+      key,
+    );
+    if (result.replayed) res.setHeader('Idempotent-Replayed', 'true');
+    sendData(res, result.expense, 201);
+  });
+
+  router.get('/trips/:tripId/expenses/:expenseId', async (req, res) => {
+    const { params } = validateRequest(req, { params: expenseParamsSchema });
+    sendData(res, await budget.getExpense(currentUser(res).id, params.tripId, params.expenseId));
+  });
+
+  router.put('/trips/:tripId/expenses/:expenseId', ...limit, async (req, res) => {
+    const { params, body } = validateRequest(req, {
+      params: expenseParamsSchema,
+      body: updateExpenseSchema,
+    });
+    sendData(
+      res,
+      await budget.updateExpense(currentUser(res).id, params.tripId, params.expenseId, body),
+    );
+  });
+
+  router.delete('/trips/:tripId/expenses/:expenseId', ...limit, async (req, res) => {
+    const { params } = validateRequest(req, { params: expenseParamsSchema });
+    await budget.deleteExpense(currentUser(res).id, params.tripId, params.expenseId);
+    sendData(res, { deleted: true });
+  });
+
+  router.get('/trips/:tripId/balances', async (req, res) => {
+    const { params } = validateRequest(req, { params: plannedTripParamsSchema });
+    sendData(res, await budget.balances(currentUser(res).id, params.tripId));
+  });
+
+  router.post('/trips/:tripId/settlements', ...limit, async (req, res) => {
+    const { params, body } = validateRequest(req, {
+      params: plannedTripParamsSchema,
+      body: createSettlementSchema,
+    });
+    const key = validateIdempotencyKey(req.get(IDEMPOTENCY_KEY_HEADER), 'payment record');
+    const result = await budget.createSettlement(currentUser(res).id, params.tripId, body, key);
+    if (result.replayed) res.setHeader('Idempotent-Replayed', 'true');
+    sendData(res, result.balances, 201);
+  });
+
+  router.delete('/trips/:tripId/settlements/:settlementId', ...limit, async (req, res) => {
+    const { params } = validateRequest(req, { params: settlementParamsSchema });
+    sendData(
+      res,
+      await budget.deleteSettlement(currentUser(res).id, params.tripId, params.settlementId),
+    );
   });
 
   router.get('/trips/:tripId/activity', async (req, res) => {

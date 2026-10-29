@@ -40,6 +40,7 @@ import { LeaveDialog, useUnsavedChanges } from './unsaved';
 
 export { PlanDetailRoute } from './PlanDetail';
 export { InvitationRoute } from './invitations';
+export { BudgetRoute } from './budget/BudgetRoute';
 
 /*
  * /plans and /plans/new (docs/planner.md#web). Signed-in only; the API

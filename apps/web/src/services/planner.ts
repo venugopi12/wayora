@@ -1,4 +1,17 @@
 import {
+  balancesSchema,
+  budgetOverviewSchema,
+  expenseDeletedSchema,
+  expenseListSchema,
+  expenseSchema,
+  type Balances,
+  type BudgetOverview,
+  type CreateExpenseInput,
+  type CreateSettlementInput,
+  type Expense,
+  type ExpenseList,
+  type PutBudgetInput,
+  type UpdateExpenseInput,
   API_V1_PREFIX,
   invitationResponseSchema,
   memberRemovedSchema,
@@ -246,4 +259,118 @@ export function respondToInvitation(
 /** The plan's live-update stream (Server-Sent Events; session cookie). */
 export function planEventsUrl(tripId: string): string {
   return `${publicEnv.apiBaseUrl}${API_V1_PREFIX}${trip(tripId)}/events`;
+}
+
+// ─── Budget and expenses (Phase 20) ─────────────────────────────────────
+
+export function getBudget(tripId: string, signal?: AbortSignal): Promise<BudgetOverview> {
+  return api.request(`${trip(tripId)}/budget`, { schema: budgetOverviewSchema, ...opt(signal) });
+}
+
+export function putBudget(tripId: string, body: PutBudgetInput): Promise<BudgetOverview> {
+  return api.request(`${trip(tripId)}/budget`, {
+    method: 'PUT',
+    body,
+    schema: budgetOverviewSchema,
+  });
+}
+
+export function removeBudget(tripId: string, version: number): Promise<BudgetOverview> {
+  return api.request(`${trip(tripId)}/budget?version=${version}`, {
+    method: 'DELETE',
+    schema: budgetOverviewSchema,
+  });
+}
+
+/** List filters, as query-string values (the API validates them). */
+export interface ExpenseFilters {
+  category?: string;
+  status?: string;
+  payer?: string;
+  participant?: string;
+  from?: string;
+  to?: string;
+  sort?: string;
+  page?: string;
+}
+
+export function listExpenses(
+  tripId: string,
+  filters: ExpenseFilters,
+  signal?: AbortSignal,
+): Promise<ExpenseList> {
+  const params = new URLSearchParams(
+    Object.entries({ pageSize: '100', ...filters }).filter(
+      ([, v]) => v !== undefined && v !== '',
+    ) as [string, string][],
+  );
+  return api.request(`${trip(tripId)}/expenses?${params.toString()}`, {
+    schema: expenseListSchema,
+    ...opt(signal),
+  });
+}
+
+export function createExpense(
+  tripId: string,
+  body: CreateExpenseInput,
+  idempotencyKey: string,
+): Promise<Expense> {
+  return api.request(`${trip(tripId)}/expenses`, {
+    method: 'POST',
+    body,
+    schema: expenseSchema,
+    headers: { 'Idempotency-Key': idempotencyKey },
+  });
+}
+
+export function addBookingExpense(tripId: string, idempotencyKey: string): Promise<Expense> {
+  return api.request(`${trip(tripId)}/expenses/from-booking`, {
+    method: 'POST',
+    body: {},
+    schema: expenseSchema,
+    headers: { 'Idempotency-Key': idempotencyKey },
+  });
+}
+
+export function updateExpense(
+  tripId: string,
+  expenseId: string,
+  body: UpdateExpenseInput,
+): Promise<Expense> {
+  return api.request(`${trip(tripId)}/expenses/${encodeURIComponent(expenseId)}`, {
+    method: 'PUT',
+    body,
+    schema: expenseSchema,
+  });
+}
+
+export async function deleteExpense(tripId: string, expenseId: string): Promise<void> {
+  await api.request(`${trip(tripId)}/expenses/${encodeURIComponent(expenseId)}`, {
+    method: 'DELETE',
+    schema: expenseDeletedSchema,
+  });
+}
+
+export function getBalances(tripId: string, signal?: AbortSignal): Promise<Balances> {
+  return api.request(`${trip(tripId)}/balances`, { schema: balancesSchema, ...opt(signal) });
+}
+
+export function recordSettlement(
+  tripId: string,
+  body: CreateSettlementInput,
+  idempotencyKey: string,
+): Promise<Balances> {
+  return api.request(`${trip(tripId)}/settlements`, {
+    method: 'POST',
+    body,
+    schema: balancesSchema,
+    headers: { 'Idempotency-Key': idempotencyKey },
+  });
+}
+
+export function deleteSettlement(tripId: string, settlementId: string): Promise<Balances> {
+  return api.request(`${trip(tripId)}/settlements/${encodeURIComponent(settlementId)}`, {
+    method: 'DELETE',
+    schema: balancesSchema,
+  });
 }

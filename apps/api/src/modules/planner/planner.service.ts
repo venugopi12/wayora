@@ -14,15 +14,11 @@ import {
   type updateItineraryItemSchema,
   type updatePlannedTripSchema,
 } from '@wayora/contracts';
-import { Prisma, type PrismaClient } from '@wayora/database';
+import { type Prisma, type PrismaClient } from '@wayora/database';
 import type { z } from 'zod';
 import { AppError, notFound } from '../../utils/errors.js';
 import type { Logger } from '../../utils/logger.js';
-import {
-  IdempotencyService,
-  requestHash,
-  type IdempotencyMessages,
-} from '../bookings/idempotency.js';
+import { IdempotencyService, type IdempotencyMessages } from '../bookings/idempotency.js';
 import { notify } from '../notifications/notify.js';
 import {
   TRIP_NOT_FOUND,
@@ -31,6 +27,7 @@ import {
   tripAudience,
   type TripContext,
 } from './access.js';
+import { runIdempotent } from './idempotent.js';
 import { PLANNER_CATALOG, catalogActivity, catalogDestination } from './catalog.js';
 import { planMessages } from './messages.js';
 import {
@@ -105,9 +102,6 @@ const validation = (path: string, message: string) =>
   new AppError('VALIDATION_FAILED', 'The request is invalid.', {
     details: [{ path, message, code: 'custom' }],
   });
-
-const isUniqueViolation = (error: unknown) =>
-  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 
 const toDbPreferences = (p: PlannerPreferences) => ({
   pace: p.pace ? (p.pace.toUpperCase() as 'RELAXED' | 'BALANCED' | 'PACKED') : null,
@@ -742,11 +736,7 @@ export class PlannerService {
     return booking.id;
   }
 
-  /**
-   * Runs a creating POST at most once per Idempotency-Key: a retry replays
-   * the stored outcome (the new row's id), a concurrent duplicate is refused.
-   */
-  private async idempotent(
+  private idempotent(
     claimInput: {
       operation: string;
       userId: string;
@@ -756,32 +746,6 @@ export class PlannerService {
     },
     run: (complete: (tx: Tx, id: string) => Promise<void>) => Promise<string>,
   ): Promise<{ id: string; replayed: boolean }> {
-    const claim = await this.idempotency.claim<{ id: string }>({
-      operation: claimInput.operation,
-      userId: claimInput.userId,
-      key: claimInput.key,
-      hash: requestHash(claimInput.payload),
-      messages: claimInput.messages,
-    });
-    if (claim.kind === 'replay') return { id: claim.body.id, replayed: true };
-    try {
-      const id = await run((tx, created) =>
-        this.idempotency.complete(tx, claim, { status: 201, body: { id: created } }),
-      );
-      return { id, replayed: false };
-    } catch (error) {
-      await this.idempotency.release(claim);
-      if (isUniqueViolation(error)) {
-        this.logger.warn(
-          { operation: claimInput.operation },
-          'Planner write hit a unique constraint',
-        );
-        throw new AppError(
-          'CONFLICT',
-          'That change clashes with another one. Reload and try again.',
-        );
-      }
-      throw error;
-    }
+    return runIdempotent(this.idempotency, this.logger, claimInput, run);
   }
 }

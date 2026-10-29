@@ -35,6 +35,7 @@ import { NotificationsService } from './modules/notifications/notifications.serv
 import { AdminService } from './modules/admin/admin.service.js';
 import { PlatformHealth, type HealthRedis } from './modules/admin/platform-health.js';
 import { prismaSearchEventRecorder } from './modules/search/analytics.js';
+import { BudgetService } from './modules/planner/budget.service.js';
 import { CollaborationService } from './modules/planner/collaboration.service.js';
 import { PlannerService } from './modules/planner/planner.service.js';
 import { LocalSignalHub, type SignalHub } from './services/signal-hub.js';
@@ -419,6 +420,11 @@ export function createApp({
               ...(now ? { now } : {}),
             }),
             collaboration: new CollaborationService({ prisma, ...(now ? { now } : {}) }),
+            budget: new BudgetService({
+              prisma,
+              logger: logger.child({ component: 'plan-budget' }),
+              ...(now ? { now } : {}),
+            }),
             prisma,
             hub: plannerEvents ?? new LocalSignalHub(),
             logger: logger.child({ component: 'planner-stream' }),

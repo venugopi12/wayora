@@ -31,6 +31,9 @@ Not notified: a payment cancelled by its owner (they just did it, or it was
 cancelled with the booking they cancelled), `refund_pending`, and anything
 that didn't change state (refused requests, out-of-order or duplicate provider
 events, lost races).
+Plan budgets and expenses (Phase 20) create no notifications: budget,
+expense and recorded-payment changes appear live on the plan and in its
+history only ([planner.md](planner.md#budget-and-expenses)).
 
 ### Where they are created
 

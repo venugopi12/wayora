@@ -346,6 +346,25 @@ Details: [planner.md](planner.md#collaboration).
   an active account (as registration already does), bounded by the invite
   rate limit.
 
+### Plan budget and expenses (Phase 20)
+
+Details: [planner.md](planner.md#budget-and-expenses).
+
+- Same access check as collaboration on every request (non-members 404,
+  wrong role 403); editors change only expenses they added, viewers only
+  record payments they're part of. Everyone on an expense or payment must be
+  a member; ids from another plan are refused.
+- Strict bodies: no `tripId`, `createdById`, `parts`, `version` (except as
+  the edit's base) or other server-owned fields are accepted.
+- Money is integer minor units end to end; totals are checked by the API and
+  again by deferred database triggers. Balances are computed server-side from
+  saved rows.
+- **No money movement**: no payment provider is called; suggestions and
+  recorded payments are never presented as transfers Wayora made. No
+  exchange rates are used.
+- Notes are visible to plan members but never logged or copied into the
+  history. Members see display names only.
+
 ## Planned approach for later phases
 
 ### Authentication extensions

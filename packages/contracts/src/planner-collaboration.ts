@@ -164,6 +164,14 @@ export const PLANNER_ACTIVITY_TYPES = [
   'member_role_changed',
   'member_removed',
   'member_left',
+  // Budget and expenses (Phase 20, docs/planner.md#budget).
+  'budget_updated',
+  'budget_removed',
+  'expense_added',
+  'expense_updated',
+  'expense_deleted',
+  'settlement_recorded',
+  'settlement_deleted',
 ] as const;
 export const plannerActivityTypeSchema = z.enum(PLANNER_ACTIVITY_TYPES);
 export type PlannerActivityType = z.infer<typeof plannerActivityTypeSchema>;

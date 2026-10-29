@@ -18,6 +18,7 @@ import {
   type PlannerDestination,
   type SuggestionsResponse,
 } from '@wayora/contracts';
+import { createFakeBudgetApi, type FakeBudgetState } from './fake-budget-api';
 import { installFakeBookingApi } from './fake-booking-api';
 import { hotel } from './search-fixtures';
 
@@ -189,6 +190,7 @@ export function installFakePlannerApi({
   members: initialMembers = {},
   received = [],
   activity: initialActivity = {},
+  budgets = {},
 }: {
   trips?: PlannedTrip[];
   bookings?: Booking[];
@@ -198,6 +200,8 @@ export function installFakePlannerApi({
   received?: ReceivedInvitation[];
   /** History per plan id, newest first. */
   activity?: Record<string, PlannerActivity[]>;
+  /** Budget, expenses and settlements per plan id (default: nothing recorded). */
+  budgets?: Record<string, FakeBudgetState>;
 } = {}) {
   const membersStore = new Map(Object.entries(initialMembers));
   const receivedStore = new Map(received.map((r) => [r.id, r]));
@@ -209,6 +213,7 @@ export function installFakePlannerApi({
   const keys = new Map<string, { body: string; tripId: string }>();
   const failures: { method: string; pattern: RegExp; response: () => Response }[] = [];
   const holds: { method: string; pattern: RegExp; promise: Promise<void> }[] = [];
+  const budget = createFakeBudgetApi(budgets, ok, fail);
 
   const save = (trip: PlannedTrip & { _items?: ItineraryItem[] }) => {
     const next = rebuild({
@@ -576,6 +581,19 @@ export function installFakePlannerApi({
     if (hold) await hold.promise;
     const failure = failures.findIndex((f) => f.method === method && f.pattern.test(path));
     if (failure !== -1) return failures.splice(failure, 1)[0]!.response();
+    const budgetMatch =
+      /^\/planner\/trips\/([^/]+)(\/(?:budget|expenses|balances|settlements)(?:\/.*)?)$/.exec(path);
+    if (budgetMatch) {
+      const response = budget.handle(
+        store.get(budgetMatch[1]!),
+        method,
+        budgetMatch[2]!,
+        url.searchParams,
+        body,
+        key,
+      );
+      if (response) return response;
+    }
     return handle(method, path, body, key);
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -584,6 +602,8 @@ export function installFakePlannerApi({
     base,
     store,
     members: membersStore,
+    /** Budget state per plan id (created on first use). */
+    budgets: budget.states,
     requests,
     writes: () => requests.filter((r) => r.method !== 'GET'),
     /** The next matching request fails with this error envelope. */

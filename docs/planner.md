@@ -15,6 +15,10 @@ conflict detection, changes reach other members' open pages live, and every
 change is kept in a readable history. See [Collaboration](#collaboration).
 A plan nobody was invited to works exactly as before.
 
+Phase 20 adds a **budget and shared expenses** to each plan: a budget,
+expenses with exact splits, balances and settlement suggestions — without
+moving any money. See [Budget and expenses](#budget-and-expenses).
+
 What it is not, today:
 
 - **No live place data.** Suggestions come from a hand-written sample dataset
@@ -413,6 +417,159 @@ Migration `20261028000000_plan_collaboration` (additive):
 Deleting a plan deletes its members, invitations and history; its
 notifications stay, without a link.
 
+## Budget and expenses
+
+Phase 20 adds a budget and shared expenses to every plan
+(`/plans/:tripId/budget`): an optional trip budget with category budgets,
+expenses with who paid and who shares each one, per-person balances, and
+suggested ways to settle up.
+
+**Wayora doesn't move money.** Nothing on these pages charges, transfers,
+refunds or converts anything. Settlement suggestions are recommendations;
+members pay each other outside Wayora (cash, UPI, bank transfer…) and can
+then _record_ that a payment was made, which only changes the balances shown.
+A recorded payment is the member's statement, not something Wayora verified.
+
+### Planned costs and recorded expenses
+
+- An expense is **paid** (it happened: it has payers and a split and counts in
+  balances) or **planned** (an estimate: no payers, no split, never in
+  balances). Totals always show the two separately.
+- Itinerary activities are never treated as costs or as paid.
+- A linked booking is never counted automatically. The owner can add it as an
+  expense **once** (a partial unique index enforces this). It is added as
+  **paid** — by the owner, split equally between current members unless a
+  split is given — only when the booking is not a demo booking **and** a
+  payment for it has `SUCCEEDED`. Otherwise (every demo booking, or an
+  unconfirmed payment) it is added as **planned**, with the note “Demo
+  booking: no money was charged.” for demo bookings.
+
+### Money
+
+- Amounts are integer **minor units** (`BIGINT` in PostgreSQL, strings of
+  digits in JSON, `bigint` in code) with an ISO currency; never floating
+  point. Accepted currencies: INR, USD, EUR, GBP, AED, SGD (two minor digits
+  each). Expenses are positive and at most 10¹² minor units.
+- Typed amounts (`1,499.50`) are parsed by string arithmetic
+  (`parseMoneyInput`), percentages to basis points (`parsePercentInput`,
+  `33.33` → 3333). Display uses `formatMoney` from `@wayora/ui` (Intl, exact
+  decimal strings).
+- **No currency conversion.** No exchange-rate provider exists. Each expense
+  keeps its currency; totals, balances and suggestions are per currency; the
+  budget compares only expenses in the budget's own currency, and other
+  currencies are listed separately as “not converted”.
+
+### Splits
+
+Every paid expense stores one row per person (`plan_expense_parts`) with what
+they **paid** and their **share**; Σ paid = Σ shares = amount, exactly. Payers
+and participants can be different people, and several people can pay.
+
+| Method    | Input                   | Rule                                                                                                                                                  |
+| --------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `equal`   | participants            | Everyone gets ⌊amount ÷ n⌋; the leftover units (< n) go one each to participants first in id order. ₹1,000.00 ÷ 3 = 333.34 + 333.33 + 333.33.         |
+| `custom`  | an amount per person    | Must add up to the amount exactly; nothing is adjusted.                                                                                               |
+| `percent` | basis points per person | Must total 10,000 (100.00%). Each share is rounded down; leftover units go to the largest remainders (ties: id order) — the largest-remainder method. |
+
+The functions (`splitEqual`, `splitByBasisPoints`) live in
+`@wayora/contracts`, so the form previews exactly what the API stores; the
+API recomputes everything itself. Everyone on an expense must be a current
+member (people already on an expense may stay on it when it's edited after
+they left). Editing replaces the whole expense, including the split, in one
+transaction, and needs the `version` it was based on — nothing is adjusted
+silently, and a stale edit is refused. The database checks the totals again
+with deferred constraint triggers, so no write path can leave an expense
+unbalanced.
+
+### Balances
+
+For each currency and person: `net = paid − share + sent − received`, from
+paid expenses and recorded payments only (deleted expenses are gone; planned
+ones never count). **Sign convention:** positive = others owe this person
+(“is owed”); negative = this person owes others (“owes”). The nets in each
+currency always add up to zero. Balances are computed by the API from saved
+rows on every request; the browser never computes them.
+
+### Settlement suggestions
+
+`suggestSettlements` (deterministic greedy): repeatedly, the person who owes
+most pays the person owed most (ties: id order) the smaller of the two
+amounts. It uses at most n − 1 payments, and applying them brings every net
+balance to exactly zero (tested). They are labelled as recommendations; the
+**Record as paid outside Wayora** action opens a form to record a payment that
+already happened.
+
+### Budget permissions
+
+| Action                               | Owner | Editor                   | Viewer                         |
+| ------------------------------------ | ----- | ------------------------ | ------------------------------ |
+| See budget, expenses, balances       | ✓     | ✓                        | ✓                              |
+| Set, change or remove the budget     | ✓     | ✓                        | —                              |
+| Add an expense                       | ✓     | ✓                        | —                              |
+| Edit or delete an expense            | ✓ all | only the ones they added | —                              |
+| Add the linked booking as an expense | ✓     | —                        | —                              |
+| Record a payment                     | ✓     | ✓                        | only one they made or received |
+| Delete a recorded payment            | ✓     | the one who recorded it  | the one who recorded it        |
+
+Enforced by the API on every request through the Phase 19 access check
+(non-members get `404`; wrong role `403`). Removal takes effect immediately.
+Members see each other's display names only (no emails). Former members stay
+on the expenses they were part of (shown as “former member”) so history and
+balances stay correct, but can't be added to new ones.
+
+### Budget API
+
+| Method         | Path                                                      | Notes                                                                                                                                                                                 |
+| -------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET            | `/api/v1/planner/trips/:tripId/budget`                    | Budget, progress, totals per currency, people, booking offer                                                                                                                          |
+| PUT            | `/api/v1/planner/trips/:tripId/budget`                    | `{ version?, currency, totalMinor, categories[] }`; `version` required once one exists                                                                                                |
+| DELETE         | `/api/v1/planner/trips/:tripId/budget?version=`           | Removes the budget only; expenses are unchanged                                                                                                                                       |
+| GET            | `/api/v1/planner/trips/:tripId/expenses`                  | Filters: `category`, `status`, `payer`, `participant`, `from`, `to`, `currency`; `sort` (`date-desc`, `date-asc`, `amount-desc` — by currency, then amount); `page`, `pageSize` ≤ 100 |
+| POST           | `/api/v1/planner/trips/:tripId/expenses`                  | `Idempotency-Key`; 201                                                                                                                                                                |
+| POST           | `/api/v1/planner/trips/:tripId/expenses/from-booking`     | Owner; `Idempotency-Key`; optional `split`                                                                                                                                            |
+| GET/PUT/DELETE | `/api/v1/planner/trips/:tripId/expenses/:expenseId`       | PUT replaces the expense and needs `version`                                                                                                                                          |
+| GET            | `/api/v1/planner/trips/:tripId/balances`                  | Per-currency balances and suggestions, recorded payments                                                                                                                              |
+| POST           | `/api/v1/planner/trips/:tripId/settlements`               | `Idempotency-Key`; `{ fromId, toId, amountMinor, currency, settledOn, note? }`                                                                                                        |
+| DELETE         | `/api/v1/planner/trips/:tripId/settlements/:settlementId` | Deletes the record only                                                                                                                                                               |
+
+Bodies are strict (unknown fields such as `tripId`, `createdById` or `parts`
+are refused — no mass assignment). Writes need a trusted `Origin`, count
+against `PLANNER_RATE_LIMIT_MAX`, run in one transaction with the plan
+locked, bump the plan's revision (live updates) and add a history entry
+(“Ravi added the expense “Ferry” (INR 900.00)”). Expense notes are visible
+to members but never copied into the history. POST retries with the same
+key return the first result (no duplicates). Limits: 500 expenses and 500
+recorded payments per plan. Errors: `VALIDATION_FAILED` (with the field),
+`NOT_FOUND`, `FORBIDDEN`, `PLAN_OUT_OF_DATE` (stale `version`), `CONFLICT`
+(booking already added or not addable), `PLAN_LIMIT_REACHED`.
+
+Budget changes don't notify anyone (they show live and in the history), and
+no email is sent.
+
+### Budget data model
+
+Migration `20261029000000_plan_budget` (additive):
+
+- `plan_budgets` (one per plan: `currency`, `total_amount_minor`, `version`)
+  and `plan_category_budgets` (`(trip_id, category)` primary key).
+- `plan_expenses` (`description`, `category`, `amount_minor`, `currency`,
+  `spent_on`, `status`, `split_method`, `notes`, `booking_id`,
+  `created_by_id`, `version`; index `(trip_id, spent_on, id)`; partial unique
+  index `plan_expenses_one_per_booking`; trigger: the booking must belong to
+  the plan's owner).
+- `plan_expense_parts` (`(expense_id, user_id)` primary key — no duplicate
+  allocations; `paid_minor`, `share_minor`, `basis_points`).
+- `plan_settlements` (`from_id`, `to_id`, `amount_minor`, `currency`,
+  `settled_on`, `note`, `recorded_by_id`).
+- CHECKs: positive bounded amounts, ISO currency codes, a split method exactly
+  when paid, parts non-negative and not both zero, basis points 1–10,000,
+  payer ≠ payee. Deferred constraint triggers: a paid expense's parts add up
+  to its amount on both sides; a planned one has none.
+- Seven new `planner_activity_type` values.
+
+Deleting a plan deletes its budget, expenses and recorded payments. Users on
+expenses can't be deleted from under them (`RESTRICT`).
+
 ## Web
 
 - `/plans` — the user's plans (loading, empty, error states; pagination).
@@ -451,6 +608,17 @@ notifications stay, without a link.
   (the API refuses their writes regardless). `/plans` lists invitations
   waiting for you with **Accept** / **Decline**; each invitation also has its
   own page, `/plans/invitations/:id`.
+- **Budget (Phase 20):** the plan page shows a budget card (budget, recorded,
+  remaining) linking to `/plans/:tripId/budget`: summary figures, a
+  utilization meter (`role="meter"` with the value in text), planned costs,
+  other currencies (not converted), a category table (bars are decorative;
+  every figure is text), the expense list with filters (category, status,
+  payer, sharer, dates) and sorting, balances with the sign convention
+  explained, suggested payments and recorded payments. Expenses are added
+  and edited in a dialog that previews each share exactly; validation moves
+  focus to the field to fix; deletes confirm first; a stale edit shows a
+  conflict message instead of saving. Viewers see no edit controls (they can
+  record a payment they made or received).
 
 ## Configuration
 
@@ -521,6 +689,39 @@ PostgreSQL can't remove enum values: the five `PLAN_*` values stay in
 apart from those enum values, rollback leaves the Phase 18 schema, and
 re-applying works.
 
+### Rollback (Phase 20)
+
+`20261029000000_plan_budget` is additive. To remove it (budgets, expenses and
+recorded payments are lost; plans, members and history stay):
+
+```sql
+BEGIN;
+-- The Phase 19 code doesn't know these history types.
+DELETE FROM "planner_activities" WHERE "type" IN ('BUDGET_UPDATED', 'BUDGET_REMOVED',
+  'EXPENSE_ADDED', 'EXPENSE_UPDATED', 'EXPENSE_DELETED', 'SETTLEMENT_RECORDED',
+  'SETTLEMENT_DELETED');
+DROP TABLE IF EXISTS "plan_settlements";
+DROP TABLE IF EXISTS "plan_expense_parts";
+DROP TABLE IF EXISTS "plan_expenses";
+DROP TABLE IF EXISTS "plan_category_budgets";
+DROP TABLE IF EXISTS "plan_budgets";
+DROP FUNCTION IF EXISTS "plan_expenses_balanced"();
+DROP FUNCTION IF EXISTS "plan_expense_check"(UUID);
+DROP FUNCTION IF EXISTS "plan_expenses_booking_owner"();
+DROP TYPE IF EXISTS "expense_split_method";
+DROP TYPE IF EXISTS "expense_status";
+DROP TYPE IF EXISTS "expense_category";
+DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261029000000_plan_budget';
+COMMIT;
+```
+
+History entries can be deleted (only updates are refused), so the
+budget entries go; the revision numbers of the remaining entries are
+unchanged. The seven
+`planner_activity_type` values stay (PostgreSQL can't remove enum values),
+unused. Then deploy the Phase 19 API and web. Tested: apart from those enum
+values, rollback leaves the Phase 19 schema, and re-applying works.
+
 ## Tests
 
 ```bash
@@ -535,7 +736,32 @@ npm test -w @wayora/web -- planner
 npm test -w @wayora/api -- planner-collaboration-unit
 TEST_DATABASE_URL=postgresql://…/wayora_test npm test -w @wayora/api -- integration/planner-collaboration
 npm test -w @wayora/web -- planner-collaboration
+# Budget (Phase 20): split and balance rules, integration (PostgreSQL), web
+npm test -w @wayora/contracts -- budget
+TEST_DATABASE_URL=postgresql://…/wayora_test npm test -w @wayora/api -- integration/planner-budget
+npm test -w @wayora/web -- planner-budget
 ```
+
+The budget suites cover: money input parsing; equal splits with remainders
+(₹1,000 ÷ 3), percentage splits (largest remainder, large amounts), custom
+splits, multiple payers, payers different from participants; balances (the
+sign convention, different participant sets, several currencies never
+mixed, settlements); suggestions that settle everyone in at most n − 1
+payments, deterministically. Against PostgreSQL: budget tracking,
+over-budget, utilization, planned vs recorded, stale and invalid budgets,
+removing a budget leaves expenses; every split rule and refusal (totals that
+don't match, non-members, duplicates, zero or negative amounts, floats);
+the database refusing unbalanced or duplicate parts directly; balances
+matching the A/B example, deleted expenses not counting, settlements;
+viewer, editor, owner, stranger and cross-plan permissions, removed and
+former members; an edit replacing the split, stale versions, two
+simultaneous edits (one wins); idempotent retries; history without notes;
+filters and sorting; booking import (demo → planned, once; real paid
+booking → paid). The web suite covers loading, empty, error and saved
+states, setting a budget (minor units, focus on errors), the exact split
+preview, validation that sends nothing, planned estimates, conflicts,
+delete confirmation, balances wording, suggestions recorded only as
+payments made outside Wayora, viewer controls and the plan-page card.
 
 The collaboration suites cover: personal plans unchanged; inviting,
 accepting and joining with the role; unknown, inactive, own, existing and
@@ -595,3 +821,13 @@ the write rate limit.
   API instance. Without a stream the page polls every 30 s.
 - Expired invitations are marked expired when next touched (no background
   sweep); they are hidden and unusable either way.
+- Budget: no currency conversion (no exchange-rate provider) — each currency
+  is totalled and balanced separately, and only budget-currency expenses
+  count toward the budget. Six currencies are accepted.
+- Wayora doesn't send, receive or verify payments between members:
+  suggestions are recommendations and recorded payments are members'
+  statements. There's no payment-provider integration for settling up.
+- Simplified suggestions: greedy (at most n − 1 payments), not guaranteed
+  to be the absolute minimum number of payments.
+- No receipts or attachments, no recurring expenses, and no budget
+  notifications (changes show live and in the history).

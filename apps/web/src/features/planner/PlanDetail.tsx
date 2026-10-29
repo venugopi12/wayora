@@ -72,6 +72,7 @@ import { bookingKeys } from '../bookings/keys';
 import { tripPath } from '../bookings/paths';
 import { serviceBySlug } from '../navigation/config';
 import { ActivityDialog } from './ActivityDialog';
+import { PlanBudgetCard } from './budget/PlanBudgetCard';
 import { HistorySheet } from './history';
 import { usePlanLiveUpdates } from './live';
 import { MemberAvatars, MembersDialog, ROLE_LABEL } from './members';
@@ -602,6 +603,8 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
         {trip.notes ? (
           <p className="max-w-3xl text-body whitespace-pre-line text-ink-secondary">{trip.notes}</p>
         ) : null}
+
+        <PlanBudgetCard tripId={trip.id} />
 
         <WarningsSummary trip={trip} onShowDay={selectDay} />
 
