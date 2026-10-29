@@ -6,6 +6,11 @@ export interface AvatarProps {
   name: string;
   src?: string;
   size?: 'sm' | 'md' | 'lg';
+  /**
+   * The name is already shown next to the avatar: hide the avatar from
+   * assistive technology, so the name isn't announced twice.
+   */
+  decorative?: boolean;
   className?: string;
 }
 
@@ -23,9 +28,10 @@ function initials(name: string): string {
 }
 
 /** Image avatar that falls back to initials while loading or when the image fails. */
-export function Avatar({ name, src, size = 'md', className }: AvatarProps) {
+export function Avatar({ name, src, size = 'md', decorative = false, className }: AvatarProps) {
   return (
     <AvatarPrimitive.Root
+      aria-hidden={decorative || undefined}
       className={cn(
         'relative inline-flex shrink-0 overflow-hidden rounded-full bg-brand-soft align-middle ring-2 ring-card',
         sizes[size],
@@ -33,14 +39,18 @@ export function Avatar({ name, src, size = 'md', className }: AvatarProps) {
       )}
     >
       {src ? (
-        <AvatarPrimitive.Image src={src} alt={name} className="size-full object-cover" />
+        <AvatarPrimitive.Image
+          src={src}
+          alt={decorative ? '' : name}
+          className="size-full object-cover"
+        />
       ) : null}
       <AvatarPrimitive.Fallback
         className="flex size-full items-center justify-center font-semibold text-brand-ink"
         delayMs={src ? 300 : 0}
       >
         <span aria-hidden="true">{initials(name)}</span>
-        <span className="sr-only">{name}</span>
+        {decorative ? null : <span className="sr-only">{name}</span>}
       </AvatarPrimitive.Fallback>
     </AvatarPrimitive.Root>
   );

@@ -29,10 +29,19 @@ export interface NotifyInput {
   isDemo: boolean;
   bookingId?: string | null;
   paymentId?: string | null;
+  /** Planner notifications (Phase 19): the plan or invitation they're about. */
+  plannedTripId?: string | null;
+  tripInvitationId?: string | null;
   dedupeKey: string;
 }
 
-const CATEGORY: Record<DbNotificationType, 'emailBookings' | 'emailPayments' | 'emailReminders'> = {
+/**
+ * Which email preference covers each emailed type. Planner notifications
+ * (Phase 19) are in-app only (docs/planner.md#notifications), so they have none.
+ */
+const CATEGORY: Partial<
+  Record<DbNotificationType, 'emailBookings' | 'emailPayments' | 'emailReminders'>
+> = {
   BOOKING_CREATED: 'emailBookings',
   BOOKING_CONFIRMED: 'emailBookings',
   BOOKING_CANCELLED: 'emailBookings',
@@ -71,6 +80,8 @@ export async function notify(tx: Tx, now: Date, input: NotifyInput): Promise<boo
         isDemo: input.isDemo,
         bookingId: input.bookingId ?? null,
         paymentId: input.paymentId ?? null,
+        plannedTripId: input.plannedTripId ?? null,
+        tripInvitationId: input.tripInvitationId ?? null,
         dedupeKey: input.dedupeKey,
         createdAt: now,
       },
@@ -80,12 +91,13 @@ export async function notify(tx: Tx, now: Date, input: NotifyInput): Promise<boo
   });
   const notification = created[0];
   if (!notification) return false;
-  if (EMAILED.has(input.type)) {
+  const preference = CATEGORY[input.type];
+  if (EMAILED.has(input.type) && preference) {
     const preferences = await tx.notificationPreference.findUnique({
       where: { userId: input.userId },
     });
     // No row: the defaults (on).
-    if (preferences?.[CATEGORY[input.type]] !== false) {
+    if (preferences?.[preference] !== false) {
       await tx.notificationDelivery.create({
         data: { notificationId: notification.id, channel: 'EMAIL', nextAttemptAt: now },
       });

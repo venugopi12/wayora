@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BellRing, Check, Luggage, TriangleAlert, Wallet } from 'lucide-react';
+import { BellRing, Check, Luggage, TriangleAlert, Users, Wallet } from 'lucide-react';
 import { Link } from 'react-router';
 import type { Notification, NotificationCategory } from '@wayora/contracts';
 import { Badge, Button, cn } from '@wayora/ui';
@@ -10,6 +10,7 @@ import {
 } from '../../services/notifications';
 import { useAuth } from '../auth/AuthProvider';
 import { paymentPath, tripPath } from '../bookings/paths';
+import { invitationPath, planPath } from '../planner/paths';
 import { notificationKeys } from './keys';
 
 /*
@@ -54,9 +55,16 @@ export const badgeCount = (count: number) => (count > 99 ? '99+' : String(count)
 export function linkFor(notification: Notification): { to: string; label: string } | null {
   const link = notification.link;
   if (!link) return null;
-  return link.kind === 'payment'
-    ? { to: paymentPath(link.bookingReference, link.paymentId), label: 'View payment' }
-    : { to: tripPath(link.bookingReference), label: 'View booking' };
+  switch (link.kind) {
+    case 'payment':
+      return { to: paymentPath(link.bookingReference, link.paymentId), label: 'View payment' };
+    case 'booking':
+      return { to: tripPath(link.bookingReference), label: 'View booking' };
+    case 'plan':
+      return { to: planPath(link.tripId), label: 'View plan' };
+    case 'plan-invitation':
+      return { to: invitationPath(link.invitationId), label: 'View invitation' };
+  }
 }
 
 const ICON: Record<NotificationCategory, typeof Luggage> = {
@@ -64,6 +72,7 @@ const ICON: Record<NotificationCategory, typeof Luggage> = {
   payment: Wallet,
   reminder: BellRing,
   trip: TriangleAlert,
+  plan: Users,
 };
 
 const relative = new Intl.RelativeTimeFormat('en-IN', { numeric: 'auto' });

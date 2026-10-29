@@ -7,12 +7,13 @@ import {
   MapPin,
   NotebookPen,
   Plus,
+  Users,
   RotateCw,
 } from 'lucide-react';
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import type { PlannedTripSummary } from '@wayora/contracts';
-import { Button, EmptyState, ErrorState, Skeleton, cn } from '@wayora/ui';
+import { Badge, Button, EmptyState, ErrorState, Skeleton, cn } from '@wayora/ui';
 import { RevealGroup, RevealItem } from '@wayora/ui/motion';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { ApiClientError } from '../../lib/api-client';
@@ -31,11 +32,14 @@ import {
   type TripFormValues,
 } from './TripDetailsForm';
 import { formatDateRange } from './format';
+import { InvitationsPanel } from './invitations';
+import { ROLE_LABEL } from './members';
 import { plannerKeys } from './keys';
 import { NEW_PLAN_PATH, PLANS_PATH, planPath } from './paths';
 import { LeaveDialog, useUnsavedChanges } from './unsaved';
 
 export { PlanDetailRoute } from './PlanDetail';
+export { InvitationRoute } from './invitations';
 
 /*
  * /plans and /plans/new (docs/planner.md#web). Signed-in only; the API
@@ -173,7 +177,10 @@ export function PlansRoute() {
         ) : undefined
       }
     >
-      {body}
+      <div className="flex flex-col gap-6">
+        <InvitationsPanel />
+        {body}
+      </div>
     </AccountShell>
   );
 }
@@ -191,7 +198,19 @@ function PlanCard({ plan }: { plan: PlannedTripSummary }) {
         <NotebookPen strokeWidth={1.75} />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-title break-words group-hover:underline">{plan.title}</span>
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-title break-words group-hover:underline">{plan.title}</span>
+          {plan.access.role !== 'owner' ? (
+            <Badge size="sm" tone={plan.access.canEdit ? 'brand' : 'neutral'}>
+              Shared with you · {ROLE_LABEL[plan.access.role]}
+            </Badge>
+          ) : plan.memberCount > 0 ? (
+            <Badge size="sm" tone="neutral">
+              <Users className="size-3.5" aria-hidden="true" />
+              Shared with {plan.memberCount}
+            </Badge>
+          ) : null}
+        </span>
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-body-sm text-ink-secondary">
           <span className="flex items-center gap-1">
             <MapPin className="size-3.5" aria-hidden="true" />
@@ -207,6 +226,7 @@ function PlanCard({ plan }: { plan: PlannedTripSummary }) {
               Linked to {plan.linkedBooking.reference}
             </span>
           ) : null}
+          {!plan.owner.isYou ? <span>Owner: {plan.owner.name}</span> : null}
         </span>
       </span>
       <span className="text-body-sm text-ink-secondary sm:text-right">

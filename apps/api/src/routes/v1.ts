@@ -13,8 +13,7 @@ import {
 import type { PaymentsService } from '../modules/payments/payments.service.js';
 import { notificationsRouter } from '../modules/notifications/notifications.routes.js';
 import type { NotificationsService } from '../modules/notifications/notifications.service.js';
-import { plannerRouter } from '../modules/planner/planner.routes.js';
-import type { PlannerService } from '../modules/planner/planner.service.js';
+import { plannerRouter, type PlannerRouterOptions } from '../modules/planner/planner.routes.js';
 import { providersRouter } from '../modules/providers/providers.routes.js';
 import type { ProviderRegistry } from '../modules/providers/registry.js';
 import { searchRouter } from '../modules/search/search.routes.js';
@@ -44,10 +43,8 @@ export interface AccountsRouterOptions {
   admin: AdminRouterOptions;
   /** Trip timeline, status, disruptions and live updates (Phase 17, docs/trips.md). */
   trips: TripsRouterOptions;
-  /** Trip planner (Phase 18, docs/planner.md). */
-  planner: PlannerService;
-  /** Per-user limit on planner writes. */
-  plannerLimiter?: RequestHandler;
+  /** Trip planner (Phase 18) and plan collaboration (Phase 19), docs/planner.md. */
+  planner: PlannerRouterOptions;
   logger: Logger;
 }
 
@@ -82,7 +79,6 @@ export function v1Router(options: V1RouterOptions): Router {
       admin,
       trips,
       planner,
-      plannerLimiter,
       logger,
     } = options.accounts;
     router.use('/auth', loadSession, authRouter(auth));
@@ -105,7 +101,7 @@ export function v1Router(options: V1RouterOptions): Router {
       loadSession,
       notificationsRouter(notifications, notificationLimiter),
     );
-    router.use('/planner', loadSession, plannerRouter(planner, plannerLimiter));
+    router.use('/planner', loadSession, plannerRouter(planner));
     router.use('/admin', loadSession, adminRouter(admin));
     // Signed provider webhooks: no session; only providers that verify signatures.
     router.use('/payment-events', paymentEventsRouter(payments, logger));

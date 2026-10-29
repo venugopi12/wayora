@@ -336,9 +336,13 @@ export type CreateItineraryItemInput = z.input<typeof createItineraryItemSchema>
 /**
  * Editing an activity. A new `day` moves it to that day (appended last, or at
  * `position`); the old day's order closes up. Only fields sent change.
+ * `version` is the activity's version the edit is based on: if someone
+ * changed it since, the edit is refused (PLAN_OUT_OF_DATE) instead of
+ * overwriting their change.
  */
 export const updateItineraryItemSchema = z
   .object({
+    version: z.number({ error: 'Send the activity’s version.' }).int().min(1),
     day: isoDateSchema.optional(),
     position: z.number().int().min(0).max(PLANNER_LIMITS.maxItemsPerDay).optional(),
     title: itemFields.title.optional(),
@@ -349,23 +353,29 @@ export const updateItineraryItemSchema = z
     notes: itemFields.notes.optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'Send at least one change.');
+  .refine((v) => Object.keys(v).some((k) => k !== 'version'), 'Send at least one change.');
 export type UpdateItineraryItemInput = z.input<typeof updateItineraryItemSchema>;
 
 /** Copying an activity, to the same day (default) or another one. */
 export const duplicateItineraryItemSchema = z.object({ day: isoDateSchema.optional() }).strict();
 
+const dayOrderSchema = z
+  .array(itineraryItemIdSchema)
+  .max(PLANNER_LIMITS.maxItemsPerDay)
+  .refine((ids) => new Set(ids).size === ids.length, 'Each activity may appear only once.');
+
 /**
  * The new order of one day: every activity on that day, each exactly once.
  * Anything else (a missing, extra or foreign id) is refused, so a stale or
  * forged list can never drop, duplicate or capture activities.
+ * `previousOrder` is the order the change was based on: if the day's order
+ * changed since (another member reordered it), the reorder is refused
+ * (PLAN_OUT_OF_DATE) instead of silently replacing theirs.
  */
 export const reorderItineraryDaySchema = z
   .object({
-    itemIds: z
-      .array(itineraryItemIdSchema)
-      .max(PLANNER_LIMITS.maxItemsPerDay)
-      .refine((ids) => new Set(ids).size === ids.length, 'Each activity may appear only once.'),
+    itemIds: dayOrderSchema,
+    previousOrder: dayOrderSchema,
   })
   .strict();
 export type ReorderItineraryDay = z.infer<typeof reorderItineraryDaySchema>;
@@ -406,6 +416,10 @@ export const itineraryItemSchema = z.object({
   notes: z.string().nullable(),
   /** The curated sample suggestion it was added from, if any. */
   suggestionId: suggestionIdSchema.nullable(),
+  /** Send it back when editing (optimistic concurrency). */
+  version: z.number().int().min(1),
+  /** Who added it, when known (shared plans show it). */
+  addedBy: z.object({ name: z.string(), isYou: z.boolean() }).nullable(),
   createdAt: offsetDateTimeSchema,
   updatedAt: offsetDateTimeSchema,
 });
@@ -461,6 +475,20 @@ export const linkedBookingSchema = z.object({
 });
 export type LinkedBooking = z.infer<typeof linkedBookingSchema>;
 
+/** `owner`: full control; `editor`: can change the plan; `viewer`: can only look. */
+export const tripRoleSchema = z.enum(['owner', 'editor', 'viewer']);
+export type TripRole = z.infer<typeof tripRoleSchema>;
+
+/** What the signed-in user may do with a plan (the API enforces it; this is for display). */
+export const tripAccessSchema = z.object({
+  role: tripRoleSchema,
+  /** Change the itinerary and the plan's details. */
+  canEdit: z.boolean(),
+  /** Invite, change roles, remove members, link a booking, delete the plan. */
+  canManage: z.boolean(),
+});
+export type TripAccess = z.infer<typeof tripAccessSchema>;
+
 export const plannedTripSummarySchema = z.object({
   id: plannedTripIdSchema,
   title: z.string(),
@@ -469,7 +497,13 @@ export const plannedTripSummarySchema = z.object({
   endDate: isoDateSchema,
   dayCount: z.number().int().min(1),
   itemCount: z.number().int().min(0),
+  /** The owner's booking, shown to the owner only (null for members). */
   linkedBooking: linkedBookingSchema.nullable(),
+  access: tripAccessSchema,
+  /** The owner's display name (shared plans show it). */
+  owner: z.object({ name: z.string(), isYou: z.boolean() }),
+  /** Members other than the owner. */
+  memberCount: z.number().int().min(0),
   createdAt: offsetDateTimeSchema,
   updatedAt: offsetDateTimeSchema,
 });
@@ -478,6 +512,8 @@ export type PlannedTripSummary = z.infer<typeof plannedTripSummarySchema>;
 export const plannedTripSchema = plannedTripSummarySchema.extend({
   /** For optimistic concurrency on trip-detail edits. */
   version: z.number().int().min(1),
+  /** Bumped by every change to the plan (live updates compare it). */
+  revision: z.number().int().min(0),
   notes: z.string().nullable(),
   preferences: plannerPreferencesSchema,
   /** One entry per trip day, in date order, activities in their saved order. */

@@ -63,6 +63,8 @@ export const apiErrorCodeSchema = z.enum([
   'PLAN_OUT_OF_DATE',
   /** A planner limit was reached (trips per account, activities per day or trip). */
   'PLAN_LIMIT_REACHED',
+  /** The invitation was already answered, revoked or has expired (Phase 19). */
+  'INVITATION_CLOSED',
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

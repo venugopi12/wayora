@@ -31,11 +31,14 @@ export function SuggestionsPanel({
   trip,
   day,
   onAdded,
+  canAdd = true,
 }: {
   trip: PlannedTrip;
   /** The day suggestions are added to (the selected day tab). */
   day: string;
   onAdded: (trip: PlannedTrip, message: string) => void;
+  /** Editors and owners can add suggestions; viewers just browse them. */
+  canAdd?: boolean;
 }) {
   const [category, setCategory] = useState<PlannerInterest | null>(null);
   const query = useQuery({
@@ -180,18 +183,20 @@ export function SuggestionsPanel({
                     ))}
                   </ul>
                 </div>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="self-start"
-                  loading={adding === s.id}
-                  disabled={adding !== null}
-                  onClick={() => add.mutate(s)}
-                >
-                  <Plus aria-hidden="true" />
-                  Add to day {dayNumber}
-                  <span className="sr-only">: {s.title}</span>
-                </Button>
+                {canAdd ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="self-start"
+                    loading={adding === s.id}
+                    disabled={adding !== null}
+                    onClick={() => add.mutate(s)}
+                  >
+                    <Plus aria-hidden="true" />
+                    Add to day {dayNumber}
+                    <span className="sr-only">: {s.title}</span>
+                  </Button>
+                ) : null}
               </li>
             );
           })}

@@ -322,6 +322,30 @@ Details: [planner.md](planner.md).
   enforces same-owner links too. Linking never changes the booking.
 - Plan contents (titles, notes, places) are never logged.
 
+### Plan collaboration (Phase 19)
+
+Details: [planner.md](planner.md#collaboration).
+
+- Access (owner, editor, viewer) is resolved from the database on every
+  request, after locking the plan row for writes. Non-members get the same
+  404 as for a missing plan; a role that doesn't allow an action gets 403.
+  Removal takes effect on the next request, including open live streams
+  (re-checked before each message, failing closed).
+- One owner per plan, enforced by database triggers (the owner can't be a
+  member or invitee; `planned_trips.user_id` can't change). `owner` is never
+  an accepted role value; only the owner changes roles.
+- Invitations are bound to one existing account and usable only by it,
+  signed in: no bearer tokens, no public links. One open invitation per
+  person and plan (unique index); accepting is atomic; closed invitations
+  can't be reused. Invitations are rate limited per user per hour
+  (`PLANNER_INVITE_RATE_LIMIT_MAX`).
+- Members see display names only; the owner sees invitees' emails masked.
+  History stores ids, roles, field names and activity titles — no emails or
+  notes — and is append-only.
+- Known exposure: inviting by email tells the owner whether an address has
+  an active account (as registration already does), bounded by the invite
+  rate limit.
+
 ## Planned approach for later phases
 
 ### Authentication extensions

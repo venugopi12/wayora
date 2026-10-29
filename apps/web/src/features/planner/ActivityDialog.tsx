@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import {
@@ -11,9 +11,11 @@ import {
   type UpdateItineraryItemInput,
 } from '@wayora/contracts';
 import { Alert, Button, Dialog, DialogContent, Field, Input, Select, Textarea } from '@wayora/ui';
-import { addItineraryItem, updateItineraryItem } from '../../services/planner';
+import { ApiClientError } from '../../lib/api-client';
+import { addItineraryItem, getPlannedTrip, updateItineraryItem } from '../../services/planner';
 import { applyServerError } from '../auth/form-errors';
 import { categoryLabel, formatDay } from './format';
+import { plannerKeys } from './keys';
 
 /*
  * Add or edit one activity. Edits send only what changed; a new day moves
@@ -83,15 +85,28 @@ export function ActivityDialog({
   day: string;
   onSaved: (trip: PlannedTrip, message: string) => void;
 }) {
+  const queryClient = useQueryClient();
   const form = useForm<ActivityValues>({ defaultValues: valuesFor(item, day) });
   const {
     register,
     handleSubmit,
+    reset,
     setError,
     formState: { errors, isDirty },
   } = form;
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // The version of the activity this edit is based on (Phase 19). If someone
+  // else changes it meanwhile, saving is refused and the conflict explained.
+  const [base, setBase] = useState<ItineraryItem | null>(item);
+  const [conflict, setConflict] = useState<{ latest: ItineraryItem | null } | null>(null);
+  const loadLatest = () => {
+    if (!conflict?.latest) return;
+    setBase(conflict.latest);
+    reset(valuesFor(conflict.latest, conflict.latest.day));
+    setConflict(null);
+    setFormError(null);
+  };
 
   // One idempotency key per distinct "add" request: a retry or double
   // submit reuses it, so the activity is added once.
@@ -107,9 +122,9 @@ export function ActivityDialog({
   const save = useMutation({
     mutationFn: async (values: ActivityValues) => {
       const body = toBody(values);
-      if (!item) return addItineraryItem(trip.id, body, keyFor(body));
-      const original = toBody(valuesFor(item, item.day));
-      const changes: UpdateItineraryItemInput = {};
+      if (!base) return addItineraryItem(trip.id, body, keyFor(body));
+      const original = toBody(valuesFor(base, base.day));
+      const changes: UpdateItineraryItemInput = { version: base.version };
       if (body.title !== original.title) changes.title = body.title;
       if (body.category !== original.category) changes.category = body.category;
       if (body.day !== original.day) changes.day = body.day;
@@ -118,15 +133,34 @@ export function ActivityDialog({
         changes.durationMinutes = body.durationMinutes ?? null;
       if (body.location !== original.location) changes.location = body.location ?? null;
       if (body.notes !== original.notes) changes.notes = body.notes ?? null;
-      if (Object.keys(changes).length === 0) return trip;
-      return updateItineraryItem(trip.id, item.id, changes);
+      if (Object.keys(changes).length === 1) return trip; // only the version: nothing changed
+      return updateItineraryItem(trip.id, base.id, changes);
     },
     onSuccess: (updated, values) => {
       attempt.current = null;
       onSaved(updated, item ? `Saved “${values.title.trim()}”` : `Added “${values.title.trim()}”`);
       onOpenChange(false);
     },
-    onError: (error) => setFormError(applyServerError(error, setError, FIELDS)),
+    onError: async (error) => {
+      const api = error instanceof ApiClientError ? error : null;
+      if (base && (api?.code === 'PLAN_OUT_OF_DATE' || api?.status === 404)) {
+        // Someone else changed (or deleted) it: show what's there now.
+        const latestTrip = await queryClient
+          .fetchQuery({
+            queryKey: plannerKeys.detail(trip.id),
+            queryFn: ({ signal }) => getPlannedTrip(trip.id, signal),
+          })
+          .catch(() => null);
+        const latest =
+          latestTrip &&
+          [...latestTrip.days.flatMap((d) => d.items), ...latestTrip.outsideDates].find(
+            (i) => i.id === base.id,
+          );
+        setConflict({ latest: latest ?? null });
+        return;
+      }
+      setFormError(applyServerError(error, setError, FIELDS));
+    },
   });
 
   const submit = handleSubmit((values) => {
@@ -200,7 +234,7 @@ export function ActivityDialog({
                 type="submit"
                 form="activity-form"
                 loading={save.isPending}
-                disabled={save.isPending}
+                disabled={save.isPending || conflict !== null}
               >
                 {item ? 'Save activity' : 'Add activity'}
               </Button>
@@ -220,6 +254,36 @@ export function ActivityDialog({
           className="flex flex-col gap-5 pb-2"
           aria-busy={save.isPending || undefined}
         >
+          {conflict ? (
+            <Alert
+              tone="warning"
+              title={
+                conflict.latest
+                  ? 'Someone else changed this activity'
+                  : 'Someone else deleted this activity'
+              }
+              action={
+                conflict.latest ? (
+                  <Button type="button" size="sm" variant="secondary" onClick={loadLatest}>
+                    Load the latest version
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    Close
+                  </Button>
+                )
+              }
+            >
+              {conflict.latest
+                ? `While you were editing, it was changed (now “${conflict.latest.title}”). Your changes weren’t saved. Load the latest version, then make your changes again.`
+                : 'It was deleted while you were editing, so your changes weren’t saved.'}
+            </Alert>
+          ) : null}
           {formError ? (
             <Alert tone="danger" title="We couldn’t save this activity">
               {formError}

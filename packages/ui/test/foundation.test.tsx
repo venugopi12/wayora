@@ -189,6 +189,13 @@ describe('display components', () => {
     expect(screen.getByText('Asha Rao')).toBeInTheDocument();
   });
 
+  it('a decorative Avatar (name shown beside it) is hidden from assistive technology', async () => {
+    const { container } = render(<Avatar name="Asha Rao" decorative />);
+    expect(await screen.findByText('AR')).toBeInTheDocument();
+    expect(screen.queryByText('Asha Rao')).toBeNull();
+    expect(container.firstElementChild).toHaveAttribute('aria-hidden', 'true');
+  });
+
   it('BrandMark is decorative unless titled; Wordmark reads "wayora"', () => {
     const { container } = render(<BrandMark />);
     expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');

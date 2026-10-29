@@ -187,9 +187,11 @@ export function bookingWriteRateLimiter(config: {
   userIdOf: (res: Response) => string;
   /** What the limit is about, in the 429 message (default: booking changes). */
   subject?: string;
+  /** Window length (default one minute). */
+  windowMs?: number;
 }) {
   return rateLimit({
-    windowMs: 60_000,
+    windowMs: config.windowMs ?? 60_000,
     limit: config.max,
     standardHeaders: 'draft-8',
     legacyHeaders: false,

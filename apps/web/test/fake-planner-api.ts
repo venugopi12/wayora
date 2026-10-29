@@ -1,6 +1,13 @@
 import { vi } from 'vitest';
 import {
   EMPTY_PLANNER_PREFERENCES,
+  plannerActivityListSchema,
+  receivedInvitationSchema,
+  sentInvitationSchema,
+  tripMembersSchema,
+  type PlannerActivity,
+  type ReceivedInvitation,
+  type TripMembers,
   plannedTripSchema,
   suggestionsResponseSchema,
   type ActivitySuggestion,
@@ -66,6 +73,8 @@ export function item(
     location: null,
     notes: null,
     suggestionId: null,
+    version: 1,
+    addedBy: null,
     createdAt: AT,
     updatedAt: AT,
     ...overrides,
@@ -92,9 +101,13 @@ export function plannedTrip({
     dayCount: 0,
     itemCount: 0,
     linkedBooking: null,
+    access: { role: 'owner', canEdit: true, canManage: true },
+    owner: { name: 'Asha Rao', isYou: true },
+    memberCount: 0,
     createdAt: AT,
     updatedAt: AT,
     version: 1,
+    revision: 1,
     notes: null,
     preferences: EMPTY_PLANNER_PREFERENCES,
     days: [],
@@ -151,6 +164,18 @@ export const SUGGESTIONS: ActivitySuggestion[] = [
   },
 ];
 
+/** Members as the API returns them (owner Asha Rao; `you` decides who "isYou" is). */
+export function membersOf(trip: PlannedTrip, extra: Partial<TripMembers> = {}): TripMembers {
+  return tripMembersSchema.parse({
+    owner: { name: trip.owner.name, initials: 'AR', isYou: trip.owner.isYou },
+    members: [],
+    invitations: [],
+    access: trip.access,
+    limits: { maxMembers: 20, used: 0 },
+    ...extra,
+  });
+}
+
 export interface PlannerRequest {
   method: string;
   path: string;
@@ -161,7 +186,22 @@ export interface PlannerRequest {
 export function installFakePlannerApi({
   trips = [],
   bookings = [],
-}: { trips?: PlannedTrip[]; bookings?: Booking[] } = {}) {
+  members: initialMembers = {},
+  received = [],
+  activity: initialActivity = {},
+}: {
+  trips?: PlannedTrip[];
+  bookings?: Booking[];
+  /** Members per plan id (default: the owner alone). */
+  members?: Record<string, TripMembers>;
+  /** Invitations addressed to the signed-in user. */
+  received?: ReceivedInvitation[];
+  /** History per plan id, newest first. */
+  activity?: Record<string, PlannerActivity[]>;
+} = {}) {
+  const membersStore = new Map(Object.entries(initialMembers));
+  const receivedStore = new Map(received.map((r) => [r.id, r]));
+  const activityStore = new Map(Object.entries(initialActivity));
   const base = installFakeBookingApi({ results: [hotel], bookings });
   const baseFetch = globalThis.fetch;
   const store = new Map(trips.map((t) => [t.id, t]));
@@ -171,7 +211,11 @@ export function installFakePlannerApi({
   const holds: { method: string; pattern: RegExp; promise: Promise<void> }[] = [];
 
   const save = (trip: PlannedTrip & { _items?: ItineraryItem[] }) => {
-    const next = rebuild({ ...trip, updatedAt: new Date().toISOString() });
+    const next = rebuild({
+      ...trip,
+      revision: trip.revision + 1,
+      updatedAt: new Date().toISOString(),
+    });
     store.set(next.id, next);
     return next;
   };
@@ -210,6 +254,33 @@ export function installFakePlannerApi({
     body: Record<string, unknown> | null,
     key: string | null,
   ) => {
+    if (path === '/planner/invitations' && method === 'GET') {
+      return ok({ items: [...receivedStore.values()].filter((r) => r.status === 'pending') });
+    }
+    const invitationMatch = /^\/planner\/invitations\/([^/]+)(?:\/(accept|decline))?$/.exec(path);
+    if (invitationMatch) {
+      const invitation = receivedStore.get(invitationMatch[1]!);
+      if (!invitation) {
+        return fail(
+          404,
+          'NOT_FOUND',
+          'This invitation doesn’t exist, or it isn’t addressed to you.',
+        );
+      }
+      if (!invitationMatch[2]) return ok(invitation);
+      if (invitation.status !== 'pending') {
+        return fail(409, 'INVITATION_CLOSED', 'The owner withdrew this invitation.');
+      }
+      const answered = receivedInvitationSchema.parse({
+        ...invitation,
+        status: invitationMatch[2] === 'accept' ? 'accepted' : 'declined',
+      });
+      receivedStore.set(answered.id, answered);
+      return ok({
+        invitation: answered,
+        tripId: invitationMatch[2] === 'accept' ? invitation.trip.id : null,
+      });
+    }
     if (method === 'GET' && path === '/planner/destinations') {
       return ok({ items: DESTINATIONS, sample: true });
     }
@@ -324,6 +395,90 @@ export function installFakePlannerApi({
         );
       }
     }
+    const members = () => membersStore.get(trip.id) ?? membersOf(trip);
+    if (rest === '/members' && method === 'GET') return ok(members());
+    if (rest === '/invitations' && method === 'POST') {
+      const email = String(body!.email ?? '')
+        .trim()
+        .toLowerCase();
+      if (!email.includes('@') || email.startsWith('nobody')) {
+        return fail(400, 'VALIDATION_FAILED', 'The request is invalid.', [
+          {
+            path: 'body.email',
+            message:
+              'There’s no Wayora account with that email. Ask them to create one, then invite them.',
+            code: 'custom',
+          },
+        ]);
+      }
+      const name = email.split('@')[0]!.replace(/^./, (c) => c.toUpperCase());
+      const invitation = sentInvitationSchema.parse({
+        id: uuid(),
+        invitee: {
+          name,
+          initials: name.slice(0, 2).toUpperCase(),
+          isYou: false,
+          emailMasked: `${email[0]}•••@${email.split('@')[1]}`,
+        },
+        role: body!.role,
+        status: 'pending',
+        createdAt: AT,
+        expiresAt: '2026-11-05T10:00:00.000Z',
+      });
+      const current = members();
+      membersStore.set(trip.id, {
+        ...current,
+        invitations: [...current.invitations, invitation],
+        limits: { ...current.limits, used: current.limits.used + 1 },
+      });
+      return ok(invitation, 201);
+    }
+    const revokeMatch = /^\/invitations\/([^/]+)$/.exec(rest);
+    if (revokeMatch && method === 'DELETE') {
+      const current = members();
+      const invitation = current.invitations.find((i) => i.id === revokeMatch[1]);
+      if (!invitation) return fail(404, 'NOT_FOUND', 'That invitation doesn’t exist.');
+      membersStore.set(trip.id, {
+        ...current,
+        invitations: current.invitations.filter((i) => i.id !== invitation.id),
+      });
+      return ok({ ...invitation, status: 'revoked' });
+    }
+    const memberMatch = /^\/members\/([^/]+)$/.exec(rest);
+    if (memberMatch) {
+      const current = members();
+      const member = current.members.find((m) => m.id === memberMatch[1]);
+      if (!member) return fail(404, 'NOT_FOUND', 'That person isn’t a member of this plan.');
+      if (method === 'PATCH') {
+        if (!current.access.canManage) {
+          return fail(403, 'FORBIDDEN', 'Only the plan’s owner can do that.');
+        }
+        const next = {
+          ...current,
+          members: current.members.map((m) =>
+            m.id === member.id ? { ...m, role: body!.role as typeof m.role } : m,
+          ),
+        };
+        membersStore.set(trip.id, next);
+        return ok(next);
+      }
+      if (method === 'DELETE') {
+        membersStore.set(trip.id, {
+          ...current,
+          members: current.members.filter((m) => m.id !== member.id),
+        });
+        if (member.isYou) store.delete(trip.id);
+        return ok({ removed: true });
+      }
+    }
+    if (rest === '/activity' && method === 'GET') {
+      return ok(
+        plannerActivityListSchema.parse({
+          items: activityStore.get(trip.id) ?? [],
+          nextBefore: null,
+        }),
+      );
+    }
     if (rest === '/suggestions' && method === 'GET') {
       const planned = new Set(allItems(trip).map((i) => i.suggestionId));
       const response: SuggestionsResponse = {
@@ -365,7 +520,18 @@ export function installFakePlannerApi({
         return ok(save({ ...trip, _items: items.filter((i) => i.id !== target.id) }));
       }
       if (method === 'PATCH') {
-        const next = { ...target, ...(body as Partial<ItineraryItem>) };
+        if (body!.version !== target.version) {
+          return fail(
+            409,
+            'PLAN_OUT_OF_DATE',
+            'Someone else changed this activity since you opened it. Load the latest version, then make your change again.',
+          );
+        }
+        const next = {
+          ...target,
+          ...(body as Partial<ItineraryItem>),
+          version: target.version + 1,
+        };
         if (body!.day && body!.day !== target.day) next.position = 999;
         return ok(save({ ...trip, _items: items.map((i) => (i.id === target.id ? next : i)) }));
       }
@@ -378,6 +544,14 @@ export function installFakePlannerApi({
       const onDay = items.filter((i) => i.day === day);
       if (onDay.length !== order.length || onDay.some((i) => !order.includes(i.id))) {
         return fail(409, 'PLAN_OUT_OF_DATE', 'This day changed since you loaded it.');
+      }
+      const saved = [...onDay].sort((a, b) => a.position - b.position).map((i) => i.id);
+      if (saved.join() !== ((body!.previousOrder as string[]) ?? []).join()) {
+        return fail(
+          409,
+          'PLAN_OUT_OF_DATE',
+          'Someone else reordered this day since you loaded it.',
+        );
       }
       return ok(
         save({
@@ -409,6 +583,7 @@ export function installFakePlannerApi({
   return {
     base,
     store,
+    members: membersStore,
     requests,
     writes: () => requests.filter((r) => r.method !== 'GET'),
     /** The next matching request fails with this error envelope. */

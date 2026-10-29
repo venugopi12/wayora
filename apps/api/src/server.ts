@@ -21,6 +21,8 @@ import { IdempotencyService } from './modules/bookings/idempotency.js';
 import { createTravelReminders } from './modules/notifications/reminders.js';
 import { RedisSearchSessionStore, type SearchSessionStore } from './modules/search/sessions.js';
 import { PgTripEventHub } from './modules/trips/stream.js';
+import { PLANNER_EVENTS_CHANNEL } from './modules/planner/planner.routes.js';
+import { PgSignalHub } from './services/signal-hub.js';
 import type { DependencyCheck } from './services/health.js';
 import { createRedisConnection, type RedisConnection } from './services/redis.js';
 import { workerHeartbeatCheck } from './services/worker-heartbeat.js';
@@ -100,6 +102,13 @@ async function main(): Promise<void> {
 
   // Live trip updates: one LISTEN connection per instance (docs/trips.md#live-updates).
   const tripEvents = new PgTripEventHub(env.DATABASE_URL, logger);
+  // Live plan updates for collaborators (docs/planner.md#live-updates).
+  const plannerEvents = new PgSignalHub(env.DATABASE_URL, logger, {
+    channel: PLANNER_EVENTS_CHANNEL,
+    keyField: 'tripId',
+    component: 'planner-events',
+    label: 'plan updates',
+  });
 
   const app = createApp({
     env,
@@ -107,6 +116,7 @@ async function main(): Promise<void> {
     healthChecks,
     prisma,
     tripEvents,
+    plannerEvents,
     ...(redis ? { redis: redis.client } : {}),
     ...(searchSessions ? { searchSessions } : {}),
     ...(redis
@@ -245,6 +255,7 @@ async function main(): Promise<void> {
     clearInterval(tripTimer);
     // Live-update streams never finish on their own: end them (browsers reconnect).
     await tripEvents.close();
+    await plannerEvents.close();
     // 1. Stop accepting connections and let in-flight requests finish.
     await new Promise<void>((resolve) => {
       server.close(() => resolve());

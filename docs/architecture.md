@@ -56,22 +56,22 @@ service later, if scale or team structure demands it, without a rewrite.
 
 ### Planned module boundaries
 
-| Module        | Owns                                                                   | Notes                                                                      |
-| ------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| identity      | `users`, `travellers`, `sessions`                                      | Built (Phase 8): `modules/auth`, `modules/users`                           |
-| flights       | flight search cache, fare rules                                        | Provider adapters behind a `FlightProvider` interface                      |
-| hotels        | hotel content, rate snapshots                                          | `HotelProvider` interface                                                  |
-| trains        | train availability, PNR status                                         | `RailProvider` interface                                                   |
-| buses         | operators, seat layouts                                                | `BusProvider` interface                                                    |
-| metro         | city ticket products                                                   | Per-city adapters                                                          |
-| cabs          | quotes, rides                                                          | Quote → book → track                                                       |
-| holidays      | packages, itineraries                                                  | Composes other modules' services                                           |
-| bookings      | `bookings`, `booking_travellers`, `booking_status_events`              | Built (Phase 12, demo only): `modules/bookings`                            |
-| orders        | `orders`, `booking_items`, `idempotency_keys`                          | The only writer of order state                                             |
-| notifications | `notifications`, `notification_deliveries`, `notification_preferences` | Built (Phase 14): `modules/notifications` (API), `notifications/` (worker) |
-| payments      | `payments`, `payment_status_events`, `webhook_events`                  | Built (Phase 13, demo provider): `modules/payments`; never sees card data  |
-| planner       | `planned_trips`, `itinerary_items`                                     | Built (Phase 18): `modules/planner`; plans only, never creates bookings    |
-| notifications | templates, delivery log                                                | Executed by the worker                                                     |
+| Module        | Owns                                                                                         | Notes                                                                       |
+| ------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| identity      | `users`, `travellers`, `sessions`                                                            | Built (Phase 8): `modules/auth`, `modules/users`                            |
+| flights       | flight search cache, fare rules                                                              | Provider adapters behind a `FlightProvider` interface                       |
+| hotels        | hotel content, rate snapshots                                                                | `HotelProvider` interface                                                   |
+| trains        | train availability, PNR status                                                               | `RailProvider` interface                                                    |
+| buses         | operators, seat layouts                                                                      | `BusProvider` interface                                                     |
+| metro         | city ticket products                                                                         | Per-city adapters                                                           |
+| cabs          | quotes, rides                                                                                | Quote → book → track                                                        |
+| holidays      | packages, itineraries                                                                        | Composes other modules' services                                            |
+| bookings      | `bookings`, `booking_travellers`, `booking_status_events`                                    | Built (Phase 12, demo only): `modules/bookings`                             |
+| orders        | `orders`, `booking_items`, `idempotency_keys`                                                | The only writer of order state                                              |
+| notifications | `notifications`, `notification_deliveries`, `notification_preferences`                       | Built (Phase 14): `modules/notifications` (API), `notifications/` (worker)  |
+| payments      | `payments`, `payment_status_events`, `webhook_events`                                        | Built (Phase 13, demo provider): `modules/payments`; never sees card data   |
+| planner       | `planned_trips`, `itinerary_items`, `trip_members`, `trip_invitations`, `planner_activities` | Built (Phases 18–19): `modules/planner`; plans only, never creates bookings |
+| notifications | templates, delivery log                                                                      | Executed by the worker                                                      |
 
 Every travel vertical produces `Booking` + `BookingItem` rows through the orders
 module, so one order can combine a flight, a hotel and a cab, and payment happens once.
@@ -181,7 +181,12 @@ new timeline rows are announced with `pg_notify` and streamed to browsers over
 Server-Sent Events; see [trips.md](trips.md). Phase 18 added the trip planner:
 `planned_trips` and `itinerary_items` (date-only days, gap-free positions under
 a deferrable unique constraint, an optional link to the owner's confirmed
-booking); see [planner.md](planner.md#data-model).
+booking); see [planner.md](planner.md#data-model). Phase 19 made plans
+collaborative: `trip_members`, `trip_invitations` and the append-only
+`planner_activities` history (announced with `pg_notify` and streamed to
+members over Server-Sent Events through the same signal hub as trip
+tracking, now in `services/signal-hub.ts`); see
+[planner.md](planner.md#collaboration).
 
 ### Conventions
 
@@ -278,7 +283,7 @@ src/
   A metric-matched local fallback (`Plus Jakarta Sans Fallback` in
   `packages/ui/src/styles/base.css`) keeps text from rewrapping when the font
   swaps in.
-- **Routes:** `/` (cinematic homepage, header overlay), `/status` (API readiness), `/discover` (filters in the URL: `?q`, `?mood`, `?region`; old `?destination=` links redirect), `/discover/:slug` (destination pages), `/about`, `/help`, `/legal/privacy` and `/legal/terms` (draft placeholders), `/login` and `/register` (auth layout; `/sign-in` redirects), `/profile` and `/profile/travellers` (signed in only), one route per travel service (`/flights` … `/holidays`, search and results pages since Phases 9–10, see [search.md](search.md); `?to=<destination>` prefills the destination), `/offers/:serviceType/:resultId` (offer details), `/book/:serviceType/:resultId` (demo checkout), `/trips`, `/trips/:reference` and `/trips/:reference/confirmation` (demo bookings, signed in only, see [bookings.md](bookings.md)), `/trips/:reference/pay` and `/trips/:reference/payments/:paymentId` (demo payments, see [payments.md](payments.md)), `/notifications` (see [notifications.md](notifications.md)), `/plans`, `/plans/new` and `/plans/:tripId` (trip planner, signed in only, see [planner.md](planner.md)), `/admin…` (staff-only dashboard in its own layout, see [admin.md](admin.md)), dev-only `/design-system`, and a not-found fallback. Layouts, route handles, containers, breadcrumbs and the footer: see [layouts.md](layouts.md).
+- **Routes:** `/` (cinematic homepage, header overlay), `/status` (API readiness), `/discover` (filters in the URL: `?q`, `?mood`, `?region`; old `?destination=` links redirect), `/discover/:slug` (destination pages), `/about`, `/help`, `/legal/privacy` and `/legal/terms` (draft placeholders), `/login` and `/register` (auth layout; `/sign-in` redirects), `/profile` and `/profile/travellers` (signed in only), one route per travel service (`/flights` … `/holidays`, search and results pages since Phases 9–10, see [search.md](search.md); `?to=<destination>` prefills the destination), `/offers/:serviceType/:resultId` (offer details), `/book/:serviceType/:resultId` (demo checkout), `/trips`, `/trips/:reference` and `/trips/:reference/confirmation` (demo bookings, signed in only, see [bookings.md](bookings.md)), `/trips/:reference/pay` and `/trips/:reference/payments/:paymentId` (demo payments, see [payments.md](payments.md)), `/notifications` (see [notifications.md](notifications.md)), `/plans`, `/plans/new`, `/plans/:tripId` and `/plans/invitations/:invitationId` (trip planner and plan invitations, signed in only, see [planner.md](planner.md)), `/admin…` (staff-only dashboard in its own layout, see [admin.md](admin.md)), dev-only `/design-system`, and a not-found fallback. Layouts, route handles, containers, breadcrumbs and the footer: see [layouts.md](layouts.md).
 - **Code splitting:** the homepage, not-found page and error boundary ship in the
   main bundle. `/status`, `/discover`, `/discover/:slug`, `/sign-in`, the info
   and legal pages and the seven service pages load on first visit through React

@@ -14,4 +14,9 @@ export const plannerKeys = {
   suggestions: (id: string) => [...authKeys.account, 'planner', 'suggestions', id] as const,
   suggestionsFor: (id: string, category: PlannerInterest | null) =>
     [...authKeys.account, 'planner', 'suggestions', id, category ?? 'all'] as const,
+  /** Collaboration (Phase 19). */
+  members: (id: string) => [...authKeys.account, 'planner', 'members', id] as const,
+  activity: (id: string) => [...authKeys.account, 'planner', 'activity', id] as const,
+  invitations: [...authKeys.account, 'planner', 'invitations'] as const,
+  invitation: (id: string) => [...authKeys.account, 'planner', 'invitations', id] as const,
 };

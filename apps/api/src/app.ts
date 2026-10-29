@@ -35,7 +35,9 @@ import { NotificationsService } from './modules/notifications/notifications.serv
 import { AdminService } from './modules/admin/admin.service.js';
 import { PlatformHealth, type HealthRedis } from './modules/admin/platform-health.js';
 import { prismaSearchEventRecorder } from './modules/search/analytics.js';
+import { CollaborationService } from './modules/planner/collaboration.service.js';
 import { PlannerService } from './modules/planner/planner.service.js';
+import { LocalSignalHub, type SignalHub } from './services/signal-hub.js';
 import { DemoTravelStatusProvider } from './modules/trips/providers/demo.js';
 import type { TravelStatusProvider } from './modules/trips/providers/types.js';
 import { LocalTripEventHub, type TripEventHub } from './modules/trips/stream.js';
@@ -47,7 +49,7 @@ import {
 import { DemoPaymentProvider } from './modules/payments/providers/demo.js';
 import type { PaymentProvider } from './modules/payments/providers/types.js';
 import { v1Router, type AccountsRouterOptions } from './routes/v1.js';
-import type { StreamTimings } from './modules/trips/trips.routes.js';
+import type { StreamTimings } from './services/signal-stream.js';
 import type { DependencyCheck } from './services/health.js';
 import type { Logger } from './utils/logger.js';
 
@@ -100,6 +102,13 @@ export interface AppDependencies {
    * PostgreSQL-fed hub; without one, streams fall back to periodic re-reads.
    */
   tripEvents?: TripEventHub;
+  /**
+   * Live plan updates (docs/planner.md#live-updates). The server passes the
+   * PostgreSQL-fed hub; without one, streams fall back to periodic re-reads.
+   */
+  plannerEvents?: SignalHub;
+  /** Stream timings for plan live updates (tests shorten them). */
+  plannerStream?: Partial<StreamTimings>;
   /** Overrides the travel-status provider chosen by env (tests); null = none. */
   travelStatus?: { provider?: TravelStatusProvider | null; stream?: Partial<StreamTimings> };
 }
@@ -227,6 +236,8 @@ export function createApp({
   recordSearchEvents = true,
   tripEvents,
   travelStatus,
+  plannerEvents,
+  plannerStream,
 }: AppDependencies): Express {
   const app = express();
 
@@ -340,6 +351,7 @@ export function createApp({
   const notificationStore = createRateLimitStore?.('notifications');
   const tripStatusStore = createRateLimitStore?.('trip-status');
   const plannerStore = createRateLimitStore?.('planner');
+  const plannerInviteStore = createRateLimitStore?.('planner-invites');
   const payments = prisma
     ? createPaymentsService(prisma, env, logger, {
         ...(now ? { now } : {}),
@@ -400,17 +412,32 @@ export function createApp({
               ...(tripStatusStore ? { store: tripStatusStore } : {}),
             }),
           },
-          planner: new PlannerService({
+          planner: {
+            planner: new PlannerService({
+              prisma,
+              logger: logger.child({ component: 'planner' }),
+              ...(now ? { now } : {}),
+            }),
+            collaboration: new CollaborationService({ prisma, ...(now ? { now } : {}) }),
             prisma,
-            logger: logger.child({ component: 'planner' }),
-            ...(now ? { now } : {}),
-          }),
-          plannerLimiter: bookingWriteRateLimiter({
-            max: env.PLANNER_RATE_LIMIT_MAX,
-            subject: 'itinerary changes',
-            userIdOf: (res) => currentUser(res).id,
-            ...(plannerStore ? { store: plannerStore } : {}),
-          }),
+            hub: plannerEvents ?? new LocalSignalHub(),
+            logger: logger.child({ component: 'planner-stream' }),
+            sessionValid,
+            ...(plannerStream ? { stream: plannerStream } : {}),
+            writeLimiter: bookingWriteRateLimiter({
+              max: env.PLANNER_RATE_LIMIT_MAX,
+              subject: 'plan changes',
+              userIdOf: (res) => currentUser(res).id,
+              ...(plannerStore ? { store: plannerStore } : {}),
+            }),
+            inviteLimiter: bookingWriteRateLimiter({
+              max: env.PLANNER_INVITE_RATE_LIMIT_MAX,
+              windowMs: 60 * 60 * 1000,
+              subject: 'invitations',
+              userIdOf: (res) => currentUser(res).id,
+              ...(plannerInviteStore ? { store: plannerInviteStore } : {}),
+            }),
+          },
           logger,
           notificationLimiter: bookingWriteRateLimiter({
             max: env.NOTIFICATION_RATE_LIMIT_MAX,

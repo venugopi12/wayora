@@ -109,7 +109,8 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *         │  └─ /profile, /profile/travellers, /book/:serviceType/:resultId (demo
  *         │     checkout), /trips, /trips/:reference, /trips/:reference/confirmation,
  *         │     /trips/:reference/pay, /trips/:reference/payments/:paymentId (demo payments),
- *         │     /notifications, /plans, /plans/new, /plans/:tripId (trip planner)
+ *         │     /notifications, /plans, /plans/new, /plans/:tripId (trip planner),
+ *         │     /plans/invitations/:invitationId (plan invitations)
  *         └─ *                 not-found page
  *
  * Focused layouts (auth, admin) are siblings of MarketingLayout under
@@ -209,6 +210,10 @@ export function createRoutes({
                     {
                       path: `${ACCOUNT_PATHS.plans.slice(1)}/new`,
                       lazy: async () => ({ Component: (await planner()).NewPlanRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.plans.slice(1)}/invitations/:invitationId`,
+                      lazy: async () => ({ Component: (await planner()).InvitationRoute }),
                     },
                     {
                       path: `${ACCOUNT_PATHS.plans.slice(1)}/:tripId`,

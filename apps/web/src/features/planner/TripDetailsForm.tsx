@@ -139,7 +139,7 @@ export function TripDetailsForm({
   mode: 'create' | 'edit';
   destinations: readonly PlannerDestination[];
   defaultValues: TripFormValues;
-  /** Edit only: the user's confirmed bookings that may be linked. */
+  /** Edit only, owner only: the user's confirmed bookings that may be linked (omit to hide the field). */
   linkableBookings?: readonly LinkableBooking[];
   submitting: boolean;
   formError: string | null;
@@ -323,7 +323,7 @@ export function TripDetailsForm({
         </fieldset>
       </fieldset>
 
-      {mode === 'edit' ? (
+      {mode === 'edit' && linkableBookings ? (
         <Field
           label="Linked booking"
           error={errors.bookingReference?.message}

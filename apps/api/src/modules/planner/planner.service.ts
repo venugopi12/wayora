@@ -23,9 +23,19 @@ import {
   requestHash,
   type IdempotencyMessages,
 } from '../bookings/idempotency.js';
+import { notify } from '../notifications/notify.js';
+import {
+  TRIP_NOT_FOUND,
+  recordActivity,
+  tripAccess,
+  tripAudience,
+  type TripContext,
+} from './access.js';
 import { PLANNER_CATALOG, catalogActivity, catalogDestination } from './catalog.js';
+import { planMessages } from './messages.js';
 import {
   LINKED_BOOKING_SELECT,
+  PERSON_SELECT,
   dateOnly,
   fromDbCategory,
   presentPreferences,
@@ -33,14 +43,23 @@ import {
   presentTrip,
   toDbCategory,
   toDbDate,
+  type Viewer,
 } from './presenter.js';
 import { suggest } from './recommend.js';
 import { parseLocalTime } from './schedule.js';
 
 /*
- * Trip planner (docs/planner.md). Every operation is scoped to the signed-in
- * user: trips are always looked up by (id, user_id), so another user's trip
- * is indistinguishable from a missing one (404, same message).
+ * Trip planner (docs/planner.md). Every operation resolves the signed-in
+ * user's access first (access.ts): the owner and members can see a plan,
+ * owners and editors can change it, only the owner manages members, the
+ * booking link and deletion. Anyone else gets the same 404 as for a plan
+ * that doesn't exist.
+ *
+ * Concurrent edits (Phase 19) are never silently overwritten: trip details
+ * carry `version`, activities carry their own `version`, and a reorder
+ * carries the order it was based on. A stale write is refused with
+ * PLAN_OUT_OF_DATE. Every change bumps the plan's `revision` and appends one
+ * history row (recordActivity), which also announces it to live streams.
  *
  * Every itinerary write runs in one transaction that first locks the trip row
  * (SELECT … FOR UPDATE), so concurrent writes to one trip are serialized and
@@ -54,8 +73,8 @@ type UpdateTrip = z.output<typeof updatePlannedTripSchema>;
 type CreateItem = z.output<typeof createItineraryItemSchema>;
 type UpdateItem = z.output<typeof updateItineraryItemSchema>;
 
-const TRIP_NOT_FOUND = 'This planned trip doesn’t exist, or it isn’t yours.';
-const ITEM_NOT_FOUND = 'This activity doesn’t exist in this trip.';
+const ITEM_NOT_FOUND =
+  'This activity doesn’t exist in this plan. It may have been deleted by another member.';
 
 const TRIP_MESSAGES: IdempotencyMessages = {
   inProgress: 'This trip is already being created. Wait a moment, then check your planned trips.',
@@ -66,13 +85,15 @@ const ITEM_MESSAGES: IdempotencyMessages = {
   reused: 'This request key was already used for a different activity. Try again.',
 };
 
-interface LockedTrip {
-  id: string;
-  startDate: string;
-  endDate: string;
-  destinationId: string | null;
-  version: number;
-}
+type LockedTrip = TripContext;
+
+/** A write based on data that changed since it was read (Phase 19). */
+const outOfDate = (path: string, message: string) =>
+  new AppError('PLAN_OUT_OF_DATE', message, {
+    details: [{ path, message, code: 'stale_version' }],
+  });
+const ITEM_CHANGED =
+  'Someone else changed this activity since you opened it. Load the latest version, then make your change again.';
 
 export interface WriteResult {
   trip: PlannedTripDto;
@@ -121,8 +142,11 @@ export class PlannerService {
 
   // ─── Trips ─────────────────────────────────────────────────────────────
 
+  /** Plans the user owns or is a member of, by start date. */
   async list(userId: string, query: PlannedTripListQuery): Promise<PlannedTripList> {
-    const where = { userId };
+    const where: Prisma.PlannedTripWhereInput = {
+      OR: [{ userId }, { members: { some: { userId } } }],
+    };
     const [rows, total] = await Promise.all([
       this.prisma.plannedTrip.findMany({
         where,
@@ -131,13 +155,23 @@ export class PlannerService {
         take: query.pageSize,
         include: {
           booking: { select: LINKED_BOOKING_SELECT },
-          _count: { select: { items: true } },
+          user: { select: { displayName: true } },
+          members: { where: { userId }, select: { role: true } },
+          _count: { select: { items: true, members: true } },
         },
       }),
       this.prisma.plannedTrip.count({ where }),
     ]);
     return {
-      items: rows.map(presentSummary),
+      items: rows.map((row) =>
+        presentSummary(row, {
+          userId,
+          role:
+            row.userId === userId
+              ? 'owner'
+              : (row.members[0]?.role.toLowerCase() as 'editor' | 'viewer'),
+        }),
+      ),
       page: query.page,
       pageSize: query.pageSize,
       total,
@@ -146,18 +180,23 @@ export class PlannerService {
   }
 
   async get(userId: string, tripId: string, db: PrismaClient | Tx = this.prisma) {
-    const trip = await db.plannedTrip.findFirst({
-      where: { id: tripId, userId },
+    const access = await tripAccess(db, userId, tripId, 'view');
+    const trip = await db.plannedTrip.findUnique({
+      where: { id: tripId },
       include: {
         booking: { select: LINKED_BOOKING_SELECT },
+        user: { select: { displayName: true } },
         items: {
           orderBy: [{ day: 'asc' }, { position: 'asc' }],
           take: PLANNER_LIMITS.maxItemsPerTrip,
+          include: { createdBy: { select: PERSON_SELECT } },
         },
+        _count: { select: { members: true } },
       },
     });
     if (!trip) throw notFound(TRIP_NOT_FOUND);
-    return presentTrip(trip);
+    const viewer: Viewer = { userId, role: access.role };
+    return presentTrip(trip, viewer);
   }
 
   async create(userId: string, input: CreatePlannedTrip, key: string): Promise<WriteResult> {
@@ -200,42 +239,104 @@ export class PlannerService {
 
   async update(userId: string, tripId: string, input: UpdateTrip): Promise<PlannedTripDto> {
     await this.prisma.$transaction(async (tx) => {
-      const trip = await this.lockTrip(tx, userId, tripId);
+      const trip = await this.lockTrip(tx, userId, tripId, 'edit');
+      // The booking link is the owner's own booking: only the owner sets it.
+      if (input.bookingReference !== undefined && trip.role !== 'owner') {
+        throw new AppError('FORBIDDEN', 'Only the plan’s owner can link a booking.');
+      }
       if (trip.version !== input.version) {
-        throw new AppError(
-          'PLAN_OUT_OF_DATE',
-          'This trip was changed somewhere else since you opened it. Reload it to see the latest version, then make your change again.',
+        throw outOfDate(
+          'body.version',
+          'This plan’s details were changed by someone else since you opened them. Load the latest version, then make your change again.',
         );
       }
       const data: Prisma.PlannedTripUncheckedUpdateInput = { version: { increment: 1 } };
-      if (input.title !== undefined) data.title = input.title;
-      if (input.notes !== undefined) data.notes = input.notes;
+      const fields: string[] = [];
+      if (input.title !== undefined && input.title !== trip.title) {
+        data.title = input.title;
+        fields.push('title');
+      }
+      if (input.notes !== undefined) {
+        data.notes = input.notes;
+        fields.push('notes');
+      }
+      let datesChanged = false;
       if (input.startDate !== undefined && input.endDate !== undefined) {
         this.checkDates(input.startDate, input.endDate, trip.startDate);
         data.startDate = toDbDate(input.startDate);
         data.endDate = toDbDate(input.endDate);
+        datesChanged = input.startDate !== trip.startDate || input.endDate !== trip.endDate;
+        if (datesChanged) fields.push('dates');
       }
+      let destinationChanged = false;
       if (input.destinationId !== undefined || input.destinationName !== undefined) {
-        Object.assign(
-          data,
-          this.resolveDestination(input.destinationId ?? null, input.destinationName ?? null),
+        const destination = this.resolveDestination(
+          input.destinationId ?? null,
+          input.destinationName ?? null,
         );
+        Object.assign(data, destination);
+        destinationChanged =
+          destination.destinationId !== trip.destinationId ||
+          destination.destinationName !== trip.destinationName;
+        if (destinationChanged) fields.push('destination');
       }
-      if (input.preferences !== undefined) Object.assign(data, toDbPreferences(input.preferences));
+      if (input.preferences !== undefined) {
+        Object.assign(data, toDbPreferences(input.preferences));
+        fields.push('preferences');
+      }
       if (input.bookingReference !== undefined) {
         data.bookingId =
           input.bookingReference === null
             ? null
             : await this.linkableBooking(tx, userId, input.bookingReference);
+        fields.push('booking');
       }
-      await tx.plannedTrip.update({ where: { id: trip.id }, data });
+      const updated = await tx.plannedTrip.update({
+        where: { id: trip.id },
+        data,
+        select: { title: true, destinationName: true, startDate: true, endDate: true },
+      });
+      const revision = await recordActivity(tx, {
+        tripId: trip.id,
+        actorId: userId,
+        type: 'TRIP_UPDATED',
+        data: { fields },
+        now: this.now(),
+      });
+      // Members hear about changes that affect their travel plans, not every edit.
+      if (datesChanged || destinationChanged) {
+        const actor = await tx.user.findUnique({
+          where: { id: userId },
+          select: { displayName: true },
+        });
+        const message = planMessages.planUpdated(
+          actor?.displayName ?? null,
+          updated.title,
+          updated.destinationName,
+          dateOnly(updated.startDate),
+          dateOnly(updated.endDate),
+        );
+        for (const recipient of await tripAudience(tx, trip)) {
+          if (recipient === userId) continue;
+          await notify(tx, this.now(), {
+            userId: recipient,
+            ...message,
+            isDemo: false,
+            plannedTripId: trip.id,
+            dedupeKey: `plan-updated:${trip.id}:${revision}:${recipient}`,
+          });
+        }
+      }
     });
     return this.get(userId, tripId);
   }
 
+  /** Deletes the plan with its itinerary, members, invitations and history (owner only). */
   async remove(userId: string, tripId: string): Promise<void> {
-    const { count } = await this.prisma.plannedTrip.deleteMany({ where: { id: tripId, userId } });
-    if (count === 0) throw notFound(TRIP_NOT_FOUND);
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockTrip(tx, userId, tripId, 'manage');
+      await tx.plannedTrip.delete({ where: { id: tripId } });
+    });
   }
 
   // ─── Itinerary items ──────────────────────────────────────────────────
@@ -256,7 +357,7 @@ export class PlannerService {
       },
       (complete) =>
         this.prisma.$transaction(async (tx) => {
-          const trip = await this.lockTrip(tx, userId, tripId);
+          const trip = await this.lockTrip(tx, userId, tripId, 'edit');
           this.checkDayInTrip(trip, input.day, 'body.day');
           if (input.suggestionId) {
             const activity = catalogActivity(input.suggestionId);
@@ -286,10 +387,22 @@ export class PlannerService {
               location: input.location ?? null,
               notes: input.notes ?? null,
               suggestionId: input.suggestionId ?? null,
+              createdById: userId,
             },
             select: { id: true },
           });
-          await this.touch(tx, tripId);
+          await recordActivity(tx, {
+            tripId,
+            actorId: userId,
+            type: 'ITEM_ADDED',
+            data: {
+              itemId: item.id,
+              title: input.title,
+              day: input.day,
+              fromSuggestion: Boolean(input.suggestionId),
+            },
+            now: this.now(),
+          });
           await complete(tx, item.id);
           return item.id;
         }),
@@ -304,9 +417,10 @@ export class PlannerService {
     input: UpdateItem,
   ): Promise<PlannedTripDto> {
     await this.prisma.$transaction(async (tx) => {
-      const trip = await this.lockTrip(tx, userId, tripId);
+      const trip = await this.lockTrip(tx, userId, tripId, 'edit');
       const item = await tx.itineraryItem.findFirst({ where: { id: itemId, tripId } });
       if (!item) throw notFound(ITEM_NOT_FOUND);
+      if (item.version !== input.version) throw outOfDate('body.version', ITEM_CHANGED);
       const fromDay = dateOnly(item.day);
 
       const data: Prisma.ItineraryItemUncheckedUpdateInput = {};
@@ -344,9 +458,25 @@ export class PlannerService {
           }
         }
       }
+      const changed = Object.keys(data).filter((k) => k !== 'day' && k !== 'position');
       if (Object.keys(data).length > 0) {
-        await tx.itineraryItem.update({ where: { id: item.id }, data });
-        await this.touch(tx, tripId);
+        await tx.itineraryItem.update({
+          where: { id: item.id },
+          data: { ...data, version: { increment: 1 } },
+        });
+        const title = input.title ?? item.title;
+        const moved = toDay !== fromDay;
+        await recordActivity(tx, {
+          tripId,
+          actorId: userId,
+          type: moved ? 'ITEM_MOVED' : changed.length > 0 ? 'ITEM_UPDATED' : 'DAY_REORDERED',
+          data: moved
+            ? { itemId: item.id, title, from: fromDay, to: toDay, fields: changed }
+            : changed.length > 0
+              ? { itemId: item.id, title, day: fromDay, fields: changed }
+              : { day: fromDay },
+          now: this.now(),
+        });
       }
     });
     return this.get(userId, tripId);
@@ -354,14 +484,20 @@ export class PlannerService {
 
   async deleteItem(userId: string, tripId: string, itemId: string): Promise<PlannedTripDto> {
     await this.prisma.$transaction(async (tx) => {
-      await this.lockTrip(tx, userId, tripId);
+      await this.lockTrip(tx, userId, tripId, 'edit');
       const item = await tx.itineraryItem.findFirst({ where: { id: itemId, tripId } });
       if (!item) throw notFound(ITEM_NOT_FOUND);
       await tx.itineraryItem.delete({ where: { id: item.id } });
       await tx.$executeRaw`
         UPDATE itinerary_items SET position = position - 1
         WHERE trip_id = ${tripId}::uuid AND day = ${dateOnly(item.day)}::date AND position > ${item.position}`;
-      await this.touch(tx, tripId);
+      await recordActivity(tx, {
+        tripId,
+        actorId: userId,
+        type: 'ITEM_DELETED',
+        data: { itemId: item.id, title: item.title, day: dateOnly(item.day) },
+        now: this.now(),
+      });
     });
     return this.get(userId, tripId);
   }
@@ -384,7 +520,7 @@ export class PlannerService {
       },
       (complete) =>
         this.prisma.$transaction(async (tx) => {
-          const trip = await this.lockTrip(tx, userId, tripId);
+          const trip = await this.lockTrip(tx, userId, tripId, 'edit');
           const source = await tx.itineraryItem.findFirst({ where: { id: itemId, tripId } });
           if (!source) throw notFound(ITEM_NOT_FOUND);
           const day = input.day ?? dateOnly(source.day);
@@ -402,10 +538,17 @@ export class PlannerService {
               location: source.location,
               notes: source.notes,
               suggestionId: null,
+              createdById: userId,
             },
             select: { id: true },
           });
-          await this.touch(tx, tripId);
+          await recordActivity(tx, {
+            tripId,
+            actorId: userId,
+            type: 'ITEM_DUPLICATED',
+            data: { itemId: copy.id, sourceId: source.id, title: source.title, day },
+            now: this.now(),
+          });
           await complete(tx, copy.id);
           return copy.id;
         }),
@@ -415,26 +558,35 @@ export class PlannerService {
 
   /**
    * Sets the order of one day. `itemIds` must be exactly the activities on
-   * that day; anything else means the client's view is stale (or forged) and
+   * that day, and `previousOrder` the day's current order: anything else means
+   * the client's view is stale (someone else changed the day) or forged, and
    * nothing changes.
    */
   async reorderDay(
     userId: string,
     tripId: string,
     day: string,
-    itemIds: readonly string[],
+    order: { itemIds: readonly string[]; previousOrder: readonly string[] },
   ): Promise<PlannedTripDto> {
+    const { itemIds, previousOrder } = order;
     await this.prisma.$transaction(async (tx) => {
-      await this.lockTrip(tx, userId, tripId);
+      await this.lockTrip(tx, userId, tripId, 'edit');
       const current = await tx.itineraryItem.findMany({
         where: { tripId, day: toDbDate(day) },
         select: { id: true, position: true },
+        orderBy: { position: 'asc' },
       });
       const ids = new Set(current.map((i) => i.id));
       if (current.length !== itemIds.length || itemIds.some((id) => !ids.has(id))) {
-        throw new AppError(
-          'PLAN_OUT_OF_DATE',
-          'This day changed since you loaded it. Reload the trip, then reorder again.',
+        throw outOfDate(
+          'body.itemIds',
+          'This day changed since you loaded it (an activity was added, moved or deleted). Load the latest version, then reorder again.',
+        );
+      }
+      if (current.map((i) => i.id).join() !== previousOrder.join()) {
+        throw outOfDate(
+          'body.previousOrder',
+          'Someone else reordered this day since you loaded it. Load the latest order, then try again.',
         );
       }
       const unchanged = current.every((i) => itemIds[i.position] === i.id);
@@ -445,7 +597,13 @@ export class PlannerService {
         UPDATE itinerary_items AS i SET position = (v.ord - 1)::int, updated_at = ${this.now()}
         FROM unnest(${[...itemIds]}::uuid[]) WITH ORDINALITY AS v(id, ord)
         WHERE i.id = v.id AND i.trip_id = ${tripId}::uuid`;
-      await this.touch(tx, tripId);
+      await recordActivity(tx, {
+        tripId,
+        actorId: userId,
+        type: 'DAY_REORDERED',
+        data: { day },
+        now: this.now(),
+      });
     });
     return this.get(userId, tripId);
   }
@@ -457,8 +615,9 @@ export class PlannerService {
     tripId: string,
     category?: PlannerInterest,
   ): Promise<SuggestionsResponse> {
-    const trip = await this.prisma.plannedTrip.findFirst({
-      where: { id: tripId, userId },
+    await tripAccess(this.prisma, userId, tripId, 'view');
+    const trip = await this.prisma.plannedTrip.findUnique({
+      where: { id: tripId },
       include: {
         items: {
           select: { suggestionId: true, title: true, category: true },
@@ -483,27 +642,14 @@ export class PlannerService {
 
   // ─── Helpers ──────────────────────────────────────────────────────────
 
-  /** Locks the user's trip row for this transaction; 404 when missing or not theirs. */
-  private async lockTrip(tx: Tx, userId: string, tripId: string): Promise<LockedTrip> {
-    const rows = await tx.$queryRaw<
-      {
-        id: string;
-        start_date: Date;
-        end_date: Date;
-        destination_id: string | null;
-        version: number;
-      }[]
-    >`SELECT id, start_date, end_date, destination_id, version FROM planned_trips
-      WHERE id = ${tripId}::uuid AND user_id = ${userId}::uuid FOR UPDATE`;
-    const row = rows[0];
-    if (!row) throw notFound(TRIP_NOT_FOUND);
-    return {
-      id: row.id,
-      startDate: dateOnly(row.start_date),
-      endDate: dateOnly(row.end_date),
-      destinationId: row.destination_id,
-      version: row.version,
-    };
+  /** Locks the plan row for this transaction and checks the user's access (access.ts). */
+  private lockTrip(
+    tx: Tx,
+    userId: string,
+    tripId: string,
+    need: 'edit' | 'manage',
+  ): Promise<LockedTrip> {
+    return tripAccess(tx, userId, tripId, need, { lock: true });
   }
 
   private async deferPositions(tx: Tx): Promise<void> {
@@ -594,10 +740,6 @@ export class PlannerService {
       throw new AppError('CONFLICT', 'Only confirmed bookings can be linked to a plan.');
     }
     return booking.id;
-  }
-
-  private async touch(tx: Tx, tripId: string): Promise<void> {
-    await tx.plannedTrip.update({ where: { id: tripId }, data: { updatedAt: this.now() } });
   }
 
   /**

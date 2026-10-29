@@ -358,7 +358,10 @@ describe.skipIf(!TEST_DATABASE_URL)('trip planner (integration, real PostgreSQL)
       ]);
       // It can be moved back onto a trip day.
       const item = after.outsideDates[0]!;
-      const moved = await patch(agent, `/trips/${trip.id}/items/${item.id}`, { day: DAY2 });
+      const moved = await patch(agent, `/trips/${trip.id}/items/${item.id}`, {
+        version: item.version,
+        day: DAY2,
+      });
       expect(moved.status).toBe(200);
       expect(plannedTripSchema.parse(moved.body.data).warnings).toEqual([]);
     });
@@ -413,6 +416,7 @@ describe.skipIf(!TEST_DATABASE_URL)('trip planner (integration, real PostgreSQL)
       });
 
       const edited = await patch(agent, `/trips/${trip.id}/items/${fort.id}`, {
+        version: fort.version,
         title: 'Fort Aguada and lighthouse',
         startTime: null,
         durationMinutes: 120,
@@ -465,9 +469,17 @@ describe.skipIf(!TEST_DATABASE_URL)('trip planner (integration, real PostgreSQL)
       }
       expect(await testPrisma().itineraryItem.count()).toBe(0);
       const item = (await addItem(agent, trip.id, {})).days[0]!.items[0]!;
-      const outside = await patch(agent, `/trips/${trip.id}/items/${item.id}`, { day: D(30) });
+      const outside = await patch(agent, `/trips/${trip.id}/items/${item.id}`, {
+        version: 1,
+        day: D(30),
+      });
       expect(outside.status).toBe(400);
-      expect((await patch(agent, `/trips/${trip.id}/items/${item.id}`, {})).status).toBe(400);
+      expect(
+        (await patch(agent, `/trips/${trip.id}/items/${item.id}`, { version: 1 })).status,
+      ).toBe(400);
+      expect(
+        (await patch(agent, `/trips/${trip.id}/items/${item.id}`, { title: 'X' })).status,
+      ).toBe(400);
     });
 
     it('moves activities between days and within a day, keeping both days gap-free', async () => {
@@ -480,8 +492,13 @@ describe.skipIf(!TEST_DATABASE_URL)('trip planner (integration, real PostgreSQL)
 
       // B to day 2, between X and Y.
       t = plannedTripSchema.parse(
-        (await patch(agent, `/trips/${trip.id}/items/${b.id}`, { day: DAY2, position: 1 })).body
-          .data,
+        (
+          await patch(agent, `/trips/${trip.id}/items/${b.id}`, {
+            version: 1,
+            day: DAY2,
+            position: 1,
+          })
+        ).body.data,
       );
       expect(titles(t, START)).toEqual(['A', 'C']);
       expect(positions(t, START)).toEqual([0, 1]);
@@ -491,8 +508,13 @@ describe.skipIf(!TEST_DATABASE_URL)('trip planner (integration, real PostgreSQL)
       // To an empty day, position past the end clamps to the end.
       const y = day(t, DAY2)!.items[2]!;
       t = plannedTripSchema.parse(
-        (await patch(agent, `/trips/${trip.id}/items/${y.id}`, { day: END, position: 9 })).body
-          .data,
+        (
+          await patch(agent, `/trips/${trip.id}/items/${y.id}`, {
+            version: 1,
+            day: END,
+            position: 9,
+          })
+        ).body.data,
       );
       expect(titles(t, END)).toEqual(['Y']);
       expect(positions(t, END)).toEqual([0]);
@@ -500,7 +522,8 @@ describe.skipIf(!TEST_DATABASE_URL)('trip planner (integration, real PostgreSQL)
       // Within a day: X to the end.
       const x = day(t, DAY2)!.items[0]!;
       t = plannedTripSchema.parse(
-        (await patch(agent, `/trips/${trip.id}/items/${x.id}`, { position: 5 })).body.data,
+        (await patch(agent, `/trips/${trip.id}/items/${x.id}`, { version: 1, position: 5 })).body
+          .data,
       );
       expect(titles(t, DAY2)).toEqual(['B', 'X']);
       expect(positions(t, DAY2)).toEqual([0, 1]);
@@ -514,7 +537,10 @@ describe.skipIf(!TEST_DATABASE_URL)('trip planner (integration, real PostgreSQL)
       const [a, b, c] = day(other, START)!.items.map((i) => i.id);
       const z = day(other, DAY2)!.items[0]!.id;
 
-      const res = await put(agent, `/trips/${trip.id}/days/${START}/order`, { itemIds: [c, a, b] });
+      const res = await put(agent, `/trips/${trip.id}/days/${START}/order`, {
+        itemIds: [c, a, b],
+        previousOrder: [a, b, c],
+      });
       expect(res.status).toBe(200);
       const t = plannedTripSchema.parse(res.body.data);
       expect(titles(t, START)).toEqual(['C', 'A', 'B']);
@@ -526,7 +552,10 @@ describe.skipIf(!TEST_DATABASE_URL)('trip planner (integration, real PostgreSQL)
         [c, a, randomUUID()],
         [c, a, a],
       ]) {
-        const bad = await put(agent, `/trips/${trip.id}/days/${START}/order`, { itemIds });
+        const bad = await put(agent, `/trips/${trip.id}/days/${START}/order`, {
+          itemIds,
+          previousOrder: [c, a, b],
+        });
         expect([400, 409], JSON.stringify(itemIds)).toContain(bad.status);
       }
       expect(titles(await getTrip(agent, trip.id), START)).toEqual(['C', 'A', 'B']);
@@ -579,9 +608,9 @@ describe.skipIf(!TEST_DATABASE_URL)('trip planner (integration, real PostgreSQL)
       // Concurrent moves and a reorder never corrupt the order either.
       const ids = day(t, START)!.items.map((i) => i.id);
       await Promise.all([
-        patch(agent, `/trips/${trip.id}/items/${ids[0]}`, { day: DAY2 }),
-        patch(agent, `/trips/${trip.id}/items/${ids[1]}`, { day: DAY2 }),
-        patch(agent, `/trips/${trip.id}/items/${ids[2]}`, { position: 7 }),
+        patch(agent, `/trips/${trip.id}/items/${ids[0]}`, { version: 1, day: DAY2 }),
+        patch(agent, `/trips/${trip.id}/items/${ids[1]}`, { version: 1, day: DAY2 }),
+        patch(agent, `/trips/${trip.id}/items/${ids[2]}`, { version: 1, position: 7 }),
         del(agent, `/trips/${trip.id}/items/${ids[3]}`),
       ]);
       const after = await getTrip(agent, trip.id);
@@ -689,7 +718,10 @@ describe.skipIf(!TEST_DATABASE_URL)('trip planner (integration, real PostgreSQL)
       const sorted = [...day(t, START)!.items]
         .sort((a, b) => (a.startTime ?? '99').localeCompare(b.startTime ?? '99'))
         .map((i) => i.id);
-      const res = await put(agent, `/trips/${trip.id}/days/${START}/order`, { itemIds: sorted });
+      const res = await put(agent, `/trips/${trip.id}/days/${START}/order`, {
+        itemIds: sorted,
+        previousOrder: day(t, START)!.items.map((i) => i.id),
+      });
       const after = plannedTripSchema.parse(res.body.data);
       expect(after.warnings.map((w) => w.code)).not.toContain('out_of_order');
     });
@@ -896,16 +928,22 @@ describe.skipIf(!TEST_DATABASE_URL)('trip planner (integration, real PostgreSQL)
         patch(ravi, `/trips/${trip.id}`, { version: 1, title: 'Hijacked' }),
         del(ravi, `/trips/${trip.id}`),
         post(ravi, `/trips/${trip.id}/items`, { day: START, title: 'Injected', category: 'other' }),
-        patch(ravi, `/trips/${trip.id}/items/${itemId}`, { title: 'Changed' }),
-        patch(ravi, `/trips/${trip.id}/items/${itemId}`, { day: DAY2 }),
+        patch(ravi, `/trips/${trip.id}/items/${itemId}`, { version: 1, title: 'Changed' }),
+        patch(ravi, `/trips/${trip.id}/items/${itemId}`, { version: 1, day: DAY2 }),
         del(ravi, `/trips/${trip.id}/items/${itemId}`),
         post(ravi, `/trips/${trip.id}/items/${itemId}/duplicate`, {}),
-        put(ravi, `/trips/${trip.id}/days/${START}/order`, { itemIds: [itemId] }),
+        put(ravi, `/trips/${trip.id}/days/${START}/order`, {
+          itemIds: [itemId],
+          previousOrder: [itemId],
+        }),
         // Asha's activity through Ravi's own trip: still not found.
-        patch(ravi, `/trips/${raviTrip.id}/items/${itemId}`, { title: 'Stolen' }),
+        patch(ravi, `/trips/${raviTrip.id}/items/${itemId}`, { version: 1, title: 'Stolen' }),
         del(ravi, `/trips/${raviTrip.id}/items/${itemId}`),
         post(ravi, `/trips/${raviTrip.id}/items/${itemId}/duplicate`, {}),
-        put(ravi, `/trips/${raviTrip.id}/days/${START}/order`, { itemIds: [itemId] }),
+        put(ravi, `/trips/${raviTrip.id}/days/${START}/order`, {
+          itemIds: [itemId],
+          previousOrder: [itemId],
+        }),
       ];
       const results = await Promise.all(attempts);
       // All "not found" — except reordering Ravi's own (empty) day with Asha's

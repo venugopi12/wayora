@@ -6,6 +6,8 @@ import {
   Clock,
   Copy,
   Ellipsis,
+  Eye,
+  History,
   Link2,
   ListOrdered,
   MapPin,
@@ -16,6 +18,7 @@ import {
   SearchX,
   Trash2,
   TriangleAlert,
+  Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -58,6 +61,7 @@ import {
   deletePlannedTrip,
   duplicateItineraryItem,
   getPlannedTrip,
+  getTripMembers,
   listPlannerDestinations,
   reorderItineraryDay,
   updateItineraryItem,
@@ -68,6 +72,9 @@ import { bookingKeys } from '../bookings/keys';
 import { tripPath } from '../bookings/paths';
 import { serviceBySlug } from '../navigation/config';
 import { ActivityDialog } from './ActivityDialog';
+import { HistorySheet } from './history';
+import { usePlanLiveUpdates } from './live';
+import { MemberAvatars, MembersDialog, ROLE_LABEL } from './members';
 import { SuggestionsPanel } from './SuggestionsPanel';
 import {
   TRIP_FORM_FIELDS,
@@ -94,6 +101,11 @@ import { useUnsavedChanges } from './unsaved';
  * day's schedule in the saved order, schedule warnings, curated sample
  * suggestions, and every edit. Reordering is done with Move up / Move down
  * buttons (keyboard and touch friendly); there is no drag and drop.
+ *
+ * Shared plans (Phase 19): controls follow the user's role (viewers see no
+ * edit controls; only the owner manages members and deletes) — the API
+ * enforces the same rules. Other members' changes arrive live (live.ts); a
+ * change based on stale data is refused by the API and explained here.
  */
 
 const REORDER_DELAY_MS = 400;
@@ -232,38 +244,82 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
 
   // ── Reorder: optimistic, batched, rolled back on failure ──────────────
   // Moves are shown at once and sent as one request after a short pause, so
-  // pressing Move several times sends one reorder, not one per press.
-  const [pendingOrder, setPendingOrderState] = useState<{ day: string; ids: string[] } | null>(
-    null,
-  );
-  const pendingRef = useRef<{ day: string; ids: string[] } | null>(null);
-  const setPendingOrder = (value: { day: string; ids: string[] } | null) => {
+  // pressing Move several times sends one reorder, not one per press. Each
+  // request says which order it was based on (`base`, the day's saved
+  // order); if another member reordered the day meanwhile, the API refuses
+  // it and the latest order is shown instead. One request at a time: a batch
+  // made while one is saving is sent after it, based on the order it saved.
+  type PendingOrder = { day: string; ids: string[]; base: string[] };
+  const [pendingOrder, setPendingOrderState] = useState<PendingOrder | null>(null);
+  const pendingRef = useRef<PendingOrder | null>(null);
+  const setPendingOrder = (value: PendingOrder | null) => {
     pendingRef.current = value;
     setPendingOrderState(value);
   };
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inFlight = useRef(false);
+  const waiting = useRef(false);
   const [announcement, setAnnouncement] = useState('');
   const reorder = useMutation({
-    mutationFn: (vars: { day: string; ids: string[] }) =>
-      reorderItineraryDay(trip.id, vars.day, vars.ids),
-    onSuccess: (updated) => applyTrip(updated),
-    onError: (error) => {
-      // Roll back: drop the local order; the saved order is shown again.
-      reportError(error, 'We couldn’t save the new order');
-      setAnnouncement('The new order couldn’t be saved, so the previous order is back.');
+    mutationFn: (vars: PendingOrder) => reorderItineraryDay(trip.id, vars.day, vars.ids, vars.base),
+    onSuccess: (updated, vars) => {
+      applyTrip(updated);
+      const pending = pendingRef.current;
+      if (pending && pending.ids !== vars.ids && pending.day === vars.day) {
+        // More moves were made meanwhile: they are based on what was just saved.
+        const saved = updated.days.find((d) => d.date === vars.day)?.items.map((i) => i.id);
+        if (saved) setPendingOrder({ ...pending, base: saved });
+      }
     },
-    onSettled: (_data, _error, vars) => {
+    onError: (error) => {
+      // Roll back: drop the local order; the saved (or newer) order is shown again.
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      waiting.current = false;
+      setPendingOrder(null);
+      const conflict = error instanceof ApiClientError && error.code === 'PLAN_OUT_OF_DATE';
+      if (conflict) {
+        toast({
+          tone: 'warning',
+          title: 'Someone else changed this day',
+          description:
+            'Your new order wasn’t saved. The latest order is shown now; move again if you need to.',
+        });
+        void queryClient.invalidateQueries({ queryKey: plannerKeys.detail(trip.id) });
+      } else {
+        reportError(error, 'We couldn’t save the new order');
+      }
+      setAnnouncement('The new order couldn’t be saved, so the saved order is back.');
+    },
+    onSettled: (_data, error, vars) => {
+      inFlight.current = false;
+      if (error) return;
       if (pendingRef.current?.ids === vars.ids) setPendingOrder(null);
+      else if (waiting.current && pendingRef.current) {
+        waiting.current = false;
+        send(pendingRef.current);
+      }
     },
   });
+  const { mutate: mutateOrder } = reorder;
+  const send = useCallback(
+    (order: PendingOrder) => {
+      if (inFlight.current) {
+        waiting.current = true; // sent when the current one settles
+        return;
+      }
+      inFlight.current = true;
+      mutateOrder(order);
+    },
+    [mutateOrder],
+  );
   /** Sends an order that is still waiting for its pause to end. */
-  const { mutate: sendOrder } = reorder;
   const flushOrder = useCallback(() => {
     if (!timer.current) return;
     clearTimeout(timer.current);
     timer.current = null;
-    if (pendingRef.current) sendOrder(pendingRef.current);
-  }, [sendOrder]);
+    if (pendingRef.current) send(pendingRef.current);
+  }, [send]);
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
@@ -305,11 +361,16 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
 
   const queueOrder = (date: string, ids: string[]) => {
     if (pendingRef.current && pendingRef.current.day !== date) flushOrder();
-    setPendingOrder({ day: date, ids });
+    const base =
+      pendingRef.current?.day === date
+        ? pendingRef.current.base
+        : (trip.days.find((d) => d.date === date)?.items.map((i) => i.id) ?? []);
+    const next = { day: date, ids, base };
+    setPendingOrder(next);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       timer.current = null;
-      sendOrder({ day: date, ids });
+      if (pendingRef.current) send(pendingRef.current);
     }, REORDER_DELAY_MS);
   };
 
@@ -413,6 +474,17 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
   }, [trip.warnings]);
   const dayWarnings = (date: string) => trip.warnings.filter((w) => w.day === date);
 
+  const { canEdit, canManage } = trip.access;
+  const shared = trip.memberCount > 0 || trip.access.role !== 'owner';
+  const live = usePlanLiveUpdates(trip.id, trip.revision, shared);
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const members = useQuery({
+    queryKey: plannerKeys.members(trip.id),
+    queryFn: ({ signal }) => getTripMembers(trip.id, signal),
+    enabled: shared,
+  });
+
   const openAdd = (date: string) => setActivity({ open: true, item: null, day: date });
   const openEdit = (item: ItineraryItem) => setActivity({ open: true, item, day: item.day });
 
@@ -434,6 +506,19 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
                 <NotebookPen className="size-3.5" aria-hidden="true" />
                 Plan · not booked
               </Badge>
+              {shared ? (
+                <Badge size="sm" tone={canEdit ? 'brand' : 'neutral'}>
+                  {canEdit ? (
+                    <Users className="size-3.5" aria-hidden="true" />
+                  ) : (
+                    <Eye className="size-3.5" aria-hidden="true" />
+                  )}
+                  {trip.access.role === 'viewer'
+                    ? 'View only'
+                    : `Shared · ${ROLE_LABEL[trip.access.role]}`}
+                </Badge>
+              ) : null}
+              {shared ? <LiveStatus mode={live} /> : null}
             </p>
             <h1 className="text-heading-1 break-words">{trip.title}</h1>
             <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-body text-ink-secondary">
@@ -451,17 +536,35 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
               <span>
                 {trip.itemCount} {trip.itemCount === 1 ? 'activity' : 'activities'}
               </span>
+              {!trip.owner.isYou ? <span>Owner: {trip.owner.name}</span> : null}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => setEditing(true)}>
-              <Pencil aria-hidden="true" />
-              Edit details
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={() => setMembersOpen(true)}>
+              {shared && members.data ? (
+                <MemberAvatars members={members.data} />
+              ) : (
+                <Users aria-hidden="true" />
+              )}
+              {canManage ? 'Share' : 'Members'}
+              {shared ? <span className="sr-only">: {trip.memberCount + 1} people</span> : null}
             </Button>
-            <Button variant="ghost" onClick={() => setDeletingTrip(true)}>
-              <Trash2 aria-hidden="true" />
-              Delete plan
+            <Button variant="ghost" onClick={() => setHistoryOpen(true)}>
+              <History aria-hidden="true" />
+              History
             </Button>
+            {canEdit ? (
+              <Button variant="secondary" onClick={() => setEditing(true)}>
+                <Pencil aria-hidden="true" />
+                Edit details
+              </Button>
+            ) : null}
+            {canManage ? (
+              <Button variant="ghost" onClick={() => setDeletingTrip(true)}>
+                <Trash2 aria-hidden="true" />
+                Delete plan
+              </Button>
+            ) : null}
           </div>
         </header>
 
@@ -489,6 +592,13 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
           </p>
         ) : null}
 
+        {trip.access.role === 'viewer' ? (
+          <p className="text-body-sm text-ink-secondary">
+            You can view this plan. Ask {trip.owner.name} for editor access if you’d like to change
+            it.
+          </p>
+        ) : null}
+
         {trip.notes ? (
           <p className="max-w-3xl text-body whitespace-pre-line text-ink-secondary">{trip.notes}</p>
         ) : null}
@@ -505,8 +615,8 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
               Outside the trip dates
             </h2>
             <p className="text-body-sm text-ink-secondary">
-              The trip dates changed. These activities were kept — move each one to a trip day, or
-              delete it.
+              The trip dates changed. These activities were kept
+              {canEdit ? ' — move each one to a trip day, or delete it.' : '.'}
             </p>
             <ul className="flex flex-col gap-2">
               {trip.outsideDates.map((item) => (
@@ -522,14 +632,16 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
                       Was on {formatDay(item.day)}
                     </span>
                   </span>
-                  <span className="flex gap-2">
-                    <Button size="sm" variant="secondary" onClick={() => setMoving(item)}>
-                      Move to a trip day
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setRemoving(item)}>
-                      Delete
-                    </Button>
-                  </span>
+                  {canEdit ? (
+                    <span className="flex gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => setMoving(item)}>
+                        Move to a trip day
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setRemoving(item)}>
+                        Delete
+                      </Button>
+                    </span>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -603,6 +715,8 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
                       onDuplicate={(item) => duplicate.mutate(item)}
                       onDelete={setRemoving}
                       busy={duplicate.isPending}
+                      canEdit={canEdit}
+                      shared={shared}
                     />
                   </TabsContent>
                 ) : null,
@@ -616,6 +730,7 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
           <SuggestionsPanel
             trip={trip}
             day={selectedDay}
+            canAdd={canEdit}
             onAdded={(updated, message) => {
               applyTrip(updated);
               toast({ tone: 'success', title: message });
@@ -624,7 +739,7 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
         </div>
       </div>
 
-      {activity.open ? (
+      {activity.open && canEdit ? (
         <ActivityDialog
           open
           onOpenChange={(open) => setActivity((a) => ({ ...a, open }))}
@@ -637,7 +752,7 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
           }}
         />
       ) : null}
-      {moving ? (
+      {moving && canEdit ? (
         <MoveDialog
           key={moving.id}
           trip={trip}
@@ -708,7 +823,7 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
           }
         />
       </Dialog>
-      {editing ? (
+      {editing && canEdit ? (
         <EditDetailsDialog
           open
           onOpenChange={setEditing}
@@ -719,7 +834,37 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
           }}
         />
       ) : null}
+      <MembersDialog trip={trip} open={membersOpen} onOpenChange={setMembersOpen} />
+      <HistorySheet
+        trip={trip}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        onShowDay={selectDay}
+      />
     </Container>
+  );
+}
+
+/** Whether other members' changes arrive by themselves. */
+function LiveStatus({ mode }: { mode: ReturnType<typeof usePlanLiveUpdates> }) {
+  if (mode === 'off') return null;
+  const text =
+    mode === 'live'
+      ? 'Live: changes by others appear automatically'
+      : mode === 'polling'
+        ? 'Checks for changes every 30 seconds'
+        : 'Connecting for live updates…';
+  return (
+    <span className="flex items-center gap-1.5 text-caption text-ink-secondary">
+      <span
+        aria-hidden="true"
+        className={cn(
+          'size-2 rounded-full',
+          mode === 'live' ? 'bg-success' : mode === 'polling' ? 'bg-warning' : 'bg-line-strong',
+        )}
+      />
+      {text}
+    </span>
   );
 }
 
@@ -787,6 +932,8 @@ function DaySchedule({
   onDuplicate,
   onDelete,
   busy,
+  canEdit,
+  shared,
 }: {
   date: string;
   dayNumber: number;
@@ -803,6 +950,10 @@ function DaySchedule({
   onDuplicate: (item: ItineraryItem) => void;
   onDelete: (item: ItineraryItem) => void;
   busy: boolean;
+  /** Show edit controls (owners and editors; the API checks again). */
+  canEdit: boolean;
+  /** A shared plan shows who added each activity. */
+  shared: boolean;
 }) {
   const headingId = `day-${date}-heading`;
   const outOfOrder = warnings.some((w) => w.code === 'out_of_order');
@@ -819,16 +970,18 @@ function DaySchedule({
               Saving order…
             </span>
           ) : null}
-          {outOfOrder ? (
+          {outOfOrder && canEdit ? (
             <Button size="sm" variant="secondary" onClick={() => onSortByTime(items)}>
               <ListOrdered aria-hidden="true" />
               Sort by time
             </Button>
           ) : null}
-          <Button size="sm" onClick={onAdd}>
-            <Plus aria-hidden="true" />
-            Add activity
-          </Button>
+          {canEdit ? (
+            <Button size="sm" onClick={onAdd}>
+              <Plus aria-hidden="true" />
+              Add activity
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -837,12 +990,18 @@ function DaySchedule({
           <EmptyState
             icon={<CalendarRange />}
             title={`Nothing planned for day ${dayNumber} yet`}
-            description="Add your own activity, or pick one of the sample suggestions."
+            description={
+              canEdit
+                ? 'Add your own activity, or pick one of the sample suggestions.'
+                : 'Activities added by the plan’s editors will appear here.'
+            }
             action={
-              <Button onClick={onAdd}>
-                <Plus aria-hidden="true" />
-                Add the first activity
-              </Button>
+              canEdit ? (
+                <Button onClick={onAdd}>
+                  <Plus aria-hidden="true" />
+                  Add the first activity
+                </Button>
+              ) : undefined
             }
           />
         </div>
@@ -863,6 +1022,8 @@ function DaySchedule({
               onDuplicate={() => onDuplicate(item)}
               onDelete={() => onDelete(item)}
               busy={busy}
+              canEdit={canEdit}
+              shared={shared}
             />
           ))}
         </ol>
@@ -884,6 +1045,8 @@ function ActivityCard({
   onDuplicate,
   onDelete,
   busy,
+  canEdit,
+  shared,
 }: {
   item: ItineraryItem;
   index: number;
@@ -897,6 +1060,8 @@ function ActivityCard({
   onDuplicate: () => void;
   onDelete: () => void;
   busy: boolean;
+  canEdit: boolean;
+  shared: boolean;
 }) {
   const Icon = CATEGORY_ICON[item.category];
   const shortWarnings = [...new Set(warnings.map((w) => WARNING_SHORT[w.code]))];
@@ -908,7 +1073,9 @@ function ActivityCard({
   return (
     <li
       className={cn(
-        'grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 rounded-xl border bg-card p-4 shadow-xs sm:grid-cols-[5.5rem_minmax(0,1fr)_auto] sm:gap-4',
+        'grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 rounded-xl border bg-card p-4 shadow-xs sm:gap-4',
+        canEdit && 'sm:grid-cols-[5.5rem_minmax(0,1fr)_auto]',
+        !canEdit && 'sm:grid-cols-[5.5rem_minmax(0,1fr)]',
         warnings.length > 0 ? 'border-warning/40' : 'border-line',
       )}
     >
@@ -937,6 +1104,11 @@ function ActivityCard({
           {item.suggestionId ? (
             <span className="text-caption text-ink-secondary">From sample suggestions</span>
           ) : null}
+          {shared && item.addedBy ? (
+            <span className="text-caption text-ink-secondary">
+              Added by {item.addedBy.isYou ? 'you' : item.addedBy.name}
+            </span>
+          ) : null}
         </span>
         <h4 className="text-title break-words">{item.title}</h4>
         {item.location ? (
@@ -958,49 +1130,56 @@ function ActivityCard({
           </p>
         ) : null}
       </div>
-      <div className="col-span-2 flex items-center justify-end gap-1 border-t border-line pt-2 sm:col-span-1 sm:flex-col sm:items-end sm:border-0 sm:pt-0">
-        <span className="flex gap-1">
-          <IconButton
-            ref={(el) => registerButton('up', el)}
-            label={`Move “${item.title}” up`}
-            icon={<ArrowUp />}
-            size="md"
-            disabled={index === 0}
-            onClick={onMoveUp}
-          />
-          <IconButton
-            ref={(el) => registerButton('down', el)}
-            label={`Move “${item.title}” down`}
-            icon={<ArrowDown />}
-            size="md"
-            disabled={index === count - 1}
-            onClick={onMoveDown}
-          />
-        </span>
-        <span className="flex gap-1">
-          <IconButton label={`Edit “${item.title}”`} icon={<Pencil />} size="md" onClick={onEdit} />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <IconButton
-                label={`More actions for “${item.title}”`}
-                icon={<Ellipsis />}
-                size="md"
-              />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem icon={<CalendarRange />} onSelect={onMoveToDay}>
-                Move to another day
-              </DropdownMenuItem>
-              <DropdownMenuItem icon={<Copy />} onSelect={onDuplicate} disabled={busy}>
-                Duplicate
-              </DropdownMenuItem>
-              <DropdownMenuItem icon={<Trash2 />} destructive onSelect={onDelete}>
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </span>
-      </div>
+      {canEdit ? (
+        <div className="col-span-2 flex items-center justify-end gap-1 border-t border-line pt-2 sm:col-span-1 sm:flex-col sm:items-end sm:border-0 sm:pt-0">
+          <span className="flex gap-1">
+            <IconButton
+              ref={(el) => registerButton('up', el)}
+              label={`Move “${item.title}” up`}
+              icon={<ArrowUp />}
+              size="md"
+              disabled={index === 0}
+              onClick={onMoveUp}
+            />
+            <IconButton
+              ref={(el) => registerButton('down', el)}
+              label={`Move “${item.title}” down`}
+              icon={<ArrowDown />}
+              size="md"
+              disabled={index === count - 1}
+              onClick={onMoveDown}
+            />
+          </span>
+          <span className="flex gap-1">
+            <IconButton
+              label={`Edit “${item.title}”`}
+              icon={<Pencil />}
+              size="md"
+              onClick={onEdit}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <IconButton
+                  label={`More actions for “${item.title}”`}
+                  icon={<Ellipsis />}
+                  size="md"
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem icon={<CalendarRange />} onSelect={onMoveToDay}>
+                  Move to another day
+                </DropdownMenuItem>
+                <DropdownMenuItem icon={<Copy />} onSelect={onDuplicate} disabled={busy}>
+                  Duplicate
+                </DropdownMenuItem>
+                <DropdownMenuItem icon={<Trash2 />} destructive onSelect={onDelete}>
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </span>
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -1023,7 +1202,7 @@ function MoveDialog({
   const [day, setDay] = useState(() => trip.days.find((d) => d.date !== item.day)?.date ?? '');
   const move = useMutation({
     mutationFn: (vars: { item: ItineraryItem; day: string }) =>
-      updateItineraryItem(trip.id, vars.item.id, { day: vars.day }),
+      updateItineraryItem(trip.id, vars.item.id, { version: vars.item.version, day: vars.day }),
     onSuccess: (updated, vars) => {
       const target = updated.days.find((d) => d.date === vars.day);
       onMoved(updated, `Moved “${vars.item.title}” to day ${target?.dayNumber ?? ''}`.trim());
@@ -1097,7 +1276,8 @@ function EditDetailsDialog({
   const bookings = useQuery({
     queryKey: [...bookingKeys.lists, 'upcoming', 'linkable'],
     queryFn: ({ signal }) => listBookings({ view: 'upcoming', page: 1, pageSize: 50 }, signal),
-    enabled: open,
+    // Only the owner links a booking (their own); members never see one.
+    enabled: open && trip.access.canManage,
   });
 
   const linkable: LinkableBooking[] = (bookings.data?.items ?? [])
@@ -1126,7 +1306,7 @@ function EditDetailsDialog({
         endDate: body.endDate,
         notes: body.notes ?? null,
         ...(body.preferences ? { preferences: body.preferences } : {}),
-        ...(values.bookingReference !== linked
+        ...(trip.access.canManage && values.bookingReference !== linked
           ? { bookingReference: values.bookingReference || null }
           : {}),
       });
@@ -1165,7 +1345,7 @@ function EditDetailsDialog({
         mode="edit"
         destinations={destinations.data.items}
         defaultValues={valuesFromTrip(trip)}
-        linkableBookings={linkable}
+        linkableBookings={trip.access.canManage ? linkable : undefined}
         submitting={save.isPending}
         formError={formError}
         formErrorAction={

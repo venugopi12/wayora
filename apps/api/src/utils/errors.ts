@@ -35,6 +35,7 @@ const DEFAULT_STATUS: Record<ApiErrorCode, number> = {
   // Trip planner (docs/planner.md#errors).
   PLAN_OUT_OF_DATE: 409,
   PLAN_LIMIT_REACHED: 409,
+  INVITATION_CLOSED: 409,
 };
 
 /**

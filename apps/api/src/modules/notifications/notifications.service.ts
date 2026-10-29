@@ -21,6 +21,9 @@ const NOT_FOUND_MESSAGE = "We couldn't find that notification.";
 
 const include = {
   booking: { select: { reference: true, userId: true } },
+  // Planner links (Phase 19): only while the recipient can still open them.
+  plannedTrip: { select: { id: true, userId: true, members: { select: { userId: true } } } },
+  tripInvitation: { select: { id: true, inviteeId: true } },
 } satisfies Prisma.NotificationInclude;
 type Row = Prisma.NotificationGetPayload<{ include: typeof include }>;
 
@@ -54,8 +57,21 @@ export class NotificationsService {
         ? row.paymentId
           ? { kind: 'payment', bookingReference: booking.reference, paymentId: row.paymentId }
           : { kind: 'booking', bookingReference: booking.reference }
-        : null,
+        : this.planLink(row),
     };
+  }
+
+  /** A plan or invitation link, if the recipient may still open it (else none). */
+  private planLink(row: Row): Notification['link'] {
+    const invitation = row.tripInvitation;
+    if (invitation && invitation.inviteeId === row.userId) {
+      return { kind: 'plan-invitation', invitationId: invitation.id };
+    }
+    const trip = row.plannedTrip;
+    if (trip && (trip.userId === row.userId || trip.members.some((m) => m.userId === row.userId))) {
+      return { kind: 'plan', tripId: trip.id };
+    }
+    return null;
   }
 
   unreadCount(userId: string): Promise<number> {

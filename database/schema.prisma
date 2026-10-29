@@ -134,6 +134,12 @@ enum NotificationType {
   TRAVEL_REMINDER
   /// A travel disruption reported, changed or resolved (Phase 17, docs/trips.md).
   TRIP_DISRUPTION
+  /// Trip planner collaboration (Phase 19, docs/planner.md#notifications).
+  PLAN_INVITATION
+  PLAN_INVITATION_ACCEPTED
+  PLAN_INVITATION_DECLINED
+  PLAN_MEMBER_CHANGED
+  PLAN_UPDATED
 
   @@map("notification_type")
 }
@@ -302,6 +308,13 @@ model User {
   notificationPreferences NotificationPreference?
 
   plannedTrips PlannedTrip[]
+
+  tripMemberships       TripMember[]       @relation("TripMemberUser")
+  tripMembersInvited    TripMember[]       @relation("TripMemberInvitedBy")
+  tripInvitations       TripInvitation[]   @relation("TripInvitationInvitee")
+  tripInvitationsSent   TripInvitation[]   @relation("TripInvitationInvitedBy")
+  plannerActivities     PlannerActivity[]
+  itineraryItemsCreated ItineraryItem[]
 
   @@index([status])
   @@index([role])
@@ -566,6 +579,9 @@ model Notification {
   isDemo    Boolean          @map("is_demo")
   bookingId String?          @map("booking_id") @db.Uuid
   paymentId String?          @map("payment_id") @db.Uuid
+  /// Planner notifications (Phase 19): the plan, or the invitation, it is about.
+  plannedTripId    String?   @map("planned_trip_id") @db.Uuid
+  tripInvitationId String?   @map("trip_invitation_id") @db.Uuid
   /// One notification per event: e.g. "payment:<id>:SUCCEEDED".
   dedupeKey String           @unique @map("dedupe_key") @db.VarChar(200)
   readAt    DateTime?        @map("read_at") @db.Timestamptz(3)
@@ -574,9 +590,13 @@ model Notification {
   user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   booking    Booking?               @relation(fields: [bookingId], references: [id], onDelete: Restrict)
   payment    Payment?               @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  plannedTrip    PlannedTrip?    @relation(fields: [plannedTripId], references: [id], onDelete: SetNull)
+  tripInvitation TripInvitation? @relation(fields: [tripInvitationId], references: [id], onDelete: SetNull)
   deliveries NotificationDelivery[]
 
   @@index([userId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([plannedTripId])
+  @@index([tripInvitationId])
   @@map("notifications")
 }
 
@@ -882,12 +902,20 @@ model PlannedTrip {
   bookingId       String?            @map("booking_id") @db.Uuid
   /// Bumped on every trip-detail change; edits based on an older one are refused.
   version         Int                @default(1)
+  /// Bumped on every change to the plan, its itinerary or its members (Phase 19);
+  /// each bump has one planner_activities row.
+  revision        Int                @default(0)
   createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   booking Booking?        @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   items   ItineraryItem[]
+
+  members       TripMember[]
+  invitations   TripInvitation[]
+  activities    PlannerActivity[]
+  notifications Notification[]
 
   @@index([userId, startDate, id])
   @@index([bookingId])
@@ -913,10 +941,120 @@ model ItineraryItem {
   notes           String?          @db.VarChar(1000)
   /// Curated sample suggestion it came from; at most once per trip.
   suggestionId    String?          @map("suggestion_id") @db.VarChar(102)
+  /// Bumped on every edit; an edit based on an older version is refused (Phase 19).
+  version         Int              @default(1)
+  /// Who added it (null for older activities, or a deleted account).
+  createdById     String?          @map("created_by_id") @db.Uuid
   createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  trip PlannedTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  trip      PlannedTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  createdBy User?       @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   @@map("itinerary_items")
+}
+
+// ─── Plan collaboration (Phase 19) ────────────────────────────────────────
+
+/// A member's role. The owner is planned_trips.user_id, never a member row.
+enum TripMemberRole {
+  EDITOR
+  VIEWER
+
+  @@map("trip_member_role")
+}
+
+enum TripInvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
+  EXPIRED
+
+  @@map("trip_invitation_status")
+}
+
+/// Mirrors `plannerActivityTypeSchema` in @wayora/contracts.
+enum PlannerActivityType {
+  TRIP_UPDATED
+  ITEM_ADDED
+  ITEM_UPDATED
+  ITEM_MOVED
+  ITEM_DELETED
+  ITEM_DUPLICATED
+  DAY_REORDERED
+  MEMBER_INVITED
+  INVITATION_ACCEPTED
+  INVITATION_DECLINED
+  INVITATION_REVOKED
+  MEMBER_ROLE_CHANGED
+  MEMBER_REMOVED
+  MEMBER_LEFT
+
+  @@map("planner_activity_type")
+}
+
+/// Someone other than the owner who can see (VIEWER) or also edit (EDITOR) a
+/// plan (docs/planner.md#collaboration). A trigger keeps the owner out.
+model TripMember {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  tripId      String         @map("trip_id") @db.Uuid
+  userId      String         @map("user_id") @db.Uuid
+  role        TripMemberRole
+  invitedById String?        @map("invited_by_id") @db.Uuid
+  joinedAt    DateTime       @map("joined_at") @db.Timestamptz(3)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  trip      PlannedTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user      User        @relation("TripMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User?       @relation("TripMemberInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([tripId, userId])
+  @@index([userId])
+  @@map("trip_members")
+}
+
+/// An invitation to one existing account. Accepted only by that account,
+/// signed in; at most one PENDING per person and trip (partial unique index).
+model TripInvitation {
+  id          String               @id @default(uuid(7)) @db.Uuid
+  tripId      String               @map("trip_id") @db.Uuid
+  inviteeId   String               @map("invitee_id") @db.Uuid
+  invitedById String?              @map("invited_by_id") @db.Uuid
+  role        TripMemberRole
+  status      TripInvitationStatus @default(PENDING)
+  expiresAt   DateTime             @map("expires_at") @db.Timestamptz(3)
+  respondedAt DateTime?            @map("responded_at") @db.Timestamptz(3)
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  trip          PlannedTrip    @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  invitee       User           @relation("TripInvitationInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+  invitedBy     User?          @relation("TripInvitationInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  notifications Notification[]
+
+  @@index([inviteeId, status])
+  @@index([tripId, status])
+  @@map("trip_invitations")
+}
+
+/// One change to a plan (append-only; docs/planner.md#activity-history).
+/// `revision` is the plan's revision after the change: unique per plan, so a
+/// change is recorded exactly once.
+model PlannerActivity {
+  id        String              @id @default(uuid(7)) @db.Uuid
+  tripId    String              @map("trip_id") @db.Uuid
+  revision  Int
+  actorId   String?             @map("actor_id") @db.Uuid
+  type      PlannerActivityType
+  /// Safe details: ids, roles, field names, activity titles and days. No emails.
+  data      Json
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  trip  PlannedTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  actor User?       @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@unique([tripId, revision])
+  @@map("planner_activities")
 }

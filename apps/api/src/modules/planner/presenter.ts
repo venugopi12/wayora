@@ -1,5 +1,6 @@
 import type {
   ActivityCategory,
+  TripRole,
   ItineraryItem as ItineraryItemDto,
   LinkedBooking,
   PlannedTrip as PlannedTripDto,
@@ -15,7 +16,26 @@ import type {
 } from '@wayora/database';
 import { SERVICE_TYPE } from '../../utils/categories.js';
 import { catalogDestination } from './catalog.js';
+import { accessFor, personName } from './people.js';
 import { formatMinute, scheduleWarnings } from './schedule.js';
+
+/** Who is looking: their id and their role on the plan. */
+export interface Viewer {
+  userId: string;
+  role: TripRole;
+}
+
+type ItemRow = ItineraryItem & {
+  createdBy?: { id: string; displayName: string | null } | null;
+};
+type SummaryRow = PlannedTrip & {
+  booking: BookingLink;
+  user: { displayName: string | null };
+  _count: { items: number; members: number };
+};
+
+/** Includes for presenting a plan (summary or full). */
+export const PERSON_SELECT = { id: true, displayName: true } as const;
 
 /** A `@db.Date` column (UTC midnight) as `YYYY-MM-DD`: no local-time conversion. */
 export const dateOnly = (value: Date): string => value.toISOString().slice(0, 10);
@@ -88,7 +108,7 @@ export function presentPreferences(
   };
 }
 
-export function presentItem(item: ItineraryItem): ItineraryItemDto {
+export function presentItem(item: ItemRow, viewerId: string): ItineraryItemDto {
   const end =
     item.startMinute !== null && item.durationMinutes !== null
       ? item.startMinute + item.durationMinutes
@@ -106,14 +126,16 @@ export function presentItem(item: ItineraryItem): ItineraryItemDto {
     location: item.location,
     notes: item.notes,
     suggestionId: item.suggestionId,
+    version: item.version,
+    addedBy: item.createdBy
+      ? { name: personName(item.createdBy.displayName), isYou: item.createdBy.id === viewerId }
+      : null,
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),
   };
 }
 
-export function presentSummary(
-  trip: PlannedTrip & { booking: BookingLink; _count: { items: number } },
-): PlannedTripSummary {
+export function presentSummary(trip: SummaryRow, viewer: Viewer): PlannedTripSummary {
   const startDate = dateOnly(trip.startDate);
   const endDate = dateOnly(trip.endDate);
   return {
@@ -124,7 +146,11 @@ export function presentSummary(
     endDate,
     dayCount: datesBetween(startDate, endDate).length,
     itemCount: trip._count.items,
-    linkedBooking: presentBooking(trip.booking),
+    // The booking is the owner's own: members never see it.
+    linkedBooking: viewer.role === 'owner' ? presentBooking(trip.booking) : null,
+    access: accessFor(viewer.role),
+    owner: { name: personName(trip.user.displayName), isYou: trip.userId === viewer.userId },
+    memberCount: trip._count.members,
     createdAt: trip.createdAt.toISOString(),
     updatedAt: trip.updatedAt.toISOString(),
   };
@@ -132,12 +158,13 @@ export function presentSummary(
 
 /** The full trip: days in order, activities in saved order, warnings. */
 export function presentTrip(
-  trip: PlannedTrip & { booking: BookingLink; items: ItineraryItem[] },
+  trip: Omit<SummaryRow, '_count'> & { items: ItemRow[]; _count: { members: number } },
+  viewer: Viewer,
 ): PlannedTripDto {
   const startDate = dateOnly(trip.startDate);
   const endDate = dateOnly(trip.endDate);
   const items = trip.items
-    .map(presentItem)
+    .map((i) => presentItem(i, viewer.userId))
     .sort((a, b) => (a.day === b.day ? a.position - b.position : a.day < b.day ? -1 : 1));
   const dates = datesBetween(startDate, endDate);
   const days = dates.map((date, index) => ({
@@ -146,8 +173,12 @@ export function presentTrip(
     items: items.filter((i) => i.day === date),
   }));
   return {
-    ...presentSummary({ ...trip, _count: { items: trip.items.length } }),
+    ...presentSummary(
+      { ...trip, _count: { items: trip.items.length, members: trip._count.members } },
+      viewer,
+    ),
     version: trip.version,
+    revision: trip.revision,
     notes: trip.notes,
     preferences: presentPreferences(trip),
     days,

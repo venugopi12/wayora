@@ -1,4 +1,20 @@
 import {
+  API_V1_PREFIX,
+  invitationResponseSchema,
+  memberRemovedSchema,
+  plannerActivityListSchema,
+  receivedInvitationListSchema,
+  receivedInvitationSchema,
+  sentInvitationSchema,
+  tripMembersSchema,
+  type CreateTripInvitationInput,
+  type InvitationResponse,
+  type MemberRole,
+  type PlannerActivityList,
+  type ReceivedInvitation,
+  type ReceivedInvitationList,
+  type SentInvitation,
+  type TripMembers,
   plannedTripDeletedSchema,
   plannedTripListSchema,
   plannedTripSchema,
@@ -14,6 +30,7 @@ import {
   type UpdateItineraryItemInput,
   type UpdatePlannedTripInput,
 } from '@wayora/contracts';
+import { publicEnv } from '../lib/env';
 import { api } from './api';
 
 /*
@@ -117,14 +134,16 @@ export function duplicateItineraryItem(
   });
 }
 
+/** Sets one day's order; `previousOrder` is the order the change was based on. */
 export function reorderItineraryDay(
   tripId: string,
   day: string,
   itemIds: string[],
+  previousOrder: string[],
 ): Promise<PlannedTrip> {
   return api.request(`${trip(tripId)}/days/${encodeURIComponent(day)}/order`, {
     method: 'PUT',
-    body: { itemIds },
+    body: { itemIds, previousOrder },
     schema: plannedTripSchema,
   });
 }
@@ -139,4 +158,92 @@ export function getSuggestions(
     schema: suggestionsResponseSchema,
     ...opt(signal),
   });
+}
+
+// ─── Collaboration (Phase 19) ───────────────────────────────────────────
+
+export function getTripMembers(tripId: string, signal?: AbortSignal): Promise<TripMembers> {
+  return api.request(`${trip(tripId)}/members`, { schema: tripMembersSchema, ...opt(signal) });
+}
+
+export function inviteToTrip(
+  tripId: string,
+  body: CreateTripInvitationInput,
+): Promise<SentInvitation> {
+  return api.request(`${trip(tripId)}/invitations`, {
+    method: 'POST',
+    body,
+    schema: sentInvitationSchema,
+  });
+}
+
+export function revokeInvitation(tripId: string, invitationId: string): Promise<SentInvitation> {
+  return api.request(`${trip(tripId)}/invitations/${encodeURIComponent(invitationId)}`, {
+    method: 'DELETE',
+    schema: sentInvitationSchema,
+  });
+}
+
+export function changeMemberRole(
+  tripId: string,
+  memberId: string,
+  role: MemberRole,
+): Promise<TripMembers> {
+  return api.request(`${trip(tripId)}/members/${encodeURIComponent(memberId)}`, {
+    method: 'PATCH',
+    body: { role },
+    schema: tripMembersSchema,
+  });
+}
+
+/** Removes a member (owner), or leaves the plan (your own membership). */
+export async function removeMember(tripId: string, memberId: string): Promise<void> {
+  await api.request(`${trip(tripId)}/members/${encodeURIComponent(memberId)}`, {
+    method: 'DELETE',
+    schema: memberRemovedSchema,
+  });
+}
+
+export function getPlanActivity(
+  tripId: string,
+  before: number | null,
+  signal?: AbortSignal,
+): Promise<PlannerActivityList> {
+  const q = before ? `?before=${before}` : '';
+  return api.request(`${trip(tripId)}/activity${q}`, {
+    schema: plannerActivityListSchema,
+    ...opt(signal),
+  });
+}
+
+export function listReceivedInvitations(signal?: AbortSignal): Promise<ReceivedInvitationList> {
+  return api.request('/planner/invitations', {
+    schema: receivedInvitationListSchema,
+    ...opt(signal),
+  });
+}
+
+export function getReceivedInvitation(
+  invitationId: string,
+  signal?: AbortSignal,
+): Promise<ReceivedInvitation> {
+  return api.request(`/planner/invitations/${encodeURIComponent(invitationId)}`, {
+    schema: receivedInvitationSchema,
+    ...opt(signal),
+  });
+}
+
+export function respondToInvitation(
+  invitationId: string,
+  answer: 'accept' | 'decline',
+): Promise<InvitationResponse> {
+  return api.request(`/planner/invitations/${encodeURIComponent(invitationId)}/${answer}`, {
+    method: 'POST',
+    schema: invitationResponseSchema,
+  });
+}
+
+/** The plan's live-update stream (Server-Sent Events; session cookie). */
+export function planEventsUrl(tripId: string): string {
+  return `${publicEnv.apiBaseUrl}${API_V1_PREFIX}${trip(tripId)}/events`;
 }

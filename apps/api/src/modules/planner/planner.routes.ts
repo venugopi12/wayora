@@ -1,5 +1,12 @@
 import { Router, type RequestHandler } from 'express';
 import {
+  createTripInvitationSchema,
+  invitationParamsSchema,
+  plannerActivityQuerySchema,
+  receivedInvitationsQuerySchema,
+  tripInvitationParamsSchema,
+  tripMemberParamsSchema,
+  updateTripMemberSchema,
   createItineraryItemSchema,
   createPlannedTripSchema,
   duplicateItineraryItemSchema,
@@ -12,16 +19,49 @@ import {
   updateItineraryItemSchema,
   updatePlannedTripSchema,
 } from '@wayora/contracts';
-import { currentUser, noStore, requireAuth } from '../../middleware/session.js';
+import type { PrismaClient } from '@wayora/database';
+import { currentUser, noStore, requireAuth, type AuthLocals } from '../../middleware/session.js';
+import type { SignalHub } from '../../services/signal-hub.js';
+import {
+  DEFAULT_STREAM_TIMINGS,
+  StreamCounter,
+  serveSignalStream,
+  type StreamTimings,
+} from '../../services/signal-stream.js';
+import { AppError } from '../../utils/errors.js';
+import type { Logger } from '../../utils/logger.js';
 import { sendData } from '../../utils/respond.js';
 import { validateRequest } from '../../utils/validate.js';
 import { IDEMPOTENCY_KEY_HEADER, validateIdempotencyKey } from '../bookings/idempotency.js';
+import { canView, tripAccess } from './access.js';
+import type { CollaborationService } from './collaboration.service.js';
 import type { PlannerService } from './planner.service.js';
 
+/** pg_notify channel announcing new plan history rows (the migration's trigger). */
+export const PLANNER_EVENTS_CHANNEL = 'wayora_planner_activity';
+
+export interface PlannerRouterOptions {
+  planner: PlannerService;
+  collaboration: CollaborationService;
+  prisma: PrismaClient;
+  /** Live updates: announcements of new plan history rows (Phase 19). */
+  hub: SignalHub;
+  logger: Logger;
+  /** Whether a session token still names a valid session (long-lived streams re-check). */
+  sessionValid: (token: string | undefined) => Promise<boolean>;
+  /** Per-user limit on planner writes (itinerary, details, membership). */
+  writeLimiter?: RequestHandler;
+  /** Per-user limit on sending invitations (stricter: each one looks up an account). */
+  inviteLimiter?: RequestHandler;
+  /** Stream timings (tests shorten them). */
+  stream?: Partial<StreamTimings>;
+}
+
 /**
- * The signed-in user's planned trips (docs/planner.md#api). Mounted at
- * /planner after loadSession. Every route acts on the session's own trips;
- * no route takes a user id, and another user's trip is a 404.
+ * Planned trips the signed-in user owns or is a member of (docs/planner.md#api).
+ * Mounted at /planner after loadSession. No route takes a user id; access is
+ * resolved from the session on every request (access.ts): a plan the user
+ * can't see is a 404, a change their role doesn't allow is a 403.
  *
  * GET    /planner/destinations                          curated sample destinations
  * GET    /planner/trips?page=&pageSize=                 list (by start date)
@@ -36,14 +76,27 @@ import type { PlannerService } from './planner.service.js';
  * PUT    /planner/trips/:tripId/days/:day/order         set one day's order
  * GET    /planner/trips/:tripId/suggestions?category=   curated sample suggestions
  *
+ * Collaboration (Phase 19):
+ * GET    /planner/trips/:tripId/members                 owner, members, (owner) open invitations
+ * POST   /planner/trips/:tripId/invitations             invite an account by email (owner)  201
+ * DELETE /planner/trips/:tripId/invitations/:invitationId  revoke (owner)
+ * PATCH  /planner/trips/:tripId/members/:memberId       change role (owner)
+ * DELETE /planner/trips/:tripId/members/:memberId       remove (owner) or leave (self)
+ * GET    /planner/trips/:tripId/activity?before=&limit= change history, newest first
+ * GET    /planner/trips/:tripId/events                  live updates (Server-Sent Events)
+ * GET    /planner/invitations?status=pending|all        invitations addressed to you
+ * GET    /planner/invitations/:invitationId
+ * POST   /planner/invitations/:invitationId/accept      join the plan
+ * POST   /planner/invitations/:invitationId/decline
+ *
  * Writes return the whole updated trip, so the client never has to merge.
  */
-export function plannerRouter(
-  planner: PlannerService,
-  /** Per-user limit on planner writes. */
-  writeLimiter?: RequestHandler,
-): Router {
-  const limit: RequestHandler[] = writeLimiter ? [writeLimiter] : [];
+export function plannerRouter(options: PlannerRouterOptions): Router {
+  const { planner, collaboration, hub, logger } = options;
+  const limit: RequestHandler[] = options.writeLimiter ? [options.writeLimiter] : [];
+  const inviteLimit: RequestHandler[] = options.inviteLimiter ? [options.inviteLimiter] : [];
+  const timings = { ...DEFAULT_STREAM_TIMINGS, ...options.stream };
+  const openStreams = new StreamCounter(timings.maxPerUser);
   const router = Router();
   router.use(noStore, requireAuth);
 
@@ -132,10 +185,7 @@ export function plannerRouter(
       params: itineraryDayParamsSchema,
       body: reorderItineraryDaySchema,
     });
-    sendData(
-      res,
-      await planner.reorderDay(currentUser(res).id, params.tripId, params.day, body.itemIds),
-    );
+    sendData(res, await planner.reorderDay(currentUser(res).id, params.tripId, params.day, body));
   });
 
   router.get('/trips/:tripId/suggestions', async (req, res) => {
@@ -144,6 +194,125 @@ export function plannerRouter(
       query: suggestionQuerySchema,
     });
     sendData(res, await planner.suggestions(currentUser(res).id, params.tripId, query.category));
+  });
+
+  // ─── Collaboration ────────────────────────────────────────────────────
+
+  router.get('/trips/:tripId/members', async (req, res) => {
+    const { params } = validateRequest(req, { params: plannedTripParamsSchema });
+    sendData(res, await collaboration.members(currentUser(res).id, params.tripId));
+  });
+
+  router.post('/trips/:tripId/invitations', ...inviteLimit, ...limit, async (req, res) => {
+    const { params, body } = validateRequest(req, {
+      params: plannedTripParamsSchema,
+      body: createTripInvitationSchema,
+    });
+    sendData(res, await collaboration.invite(currentUser(res).id, params.tripId, body), 201);
+  });
+
+  router.delete('/trips/:tripId/invitations/:invitationId', ...limit, async (req, res) => {
+    const { params } = validateRequest(req, { params: tripInvitationParamsSchema });
+    sendData(
+      res,
+      await collaboration.revoke(currentUser(res).id, params.tripId, params.invitationId),
+    );
+  });
+
+  router.patch('/trips/:tripId/members/:memberId', ...limit, async (req, res) => {
+    const { params, body } = validateRequest(req, {
+      params: tripMemberParamsSchema,
+      body: updateTripMemberSchema,
+    });
+    sendData(
+      res,
+      await collaboration.changeRole(
+        currentUser(res).id,
+        params.tripId,
+        params.memberId,
+        body.role,
+      ),
+    );
+  });
+
+  router.delete('/trips/:tripId/members/:memberId', ...limit, async (req, res) => {
+    const { params } = validateRequest(req, { params: tripMemberParamsSchema });
+    await collaboration.removeMember(currentUser(res).id, params.tripId, params.memberId);
+    sendData(res, { removed: true });
+  });
+
+  router.get('/trips/:tripId/activity', async (req, res) => {
+    const { params, query } = validateRequest(req, {
+      params: plannedTripParamsSchema,
+      query: plannerActivityQuerySchema,
+    });
+    sendData(res, await collaboration.activity(currentUser(res).id, params.tripId, query));
+  });
+
+  router.get('/invitations', async (req, res) => {
+    const { query } = validateRequest(req, { query: receivedInvitationsQuerySchema });
+    sendData(res, await collaboration.received(currentUser(res).id, query.status));
+  });
+
+  router.get('/invitations/:invitationId', async (req, res) => {
+    const { params } = validateRequest(req, { params: invitationParamsSchema });
+    sendData(res, await collaboration.receivedOne(currentUser(res).id, params.invitationId));
+  });
+
+  for (const answer of ['accept', 'decline'] as const) {
+    router.post(`/invitations/:invitationId/${answer}`, ...limit, async (req, res) => {
+      const { params } = validateRequest(req, { params: invitationParamsSchema });
+      sendData(res, await collaboration.respond(currentUser(res).id, params.invitationId, answer));
+    });
+  }
+
+  // Live updates: "the plan changed, revision N". The browser re-reads the
+  // plan through the endpoints above, so this carries no plan content.
+  router.get('/trips/:tripId/events', async (req, res) => {
+    const { params } = validateRequest(req, { params: plannedTripParamsSchema });
+    if (Object.keys(req.query).length > 0) {
+      throw new AppError('VALIDATION_FAILED', 'The request is invalid.', {
+        details: [
+          {
+            path: 'query',
+            message: 'This endpoint takes no parameters.',
+            code: 'unrecognized_keys',
+          },
+        ],
+      });
+    }
+    const user = currentUser(res);
+    await tripAccess(options.prisma, user.id, params.tripId, 'view');
+    if (!openStreams.take(user.id)) {
+      throw new AppError(
+        'RATE_LIMITED',
+        'Too many open live-update connections. Close a tab and try again.',
+      );
+    }
+    const token = (res.locals as AuthLocals).sessionToken;
+    serveSignalStream(res, {
+      hub,
+      key: params.tripId,
+      eventName: 'plan-changed',
+      payload: (seq) => ({ revision: Number(seq), tripId: params.tripId }),
+      lastEventId: req.get('Last-Event-ID'),
+      latest: async () => {
+        const trip = await options.prisma.plannedTrip.findUnique({
+          where: { id: params.tripId },
+          select: { revision: true },
+        });
+        return trip && trip.revision > 0 ? String(trip.revision) : null;
+      },
+      check: async () => {
+        if (!(await options.sessionValid(token))) return 'signed-out';
+        return (await canView(options.prisma, user.id, params.tripId)) ? 'ok' : 'access-ended';
+      },
+      // Membership can end at any moment: re-check before telling anyone anything.
+      checkBeforeEachEvent: true,
+      timings,
+      logger,
+      onClose: () => openStreams.release(user.id),
+    });
   });
 
   return router;

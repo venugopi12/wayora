@@ -169,7 +169,9 @@ out is 401).
 2. Each API instance keeps one `LISTEN` connection
    (`database/src/listen.ts`, reconnects with backoff) and forwards
    announcements to the streams following that booking
-   (`modules/trips/stream.ts`). No new infrastructure: it works across
+   (`modules/trips/stream.ts`, on the shared `services/signal-hub.ts` and
+   `services/signal-stream.ts`, also used by plan collaboration since
+   Phase 19). No new infrastructure: it works across
    instances and for changes made by any process.
 3. Messages carry ids only: `id: <seq>`, `event: trip-event`,
    `data: {"seq","reference"}`. The browser then re-reads the timeline,

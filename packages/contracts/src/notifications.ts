@@ -23,17 +23,35 @@ export const NOTIFICATION_TYPES = [
   'travel_reminder',
   /** A travel disruption reported, changed or resolved (Phase 17, docs/trips.md#notifications). */
   'trip_disruption',
+  // Trip planner collaboration (Phase 19, docs/planner.md#notifications).
+  /** You were invited to a plan. */
+  'plan_invitation',
+  /** Someone accepted your invitation. */
+  'plan_invitation_accepted',
+  /** Someone declined your invitation. */
+  'plan_invitation_declined',
+  /** Your role changed, you were removed, or a member left. */
+  'plan_member_changed',
+  /** A plan's dates or destination changed. */
+  'plan_updated',
 ] as const;
 export const notificationTypeSchema = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof notificationTypeSchema>;
 
 /** For icons and preferences: what the notification is about. */
-export const notificationCategorySchema = z.enum(['booking', 'payment', 'reminder', 'trip']);
+export const notificationCategorySchema = z.enum([
+  'booking',
+  'payment',
+  'reminder',
+  'trip',
+  'plan',
+]);
 export type NotificationCategory = z.infer<typeof notificationCategorySchema>;
 
 export function notificationCategory(type: NotificationType): NotificationCategory {
   if (type === 'travel_reminder') return 'reminder';
   if (type === 'trip_disruption') return 'trip';
+  if (type.startsWith('plan_')) return 'plan';
   return type.startsWith('payment_') ? 'payment' : 'booking';
 }
 
@@ -41,9 +59,10 @@ export const notificationIdSchema = z.uuid({ error: 'Not a valid notification id
 export const notificationParamsSchema = z.object({ notificationId: notificationIdSchema });
 
 /**
- * Where a notification leads. Only to the owner's own booking or payment
- * (the server builds it from the notification's own record; the pages check
- * ownership again).
+ * Where a notification leads: the recipient's own booking or payment, a plan
+ * they belong to, or an invitation addressed to them. The server builds it
+ * from the notification's own record (and drops it when the recipient no
+ * longer has access); the pages check access again.
  */
 export const notificationLinkSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('booking'), bookingReference: bookingReferenceSchema }),
@@ -52,6 +71,10 @@ export const notificationLinkSchema = z.discriminatedUnion('kind', [
     bookingReference: bookingReferenceSchema,
     paymentId: z.uuid(),
   }),
+  /** A plan the recipient can open (membership is checked again on the page). */
+  z.object({ kind: z.literal('plan'), tripId: z.uuid() }),
+  /** An invitation addressed to the recipient. */
+  z.object({ kind: z.literal('plan-invitation'), invitationId: z.uuid() }),
 ]);
 export type NotificationLink = z.infer<typeof notificationLinkSchema>;
 

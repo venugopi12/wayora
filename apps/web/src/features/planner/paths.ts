@@ -9,3 +9,6 @@ export const newPlanPath = (destinationId?: string) =>
   destinationId
     ? `${NEW_PLAN_PATH}?destination=${encodeURIComponent(destinationId)}`
     : NEW_PLAN_PATH;
+/** An invitation addressed to the signed-in user (Phase 19). */
+export const invitationPath = (id: string) =>
+  `${ACCOUNT_PATHS.plans}/invitations/${encodeURIComponent(id)}`;

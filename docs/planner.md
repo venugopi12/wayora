@@ -9,6 +9,12 @@ for; saving a plan never creates or changes a booking, and the planner lives
 under its own **Trip planner** entry (`/plans`), apart from **My trips**
 (`/trips`, the user's demo bookings).
 
+Phase 19 makes plans **collaborative**: the owner can invite other Wayora
+accounts as editors or viewers, members edit one shared itinerary with
+conflict detection, changes reach other members' open pages live, and every
+change is kept in a readable history. See [Collaboration](#collaboration).
+A plan nobody was invited to works exactly as before.
+
 What it is not, today:
 
 - **No live place data.** Suggestions come from a hand-written sample dataset
@@ -214,6 +220,199 @@ the plan shows the booking's reference, category, status and whether it's a
 demo. If the booking is later cancelled, the link stays and shows that status.
 Nothing in the planner creates bookings.
 
+## Collaboration
+
+### Roles and permissions
+
+A plan has exactly **one owner** — the account that created it
+(`planned_trips.user_id`) — and any number of **members**, each an
+**editor** or a **viewer**.
+
+| Action                                                     | Owner | Editor | Viewer |
+| ---------------------------------------------------------- | :---: | :----: | :----: |
+| See the plan, its itinerary, members, history, suggestions |   ✓   |   ✓    |   ✓    |
+| Add, edit, move, duplicate, delete and reorder activities  |   ✓   |   ✓    |        |
+| Edit title, dates, destination, notes and preferences      |   ✓   |   ✓    |        |
+| Invite people, withdraw invitations, change roles, remove  |   ✓   |        |        |
+| Link (or unlink) one of their own confirmed bookings       |   ✓   |        |        |
+| Delete the plan                                            |   ✓   |        |        |
+| Leave the plan                                             |       |   ✓    |   ✓    |
+
+- Access is resolved on **every request** from the database
+  (`modules/planner/access.ts`), never from the client. Someone who is
+  neither the owner nor a member gets the **same 404** as for a plan that
+  doesn't exist, so a plan id reveals nothing. A member whose role doesn't
+  allow an action gets 403.
+- The owner is **not** a member row: a database trigger refuses making the
+  owner a member or an invitee, and another refuses changing
+  `planned_trips.user_id`. So a plan always has exactly one owner, who can't
+  be demoted, removed or replaced — through the API or directly in SQL.
+  Ownership transfer isn't supported.
+- `owner` is not a valid role in any request body; role changes accept only
+  `editor` or `viewer`, and only from the owner. Nobody can promote
+  themselves.
+- Writes lock the plan row before checking access, and membership changes
+  lock it too, so a member removed a moment ago can't slip in a change: their
+  next request is refused (tested).
+- The owner's linked booking is the owner's own: members never see it.
+- Members see each other's **display names and initials only**, never email
+  addresses. The owner sees invitees' addresses **masked** (`a•••@example.com`).
+
+### Invitations
+
+- The owner invites an **existing, active Wayora account by email**, as
+  editor or viewer. Unknown addresses, inactive accounts, the owner, existing
+  members and people with an open invitation are refused with a clear
+  message. A plan can have up to 20 members and open invitations.
+- Delivery is **in-app only**: the invitee gets a notification and sees the
+  invitation under Trip planner. **No email is sent** — no email provider is
+  configured (see [notifications.md](notifications.md#delivery)), and the
+  page says so. The owner can also copy a link to the invitation
+  (`/plans/invitations/:id`), but the link grants nothing: only the invited
+  account, signed in, can open, accept or decline it. Anyone else gets 404.
+  There is **no bearer token** and no public "anyone with the link" access.
+- Lifecycle: `pending` → `accepted` | `declined` | `revoked` (owner
+  withdrew it) | `expired` (14 days). Expiry is applied when the invitation is
+  next touched (answering, inviting the same person again) and lists hide
+  expired ones. Any answered, withdrawn or expired invitation is closed:
+  answering it again is refused (`INVITATION_CLOSED`, 409).
+- At most one open invitation per person and plan (a partial unique index;
+  two simultaneous invitations create one, the other gets 409).
+- Accepting is atomic: it locks the plan, then the invitation, marks it
+  accepted and adds the membership in one transaction. Two simultaneous
+  accepts join once; accept and revoke racing settle one way.
+
+### Concurrent editing
+
+Optimistic concurrency, no merging. A write based on data that changed since
+the client read it is refused with `PLAN_OUT_OF_DATE` (409, with a
+`details[].path` naming the stale field), and nothing is overwritten:
+
+- **Plan details** carry `version` (Phase 18).
+- **Activities** carry their own `version`, bumped on every edit; an edit
+  must send the version it was based on.
+- **Reorders** send `previousOrder`; if the day's order changed since, the
+  reorder is refused. The list must still contain exactly that day's
+  activities.
+- A deleted activity answers 404 to anyone who still had it open.
+
+The web app explains the conflict ("Someone else changed this activity since
+you opened it"), keeps the user's dialog, and offers **Load the latest
+version**; a refused reorder puts back the server's order.
+Transactions, the plan-row lock and the deferrable position constraint keep
+the itinerary consistent under concurrent requests from several members
+(tested: two simultaneous edits of one version → exactly one succeeds).
+
+### Live updates
+
+Collaborators' open plan pages update **live** over Server-Sent Events,
+reusing the Phase 17 mechanism ([trips.md](trips.md#live-updates)), now
+shared code (`services/signal-hub.ts`, `services/signal-stream.ts`):
+
+1. Every history row (one per change) is announced by a database trigger:
+   `pg_notify('wayora_planner_activity', {tripId, seq: revision})`, on commit.
+2. Each API instance LISTENs once and forwards announcements to streams
+   following that plan: `GET /planner/trips/:tripId/events` (session cookie;
+   members only; at most 5 open streams per user per instance).
+3. Messages carry the new **revision only** (`event: plan-changed`). The
+   browser re-reads the plan, members and history through the normal
+   endpoints, so repeated or missed messages can't duplicate or lose
+   anything; announcements not newer than what the page shows are ignored.
+4. Before each message the stream re-checks that the user is still a member
+   (and fails closed if it can't tell), and every minute re-checks the
+   session. A removed member's stream ends (`event: end`,
+   `access-ended`); so does a signed-out one.
+5. Reconnects send `Last-Event-ID` and get anything newer at once; a safety
+   re-read runs every 30 s; streams end after 30 minutes and reconnect
+   (re-authenticated).
+6. If the stream can't be used (no `EventSource`, or three failures), the page
+   **polls every 30 s while visible**, and says so. Streams and timers are
+   closed when the page unmounts.
+
+Only **shared** plans (with members) open a stream; personal plans don't.
+
+### Activity history
+
+`planner_activities` keeps one row per change: the actor, the type, safe
+details (ids, roles, changed field names, activity titles and days — no email
+addresses, tokens or free-text notes) and the time. `revision` is the plan's
+revision after the change and is unique per plan, so each change is recorded
+**exactly once**; an idempotent retry that replays a stored outcome records
+nothing (tested). The table is append-only (a trigger refuses rewrites).
+
+Recorded: details updated (with the changed fields), activity added /
+updated / moved / duplicated / deleted, day reordered, member invited,
+invitation accepted / declined / withdrawn, role changed, member removed,
+member left. Members read it newest first, paged
+(`GET …/activity?before=&limit=`), as sentences written by Wayora ("You
+moved “Fort Aguada” to another day", "Asha made Ravi an editor"), with a
+"Show day" link where one applies. It is separate from the booking timeline
+(Phase 17): plan edits never appear on a booking.
+
+### Notifications
+
+In-app notifications through the existing system (unread count, bell,
+`/notifications`), each with a unique dedupe key, so a retry never notifies
+twice:
+
+| Type                       | Who                       | When                                              |
+| -------------------------- | ------------------------- | ------------------------------------------------- |
+| `plan_invitation`          | The invitee               | Invited (links to the invitation)                 |
+| `plan_invitation_accepted` | The owner                 | Accepted (links to the plan)                      |
+| `plan_invitation_declined` | The owner                 | Declined                                          |
+| `plan_member_changed`      | The member / the owner    | Role changed, removed (no link), or a member left |
+| `plan_updated`             | Everyone else on the plan | Dates or destination changed                      |
+
+Ordinary itinerary edits don't notify anyone (too noisy): they show live and
+in the history. Planner notifications are **in-app only** — no email delivery
+rows are created, so nothing is ever reported as emailed. Links are built by
+the server and dropped when the recipient can no longer open the plan.
+
+### Collaboration API
+
+| Method | Path                                                            | Who                                    |
+| ------ | --------------------------------------------------------------- | -------------------------------------- |
+| GET    | `/api/v1/planner/trips/:tripId/members`                         | Members (open invitations: owner only) |
+| POST   | `/api/v1/planner/trips/:tripId/invitations`                     | Owner; `{ email, role }`; 201          |
+| DELETE | `/api/v1/planner/trips/:tripId/invitations/:invitationId`       | Owner (withdraw)                       |
+| PATCH  | `/api/v1/planner/trips/:tripId/members/:memberId`               | Owner; `{ role: editor \| viewer }`    |
+| DELETE | `/api/v1/planner/trips/:tripId/members/:memberId`               | Owner (remove) or the member (leave)   |
+| GET    | `/api/v1/planner/trips/:tripId/activity?before=&limit=`         | Members                                |
+| GET    | `/api/v1/planner/trips/:tripId/events`                          | Members (Server-Sent Events)           |
+| GET    | `/api/v1/planner/invitations?status=pending\|all`               | Your own invitations                   |
+| GET    | `/api/v1/planner/invitations/:invitationId`                     | The invitee only                       |
+| POST   | `/api/v1/planner/invitations/:invitationId/accept` · `/decline` | The invitee only                       |
+
+Plan list and plan responses now include `access` (`role`, `canEdit`,
+`canManage`), the `owner`'s display name, `memberCount` and `revision`;
+activities include `version` and `addedBy`. Bodies are strict (unknown
+fields refused). Writes need a trusted `Origin` and count against
+`PLANNER_RATE_LIMIT_MAX`; sending invitations is also limited per user per
+hour (`PLANNER_INVITE_RATE_LIMIT_MAX`). Error codes: `NOT_FOUND` (no access),
+`FORBIDDEN` (role), `PLAN_OUT_OF_DATE`, `PLAN_LIMIT_REACHED`, `CONFLICT`
+(already a member / already invited), `INVITATION_CLOSED`.
+
+### Collaboration data model
+
+Migration `20261028000000_plan_collaboration` (additive):
+
+- `trip_members` (`trip_id`, `user_id`, `role`, `invited_by_id`,
+  `joined_at`; unique `(trip_id, user_id)`; trigger keeping the owner out).
+- `trip_invitations` (`trip_id`, `invitee_id`, `invited_by_id`, `role`,
+  `status`, `expires_at`, `responded_at`; partial unique index: one
+  `PENDING` per `(trip_id, invitee_id)`; CHECKs: answered exactly when
+  accepted/declined/revoked, expiry after creation; trigger keeping the
+  owner out).
+- `planner_activities` (`trip_id`, `revision`, `actor_id`, `type`, `data`;
+  unique `(trip_id, revision)`; append-only and announce triggers).
+- `planned_trips.revision`, `itinerary_items.version` and
+  `itinerary_items.created_by_id`; `notifications.planned_trip_id` and
+  `notifications.trip_invitation_id`; five `notification_type` values.
+- Trigger `planned_trips_owner_fixed_check`: the owner can't change.
+
+Deleting a plan deletes its members, invitations and history; its
+notifications stay, without a link.
+
 ## Web
 
 - `/plans` — the user's plans (loading, empty, error states; pagination).
@@ -243,14 +442,25 @@ Nothing in the planner creates bookings.
   keep their unsaved state until the user confirms discarding it.
 - Requests are cancelled when their component unmounts (React Query signals);
   timers are cleared.
+- **Collaboration (Phase 19):** the plan header shows the owner, member
+  avatars, your role and the live-update state (in text). **Share** (owner) /
+  **Members** opens the member list: roles as badges, a role selector and
+  **Remove** for the owner, **Leave plan** for members, open invitations with
+  **Withdraw**, and the invite form. Destructive actions confirm first.
+  **History** lists changes newest first. Viewers see no edit controls
+  (the API refuses their writes regardless). `/plans` lists invitations
+  waiting for you with **Accept** / **Decline**; each invitation also has its
+  own page, `/plans/invitations/:id`.
 
 ## Configuration
 
-| Variable                 | Default | Meaning                                  |
-| ------------------------ | ------- | ---------------------------------------- |
-| `PLANNER_RATE_LIMIT_MAX` | 120     | Planner writes per signed-in user/minute |
+| Variable                        | Default | Meaning                                        |
+| ------------------------------- | ------- | ---------------------------------------------- |
+| `PLANNER_RATE_LIMIT_MAX`        | 120     | Planner writes per signed-in user/minute       |
+| `PLANNER_INVITE_RATE_LIMIT_MAX` | 30      | Invitations sent per signed-in user/hour (P19) |
 
-No other variables: there is no external provider to configure.
+No other variables: there is no external provider to configure, and live
+updates reuse the API's existing database connection settings.
 
 ## Migration
 
@@ -276,6 +486,41 @@ COMMIT;
 This deletes every plan. Then deploy the Phase 17 API and web. Tested:
 rollback leaves the Phase 17 schema, and re-applying works.
 
+### Rollback (Phase 19)
+
+`20261028000000_plan_collaboration` is additive. To remove it (members,
+invitations and history are lost; plans and itineraries stay):
+
+```sql
+BEGIN;
+-- The Phase 18 code doesn't know these notification types.
+DELETE FROM "notifications" WHERE "type" IN ('PLAN_INVITATION', 'PLAN_INVITATION_ACCEPTED',
+  'PLAN_INVITATION_DECLINED', 'PLAN_MEMBER_CHANGED', 'PLAN_UPDATED');
+ALTER TABLE "notifications" DROP COLUMN IF EXISTS "trip_invitation_id",
+  DROP COLUMN IF EXISTS "planned_trip_id";
+DROP TABLE IF EXISTS "planner_activities";
+DROP TABLE IF EXISTS "trip_invitations";
+DROP TABLE IF EXISTS "trip_members";
+DROP TRIGGER IF EXISTS "planned_trips_owner_fixed_check" ON "planned_trips";
+DROP FUNCTION IF EXISTS "planned_trips_owner_fixed"();
+DROP FUNCTION IF EXISTS "trip_members_not_owner"();
+DROP FUNCTION IF EXISTS "planner_activities_append_only"();
+DROP FUNCTION IF EXISTS "planner_activities_announce"();
+ALTER TABLE "itinerary_items" DROP COLUMN IF EXISTS "created_by_id",
+  DROP COLUMN IF EXISTS "version";
+ALTER TABLE "planned_trips" DROP COLUMN IF EXISTS "revision";
+DROP TYPE IF EXISTS "planner_activity_type";
+DROP TYPE IF EXISTS "trip_invitation_status";
+DROP TYPE IF EXISTS "trip_member_role";
+DELETE FROM "_prisma_migrations" WHERE "migration_name" = '20261028000000_plan_collaboration';
+COMMIT;
+```
+
+PostgreSQL can't remove enum values: the five `PLAN_*` values stay in
+`notification_type`, unused. Then deploy the Phase 18 API and web. Tested:
+apart from those enum values, rollback leaves the Phase 18 schema, and
+re-applying works.
+
 ## Tests
 
 ```bash
@@ -286,7 +531,31 @@ npm test -w @wayora/api -- planner-unit
 TEST_DATABASE_URL=postgresql://…/wayora_test npm test -w @wayora/api -- integration/planner
 # Web: list, create, plan page, reordering, suggestions, dialogs
 npm test -w @wayora/web -- planner
+# Collaboration (Phase 19): unit, integration (PostgreSQL), web
+npm test -w @wayora/api -- planner-collaboration-unit
+TEST_DATABASE_URL=postgresql://…/wayora_test npm test -w @wayora/api -- integration/planner-collaboration
+npm test -w @wayora/web -- planner-collaboration
 ```
+
+The collaboration suites cover: personal plans unchanged; inviting,
+accepting and joining with the role; unknown, inactive, own, existing and
+already-invited recipients; simultaneous duplicate invitations; declined,
+withdrawn and expired invitations can't be used; only the recipient sees or
+answers an invitation and only the owner sends or withdraws one;
+simultaneous accepts join once; editor, viewer and stranger permissions on
+every endpoint; role changes (and attempts to become owner); removal taking
+effect at once, leaving, and the owner never removable; the database's
+one-owner rules; the linked booking hidden from members; stale activity,
+detail and reorder edits refused, two simultaneous edits → one wins, edits of
+deleted activities; history (who, what, paging, members only, once per
+change, retries record nothing); notifications (once, and not for minor
+edits); the invitation rate limit; live updates over real LISTEN/NOTIFY to
+members only, ending when access ends, `Last-Event-ID` catch-up without
+repeats. The web suite covers viewer/editor/owner controls, inviting (with
+the in-app wording), role changes, removal and leaving with confirmation,
+invitation pages and states, notification links, conflict messages and
+reloading, the history, live re-reads (ignoring repeats), the polling
+fallback and its cleanup, and no stream for personal plans.
 
 The integration suite covers: creation and every date rule (end before start,
 over 30 days, past, too far ahead, impossible dates), strict bodies (no
@@ -314,4 +583,15 @@ the write rate limit.
 - Preferences are per plan, not account-wide defaults.
 - Times are wall-clock and have no time zone of their own; a trip that
   crosses time zones (e.g. a multi-city plan) is treated as one destination.
-- Plans can't be shared with other people.
+- Collaboration: invitations reach existing Wayora accounts only, in-app
+  (no email provider exists). Inviting by email tells the owner whether an
+  address has an account (and its display name) — limited by the invitation
+  rate limit, and registration already reveals as much.
+- No ownership transfer; the owner can't leave their own plan (they can
+  delete it).
+- Conflicts are refused, not merged: the second editor reloads and redoes
+  their change.
+- Live updates need the API's LISTEN connection; open-stream caps are per
+  API instance. Without a stream the page polls every 30 s.
+- Expired invitations are marked expired when next touched (no background
+  sweep); they are hidden and unusable either way.
