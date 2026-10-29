@@ -19,6 +19,11 @@ Phase 20 adds a **budget and shared expenses** to each plan: a budget,
 expenses with exact splits, balances and settlement suggestions — without
 moving any money. See [Budget and expenses](#budget-and-expenses).
 
+Phase 21 adds a **travel assistant** that can propose itineraries, activities,
+budgets and calmer schedules for a plan; nothing is applied without the user's
+confirmation, through the same planner and budget rules. See
+[assistant.md](assistant.md).
+
 What it is not, today:
 
 - **No live place data.** Suggestions come from a hand-written sample dataset

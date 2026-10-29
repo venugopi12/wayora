@@ -65,6 +65,15 @@ export const apiErrorCodeSchema = z.enum([
   'PLAN_LIMIT_REACHED',
   /** The invitation was already answered, revoked or has expired (Phase 19). */
   'INVITATION_CLOSED',
+  // Travel assistant (docs/assistant.md#errors).
+  /** No assistant provider is configured, or it failed or gave an unusable answer. Retry later. */
+  'ASSISTANT_UNAVAILABLE',
+  /** The assistant provider didn't answer in time. Safe to retry. */
+  'ASSISTANT_TIMEOUT',
+  /** A reply is already being prepared in this conversation. Wait for it. */
+  'ASSISTANT_BUSY',
+  /** Too many conversations, or the conversation is full: delete one or start a new one. */
+  'ASSISTANT_LIMIT_REACHED',
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

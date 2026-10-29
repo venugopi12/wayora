@@ -1,6 +1,10 @@
 import { Router, type RequestHandler } from 'express';
 import { adminRouter, type AdminRouterOptions } from '../modules/admin/admin.routes.js';
 import { tripsRouter, type TripsRouterOptions } from '../modules/trips/trips.routes.js';
+import {
+  assistantRouter,
+  type AssistantRouterOptions,
+} from '../modules/assistant/assistant.routes.js';
 import { authRouter, type AuthRouterOptions } from '../modules/auth/auth.routes.js';
 import { bookingsRouter } from '../modules/bookings/bookings.routes.js';
 import type { BookingsService } from '../modules/bookings/bookings.service.js';
@@ -45,6 +49,8 @@ export interface AccountsRouterOptions {
   trips: TripsRouterOptions;
   /** Trip planner (Phase 18) and plan collaboration (Phase 19), docs/planner.md. */
   planner: PlannerRouterOptions;
+  /** Travel assistant (Phase 21), docs/assistant.md. */
+  assistant: AssistantRouterOptions;
   logger: Logger;
 }
 
@@ -79,6 +85,7 @@ export function v1Router(options: V1RouterOptions): Router {
       admin,
       trips,
       planner,
+      assistant,
       logger,
     } = options.accounts;
     router.use('/auth', loadSession, authRouter(auth));
@@ -102,6 +109,7 @@ export function v1Router(options: V1RouterOptions): Router {
       notificationsRouter(notifications, notificationLimiter),
     );
     router.use('/planner', loadSession, plannerRouter(planner));
+    router.use('/assistant', loadSession, assistantRouter(assistant));
     router.use('/admin', loadSession, adminRouter(admin));
     // Signed provider webhooks: no session; only providers that verify signatures.
     router.use('/payment-events', paymentEventsRouter(payments, logger));

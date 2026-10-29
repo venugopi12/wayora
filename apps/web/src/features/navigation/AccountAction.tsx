@@ -5,6 +5,7 @@ import {
   LogOut,
   Luggage,
   ShieldCheck,
+  Sparkles,
   UserRound,
   Users,
 } from 'lucide-react';
@@ -77,6 +78,12 @@ function AccountMenu({ tone }: { tone: HeaderTone }) {
           onSelect={() => void navigate(ACCOUNT_PATHS.plans)}
         >
           Trip planner
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          icon={<Sparkles />}
+          onSelect={() => void navigate(ACCOUNT_PATHS.assistant)}
+        >
+          Travel assistant
         </DropdownMenuItem>
         <DropdownMenuItem
           icon={<Bell />}

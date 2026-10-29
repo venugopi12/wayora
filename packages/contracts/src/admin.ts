@@ -479,6 +479,15 @@ export const adminHealthSchema = z.object({
     /** Bookings whose latest status check failed within the last hour. */
     failedChecksLastHour: z.number().int().nullable(),
   }),
+  /** Travel assistant provider (Phase 21, docs/assistant.md). No network check: it would cost money. */
+  assistant: z.object({
+    status: adminCheckStatusSchema,
+    providerName: z.string().nullable(),
+    /** The rule-based demo assistant, not AI. */
+    simulated: z.boolean(),
+    /** Provider calls that failed (error, timeout, unusable answer) in the last hour. */
+    failedRequestsLastHour: z.number().int().nullable(),
+  }),
 });
 export type AdminHealth = z.infer<typeof adminHealthSchema>;
 

@@ -59,6 +59,8 @@ const account = () => import('../features/account/routes');
 const bookings = () => import('../features/bookings/routes');
 /** Trip planner (Phase 18): plan list, new plan and plan pages share one chunk. */
 const planner = () => import('../features/planner/routes');
+/** Travel assistant (Phase 21): its own chunk. */
+const assistant = () => import('../features/assistant/routes');
 /** Notifications page (Phase 14). */
 const notifications = () => import('../features/notifications/routes');
 /** Admin dashboard (Phase 15): its layout and pages are one chunk, never loaded by customers. */
@@ -111,6 +113,7 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *         │     /trips/:reference/pay, /trips/:reference/payments/:paymentId (demo payments),
  *         │     /notifications, /plans, /plans/new, /plans/:tripId (trip planner),
  *         │     /plans/:tripId/budget (budget and expenses),
+ *         │     /assistant, /assistant/:conversationId (travel assistant),
  *         │     /plans/invitations/:invitationId (plan invitations)
  *         └─ *                 not-found page
  *
@@ -223,6 +226,14 @@ export function createRoutes({
                     {
                       path: `${ACCOUNT_PATHS.plans.slice(1)}/:tripId/budget`,
                       lazy: async () => ({ Component: (await planner()).BudgetRoute }),
+                    },
+                    {
+                      path: ACCOUNT_PATHS.assistant.slice(1),
+                      lazy: async () => ({ Component: (await assistant()).AssistantRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.assistant.slice(1)}/:conversationId`,
+                      lazy: async () => ({ Component: (await assistant()).AssistantRoute }),
                     },
                     {
                       path: 'book/:serviceType/:resultId',

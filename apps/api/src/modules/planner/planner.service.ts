@@ -69,6 +69,17 @@ type Tx = Prisma.TransactionClient;
 type UpdateTrip = z.output<typeof updatePlannedTripSchema>;
 type CreateItem = z.output<typeof createItineraryItemSchema>;
 type UpdateItem = z.output<typeof updateItineraryItemSchema>;
+/** An activity to add in a batch (travel assistant); same fields as one added by hand. */
+export interface NewItem {
+  day: string;
+  title: string;
+  category: CreateItem['category'];
+  startTime?: string | null;
+  durationMinutes?: number | null;
+  location?: string | null;
+  notes?: string | null;
+  suggestionId?: string | null;
+}
 
 const ITEM_NOT_FOUND =
   'This activity doesn’t exist in this plan. It may have been deleted by another member.';
@@ -200,35 +211,80 @@ export class PlannerService {
         this.checkDates(input.startDate, input.endDate, null);
         const destination = this.resolveDestination(input.destinationId, input.destinationName);
         return this.prisma.$transaction(async (tx) => {
-          // Serialize this user's trip creations so the per-account limit holds.
-          await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
-          const count = await tx.plannedTrip.count({ where: { userId } });
-          if (count >= PLANNER_LIMITS.maxTrips) {
-            throw new AppError(
-              'PLAN_LIMIT_REACHED',
-              `You can keep up to ${PLANNER_LIMITS.maxTrips} planned trips. Delete one you no longer need first.`,
-            );
-          }
-          const trip = await tx.plannedTrip.create({
-            data: {
-              userId,
-              title: input.title,
-              ...destination,
-              startDate: toDbDate(input.startDate),
-              endDate: toDbDate(input.endDate),
-              notes: input.notes ?? null,
-              ...toDbPreferences(
-                input.preferences ?? { pace: null, budget: null, group: null, interests: [] },
-              ),
-            },
-            select: { id: true },
-          });
-          await complete(tx, trip.id);
-          return trip.id;
+          const id = await this.insertTrip(tx, userId, input, destination);
+          await complete(tx, id);
+          return id;
         });
       },
     );
     return { trip: await this.get(userId, result.id), replayed: result.replayed };
+  }
+
+  /**
+   * Creates a plan and its first activities in one transaction (the travel
+   * assistant's "create a plan from this proposal", docs/assistant.md). The
+   * same date, destination, limit and activity rules as creating them one by
+   * one; nothing is created unless everything is valid.
+   */
+  async createWithItems(
+    userId: string,
+    input: CreatePlannedTrip,
+    items: readonly NewItem[],
+    key: string,
+  ): Promise<WriteResult> {
+    const result = await this.idempotent(
+      {
+        operation: 'planner-trip-with-items',
+        userId,
+        key,
+        payload: { input, items },
+        messages: TRIP_MESSAGES,
+      },
+      async (complete) => {
+        this.checkDates(input.startDate, input.endDate, null);
+        const destination = this.resolveDestination(input.destinationId, input.destinationName);
+        return this.prisma.$transaction(async (tx) => {
+          const id = await this.insertTrip(tx, userId, input, destination);
+          const trip = await this.lockTrip(tx, userId, id, 'edit');
+          await this.insertItems(tx, userId, trip, items);
+          await complete(tx, id);
+          return id;
+        });
+      },
+    );
+    return { trip: await this.get(userId, result.id), replayed: result.replayed };
+  }
+
+  private async insertTrip(
+    tx: Tx,
+    userId: string,
+    input: CreatePlannedTrip,
+    destination: { destinationId: string | null; destinationName: string },
+  ): Promise<string> {
+    // Serialize this user's trip creations so the per-account limit holds.
+    await tx.$queryRaw`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
+    const count = await tx.plannedTrip.count({ where: { userId } });
+    if (count >= PLANNER_LIMITS.maxTrips) {
+      throw new AppError(
+        'PLAN_LIMIT_REACHED',
+        `You can keep up to ${PLANNER_LIMITS.maxTrips} planned trips. Delete one you no longer need first.`,
+      );
+    }
+    const trip = await tx.plannedTrip.create({
+      data: {
+        userId,
+        title: input.title,
+        ...destination,
+        startDate: toDbDate(input.startDate),
+        endDate: toDbDate(input.endDate),
+        notes: input.notes ?? null,
+        ...toDbPreferences(
+          input.preferences ?? { pace: null, budget: null, group: null, interests: [] },
+        ),
+      },
+      select: { id: true },
+    });
+    return trip.id;
   }
 
   async update(userId: string, tripId: string, input: UpdateTrip): Promise<PlannedTripDto> {
@@ -402,6 +458,99 @@ export class PlannerService {
         }),
     );
     return { trip: await this.get(userId, tripId), replayed: result.replayed };
+  }
+
+  /**
+   * Adds several activities in one transaction (the travel assistant's
+   * "add to plan", docs/assistant.md): all or nothing, each checked like
+   * `addItem` (edit access, day within the dates, per-day and per-trip
+   * limits). Existing activities are never changed or removed. A curated
+   * suggestion id is kept only when it belongs to this plan's destination
+   * and isn't planned yet; otherwise the activity is added as the user's own.
+   */
+  async addItems(
+    userId: string,
+    tripId: string,
+    items: readonly NewItem[],
+    key: string,
+  ): Promise<WriteResult> {
+    const result = await this.idempotent(
+      {
+        operation: 'planner-items',
+        userId,
+        key,
+        payload: { tripId, items },
+        messages: ITEM_MESSAGES,
+      },
+      (complete) =>
+        this.prisma.$transaction(async (tx) => {
+          const trip = await this.lockTrip(tx, userId, tripId, 'edit');
+          await this.insertItems(tx, userId, trip, items);
+          await complete(tx, tripId);
+          return tripId;
+        }),
+    );
+    return { trip: await this.get(userId, tripId), replayed: result.replayed };
+  }
+
+  private async insertItems(
+    tx: Tx,
+    userId: string,
+    trip: LockedTrip,
+    items: readonly NewItem[],
+  ): Promise<void> {
+    if (items.length === 0) throw validation('body.selected', 'Choose at least one activity.');
+    const planned = new Set(
+      (
+        await tx.itineraryItem.findMany({
+          where: { tripId: trip.id, suggestionId: { not: null } },
+          select: { suggestionId: true },
+        })
+      ).map((i) => i.suggestionId),
+    );
+    for (const [index, input] of items.entries()) {
+      this.checkDayInTrip(trip, input.day, `body.selected.${index}`);
+      let suggestionId: string | null = null;
+      if (
+        input.suggestionId &&
+        catalogActivity(input.suggestionId) &&
+        input.suggestionId.startsWith(`${trip.destinationId ?? ''}:`) &&
+        !planned.has(input.suggestionId)
+      ) {
+        suggestionId = input.suggestionId;
+        planned.add(suggestionId);
+      }
+      const position = await this.checkCapacity(tx, trip.id, input.day);
+      const item = await tx.itineraryItem.create({
+        data: {
+          tripId: trip.id,
+          day: toDbDate(input.day),
+          position,
+          title: input.title,
+          category: toDbCategory(input.category),
+          startMinute: input.startTime ? parseLocalTime(input.startTime) : null,
+          durationMinutes: input.durationMinutes ?? null,
+          location: input.location ?? null,
+          notes: input.notes ?? null,
+          suggestionId,
+          createdById: userId,
+        },
+        select: { id: true },
+      });
+      await recordActivity(tx, {
+        tripId: trip.id,
+        actorId: userId,
+        type: 'ITEM_ADDED',
+        data: {
+          itemId: item.id,
+          title: input.title,
+          day: input.day,
+          fromSuggestion: Boolean(suggestionId),
+          fromAssistant: true,
+        },
+        now: this.now(),
+      });
+    }
   }
 
   async updateItem(

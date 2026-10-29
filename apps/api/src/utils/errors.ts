@@ -36,6 +36,11 @@ const DEFAULT_STATUS: Record<ApiErrorCode, number> = {
   PLAN_OUT_OF_DATE: 409,
   PLAN_LIMIT_REACHED: 409,
   INVITATION_CLOSED: 409,
+  // Travel assistant (docs/assistant.md#errors).
+  ASSISTANT_UNAVAILABLE: 503,
+  ASSISTANT_TIMEOUT: 504,
+  ASSISTANT_BUSY: 409,
+  ASSISTANT_LIMIT_REACHED: 409,
 };
 
 /**

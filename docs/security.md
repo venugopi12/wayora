@@ -365,6 +365,31 @@ Details: [planner.md](planner.md#budget-and-expenses).
 - Notes are visible to plan members but never logged or copied into the
   history. Members see display names only.
 
+### Travel assistant (Phase 21)
+
+Details: [assistant.md](assistant.md).
+
+- Provider credentials (`AI_API_KEY`) exist only in the API process: a true
+  private field in the adapter, redacted from logs, never in responses,
+  errors or `VITE_*` variables. Configuration errors name variables only.
+- Conversations belong to one user (404 for anyone else); a conversation
+  about a plan needs current view access on every request, and removal
+  takes effect at once.
+- Context sent to a provider is minimal and built server-side after the
+  access check: no names, emails, ids, notes, expense details, booking
+  references, payment data or tokens.
+- Prompt injection: user-written content is sent as escaped JSON data,
+  separate from the rules; the model can only return contract block types,
+  refers to activities by opaque references, and cannot change anything.
+- Model output is validated block by block and rendered as text, never HTML.
+- Changes require a separate request with `confirm: true`, an
+  Idempotency-Key and the user's normal role (viewers can't), through the
+  planner/budget services with their version checks. No booking, payment,
+  refund, settlement or provider action is reachable from the assistant.
+- Abuse and cost: per-user per-minute and 24-hour limits, one reply at a
+  time per conversation, bounded input/output, one overall timeout, bounded
+  transient-only retries. Prompts and outputs are never logged or stored.
+
 ## Planned approach for later phases
 
 ### Authentication extensions

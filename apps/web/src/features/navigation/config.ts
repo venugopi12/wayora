@@ -71,6 +71,8 @@ export const ACCOUNT_PATHS = {
   notifications: '/notifications',
   /** Trip planner: planned trips and itineraries, distinct from bookings (Phase 18). */
   plans: '/plans',
+  /** Travel assistant: conversations and proposals (Phase 21). */
+  assistant: '/assistant',
 } as const satisfies Record<string, AppPath>;
 
 export const SIGN_IN_PATH: AppPath = ACCOUNT_PATHS.login;

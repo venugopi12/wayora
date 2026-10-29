@@ -192,7 +192,14 @@ expenses: `plan_budgets`, `plan_category_budgets`, `plan_expenses`,
 units, balanced by deferred constraint triggers) and `plan_settlements`
 (payments members record as made outside Wayora); balances and settlement
 suggestions are computed by the API from those rows, per currency, with no
-conversion. See [planner.md](planner.md#budget-and-expenses).
+conversion. See [planner.md](planner.md#budget-and-expenses). Phase 21 added the travel assistant
+(`modules/assistant`): a small server-side provider interface (the
+rule-based demo, an Anthropic Messages API adapter, or off), context built
+from authorized plan data only, validated structured replies, and a fixed set
+of confirmed apply actions that go through the planner and budget services;
+`assistant_conversations`, `assistant_messages`, `assistant_requests` and
+`assistant_actions` hold what users saw, provider outcomes and applied
+proposals. See [assistant.md](assistant.md).
 
 ### Conventions
 
@@ -289,7 +296,7 @@ src/
   A metric-matched local fallback (`Plus Jakarta Sans Fallback` in
   `packages/ui/src/styles/base.css`) keeps text from rewrapping when the font
   swaps in.
-- **Routes:** `/` (cinematic homepage, header overlay), `/status` (API readiness), `/discover` (filters in the URL: `?q`, `?mood`, `?region`; old `?destination=` links redirect), `/discover/:slug` (destination pages), `/about`, `/help`, `/legal/privacy` and `/legal/terms` (draft placeholders), `/login` and `/register` (auth layout; `/sign-in` redirects), `/profile` and `/profile/travellers` (signed in only), one route per travel service (`/flights` … `/holidays`, search and results pages since Phases 9–10, see [search.md](search.md); `?to=<destination>` prefills the destination), `/offers/:serviceType/:resultId` (offer details), `/book/:serviceType/:resultId` (demo checkout), `/trips`, `/trips/:reference` and `/trips/:reference/confirmation` (demo bookings, signed in only, see [bookings.md](bookings.md)), `/trips/:reference/pay` and `/trips/:reference/payments/:paymentId` (demo payments, see [payments.md](payments.md)), `/notifications` (see [notifications.md](notifications.md)), `/plans`, `/plans/new`, `/plans/:tripId`, `/plans/:tripId/budget` and `/plans/invitations/:invitationId` (trip planner, plan budget and expenses, and plan invitations, signed in only, see [planner.md](planner.md)), `/admin…` (staff-only dashboard in its own layout, see [admin.md](admin.md)), dev-only `/design-system`, and a not-found fallback. Layouts, route handles, containers, breadcrumbs and the footer: see [layouts.md](layouts.md).
+- **Routes:** `/` (cinematic homepage, header overlay), `/status` (API readiness), `/discover` (filters in the URL: `?q`, `?mood`, `?region`; old `?destination=` links redirect), `/discover/:slug` (destination pages), `/about`, `/help`, `/legal/privacy` and `/legal/terms` (draft placeholders), `/login` and `/register` (auth layout; `/sign-in` redirects), `/profile` and `/profile/travellers` (signed in only), one route per travel service (`/flights` … `/holidays`, search and results pages since Phases 9–10, see [search.md](search.md); `?to=<destination>` prefills the destination), `/offers/:serviceType/:resultId` (offer details), `/book/:serviceType/:resultId` (demo checkout), `/trips`, `/trips/:reference` and `/trips/:reference/confirmation` (demo bookings, signed in only, see [bookings.md](bookings.md)), `/trips/:reference/pay` and `/trips/:reference/payments/:paymentId` (demo payments, see [payments.md](payments.md)), `/notifications` (see [notifications.md](notifications.md)), `/plans`, `/plans/new`, `/plans/:tripId`, `/plans/:tripId/budget` and `/plans/invitations/:invitationId` (trip planner, plan budget and expenses, and plan invitations, signed in only, see [planner.md](planner.md)), `/assistant` and `/assistant/:conversationId` (travel assistant, signed in only, see [assistant.md](assistant.md)), `/admin…` (staff-only dashboard in its own layout, see [admin.md](admin.md)), dev-only `/design-system`, and a not-found fallback. Layouts, route handles, containers, breadcrumbs and the footer: see [layouts.md](layouts.md).
 - **Code splitting:** the homepage, not-found page and error boundary ship in the
   main bundle. `/status`, `/discover`, `/discover/:slug`, `/sign-in`, the info
   and legal pages and the seven service pages load on first visit through React

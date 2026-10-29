@@ -1,0 +1,1 @@
+export { AssistantRoute } from './AssistantPage';

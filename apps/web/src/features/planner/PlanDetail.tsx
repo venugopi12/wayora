@@ -16,6 +16,7 @@ import {
   Plus,
   RotateCw,
   SearchX,
+  Sparkles,
   Trash2,
   TriangleAlert,
   Users,
@@ -72,6 +73,7 @@ import { bookingKeys } from '../bookings/keys';
 import { tripPath } from '../bookings/paths';
 import { serviceBySlug } from '../navigation/config';
 import { ActivityDialog } from './ActivityDialog';
+import { assistantForPlanPath } from '../assistant/paths';
 import { PlanBudgetCard } from './budget/PlanBudgetCard';
 import { HistorySheet } from './history';
 import { usePlanLiveUpdates } from './live';
@@ -553,6 +555,12 @@ function PlanView({ trip }: { trip: PlannedTrip }) {
             <Button variant="ghost" onClick={() => setHistoryOpen(true)}>
               <History aria-hidden="true" />
               History
+            </Button>
+            <Button asChild variant="ghost">
+              <Link to={assistantForPlanPath(trip.id)}>
+                <Sparkles aria-hidden="true" />
+                Ask the assistant
+              </Link>
             </Button>
             {canEdit ? (
               <Button variant="secondary" onClick={() => setEditing(true)}>

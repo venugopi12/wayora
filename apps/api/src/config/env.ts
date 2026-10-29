@@ -168,6 +168,31 @@ export const envSchema = z.object({
   SEARCH_PROVIDER_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(4).default(2),
   /** Base delay for exponential backoff with full jitter between attempts. */
   SEARCH_PROVIDER_RETRY_BASE_MS: z.coerce.number().int().min(0).max(2_000).default(200),
+  // Travel assistant (Phase 21, docs/assistant.md#configuration).
+  /**
+   * Who answers: `demo` (Wayora's rule-based demo assistant, not AI; no
+   * network), `anthropic` (a language model through the Anthropic Messages
+   * API; needs AI_API_KEY and AI_MODEL) or `none` (assistant off; the rest of
+   * Wayora works as usual). Unset: `demo` in development and test, `none` in
+   * production.
+   */
+  AI_PROVIDER: z.preprocess(emptyToUndefined, z.enum(['none', 'demo', 'anthropic']).optional()),
+  /** Provider API key. Server-side only; never logged, returned or sent to the browser. */
+  AI_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /** The provider's model id. Required for a live provider: no model is assumed. */
+  AI_MODEL: z.preprocess(emptyToUndefined, z.string().min(1).max(120).optional()),
+  /** Override the provider's API origin (e.g. a gateway). */
+  AI_BASE_URL: z.preprocess(emptyToUndefined, httpUrl('AI_BASE_URL').optional()),
+  /** Overall time budget for one reply, retries included. */
+  AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(45_000).default(25_000),
+  /** Attempts per reply (1 = no retry). Only rate-limit, overload and network errors are retried. */
+  AI_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(3).default(2),
+  /** Upper bound on the provider's output per reply. */
+  AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(8192).default(2048),
+  /** Assistant requests per signed-in user per minute. */
+  AI_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(6),
+  /** Assistant requests per signed-in user per 24 hours (cost cap). */
+  AI_DAILY_REQUEST_LIMIT: z.coerce.number().int().min(1).max(10_000).default(50),
   /** Consecutive failed calls that open a provider's circuit breaker. */
   SEARCH_BREAKER_FAILURE_THRESHOLD: z.coerce.number().int().min(1).max(100).default(5),
   /** How long an open breaker skips the provider before one trial call (half-open). */
@@ -181,6 +206,10 @@ export function searchSessionStore(env: Env): 'redis' | 'memory' {
 
 export function travelStatusProvider(env: Env): 'none' | 'demo' {
   return env.TRAVEL_STATUS_PROVIDER ?? (env.NODE_ENV === 'production' ? 'none' : 'demo');
+}
+
+export function assistantProvider(env: Env): 'none' | 'demo' | 'anthropic' {
+  return env.AI_PROVIDER ?? (env.NODE_ENV === 'production' ? 'none' : 'demo');
 }
 
 /** Whether demo providers are on, given the environment. */
@@ -249,6 +278,18 @@ function crossFieldIssues(env: Env): string[] {
   if (env.PAYMENT_DEMO_SCENARIOS === 'true' && paymentProvider(env) !== 'demo') {
     issues.push('PAYMENT_DEMO_SCENARIOS: only valid with PAYMENT_PROVIDER=demo');
   }
+  if (assistantProvider(env) === 'anthropic') {
+    // Names only, never values.
+    if (!env.AI_API_KEY) issues.push('AI_API_KEY: is required when AI_PROVIDER=anthropic');
+    if (!env.AI_MODEL) issues.push('AI_MODEL: is required when AI_PROVIDER=anthropic');
+    if (
+      env.NODE_ENV === 'production' &&
+      env.AI_BASE_URL &&
+      !env.AI_BASE_URL.startsWith('https://')
+    ) {
+      issues.push('AI_BASE_URL: must use https:// in production');
+    }
+  }
   if (env.SEARCH_SESSION_STORE === 'redis' && !env.REDIS_URL) {
     issues.push('SEARCH_SESSION_STORE: "redis" needs REDIS_URL');
   }
@@ -279,6 +320,11 @@ export function productionWarnings(env: Env): string[] {
   if (travelStatusProvider(env) === 'demo') {
     warnings.push(
       'TRAVEL_STATUS_PROVIDER is demo: trip status and disruptions are simulated, not real travel information.',
+    );
+  }
+  if (assistantProvider(env) === 'demo') {
+    warnings.push(
+      'AI_PROVIDER is demo: the travel assistant gives rule-based demo answers, not AI.',
     );
   }
   if (env.LOG_FORMAT === 'pretty') {

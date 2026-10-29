@@ -597,7 +597,7 @@ function describeActivity(
       break;
     }
     case 'ITEM_ADDED':
-      summary = `${who} added ${title}${d.fromSuggestion ? ' (from sample suggestions)' : ''}`;
+      summary = `${who} added ${title}${d.fromAssistant ? ' (from an assistant suggestion)' : d.fromSuggestion ? ' (from sample suggestions)' : ''}`;
       break;
     case 'ITEM_UPDATED': {
       const fields = list(d.fields);

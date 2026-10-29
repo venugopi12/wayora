@@ -35,6 +35,11 @@ import { NotificationsService } from './modules/notifications/notifications.serv
 import { AdminService } from './modules/admin/admin.service.js';
 import { PlatformHealth, type HealthRedis } from './modules/admin/platform-health.js';
 import { prismaSearchEventRecorder } from './modules/search/analytics.js';
+import {
+  AssistantService,
+  createAssistantProvider,
+  type AssistantProvider,
+} from './modules/assistant/index.js';
 import { BudgetService } from './modules/planner/budget.service.js';
 import { CollaborationService } from './modules/planner/collaboration.service.js';
 import { PlannerService } from './modules/planner/planner.service.js';
@@ -112,6 +117,12 @@ export interface AppDependencies {
   plannerStream?: Partial<StreamTimings>;
   /** Overrides the travel-status provider chosen by env (tests); null = none. */
   travelStatus?: { provider?: TravelStatusProvider | null; stream?: Partial<StreamTimings> };
+  /**
+   * Travel assistant (docs/assistant.md). `provider` overrides the one chosen
+   * by AI_PROVIDER (tests pass deterministic fakes; null = off); `sleep`
+   * replaces the pause between provider attempts.
+   */
+  assistant?: { provider?: AssistantProvider | null; sleep?: (ms: number) => Promise<void> };
 }
 
 /** Builds the trip service from env (exported for the server's background checks). */
@@ -239,6 +250,7 @@ export function createApp({
   travelStatus,
   plannerEvents,
   plannerStream,
+  assistant,
 }: AppDependencies): Express {
   const app = express();
 
@@ -289,7 +301,14 @@ export function createApp({
   let accounts:
     | Omit<
         AccountsRouterOptions,
-        'bookings' | 'payments' | 'logger' | 'notifications' | 'admin' | 'trips' | 'planner'
+        | 'bookings'
+        | 'payments'
+        | 'logger'
+        | 'notifications'
+        | 'admin'
+        | 'trips'
+        | 'planner'
+        | 'assistant'
       >
     | undefined;
   let sessionValid: (token: string | undefined) => Promise<boolean> = () => Promise.resolve(false);
@@ -353,6 +372,8 @@ export function createApp({
   const tripStatusStore = createRateLimitStore?.('trip-status');
   const plannerStore = createRateLimitStore?.('planner');
   const plannerInviteStore = createRateLimitStore?.('planner-invites');
+  const assistantStore = createRateLimitStore?.('assistant');
+  const assistantWriteStore = createRateLimitStore?.('assistant-writes');
   const payments = prisma
     ? createPaymentsService(prisma, env, logger, {
         ...(now ? { now } : {}),
@@ -366,8 +387,42 @@ export function createApp({
         ...(travelStatus?.provider !== undefined ? { provider: travelStatus.provider } : {}),
       })
     : undefined;
+  const plannerService = prisma
+    ? new PlannerService({
+        prisma,
+        logger: logger.child({ component: 'planner' }),
+        ...(now ? { now } : {}),
+      })
+    : undefined;
+  const budgetService = prisma
+    ? new BudgetService({
+        prisma,
+        logger: logger.child({ component: 'plan-budget' }),
+        ...(now ? { now } : {}),
+      })
+    : undefined;
+  const assistantService =
+    prisma && plannerService && budgetService
+      ? new AssistantService({
+          prisma,
+          logger: logger.child({ component: 'assistant' }),
+          provider:
+            assistant?.provider !== undefined ? assistant.provider : createAssistantProvider(env),
+          planner: plannerService,
+          budget: budgetService,
+          limits: {
+            timeoutMs: env.AI_TIMEOUT_MS,
+            maxAttempts: env.AI_MAX_ATTEMPTS,
+            maxOutputTokens: env.AI_MAX_OUTPUT_TOKENS,
+            requestsPerDay: env.AI_DAILY_REQUEST_LIMIT,
+            requestsPerMinute: env.AI_RATE_LIMIT_MAX,
+          },
+          ...(now ? { now } : {}),
+          ...(assistant?.sleep ? { sleep: assistant.sleep } : {}),
+        })
+      : undefined;
   const accountRoutes: AccountsRouterOptions | undefined =
-    accounts && prisma && payments && trips
+    accounts && prisma && payments && trips && plannerService && budgetService && assistantService
       ? {
           ...accounts,
           bookings: new BookingsService({
@@ -398,6 +453,13 @@ export function createApp({
                     recentFailures: () => trips.recentFailures(),
                   }
                 : null,
+              assistant: assistantService.provider
+                ? {
+                    providerName: assistantService.provider.label,
+                    simulated: assistantService.provider.simulated,
+                    recentFailures: () => assistantService.recentFailures(),
+                  }
+                : null,
             }),
           },
           trips: {
@@ -414,17 +476,9 @@ export function createApp({
             }),
           },
           planner: {
-            planner: new PlannerService({
-              prisma,
-              logger: logger.child({ component: 'planner' }),
-              ...(now ? { now } : {}),
-            }),
+            planner: plannerService,
             collaboration: new CollaborationService({ prisma, ...(now ? { now } : {}) }),
-            budget: new BudgetService({
-              prisma,
-              logger: logger.child({ component: 'plan-budget' }),
-              ...(now ? { now } : {}),
-            }),
+            budget: budgetService,
             prisma,
             hub: plannerEvents ?? new LocalSignalHub(),
             logger: logger.child({ component: 'planner-stream' }),
@@ -442,6 +496,21 @@ export function createApp({
               subject: 'invitations',
               userIdOf: (res) => currentUser(res).id,
               ...(plannerInviteStore ? { store: plannerInviteStore } : {}),
+            }),
+          },
+          assistant: {
+            service: assistantService,
+            messageLimiter: bookingWriteRateLimiter({
+              max: env.AI_RATE_LIMIT_MAX,
+              subject: 'assistant requests',
+              userIdOf: (res) => currentUser(res).id,
+              ...(assistantStore ? { store: assistantStore } : {}),
+            }),
+            writeLimiter: bookingWriteRateLimiter({
+              max: env.PLANNER_RATE_LIMIT_MAX,
+              subject: 'assistant changes',
+              userIdOf: (res) => currentUser(res).id,
+              ...(assistantWriteStore ? { store: assistantWriteStore } : {}),
             }),
           },
           logger,

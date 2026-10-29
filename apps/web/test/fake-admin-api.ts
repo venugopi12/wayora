@@ -116,6 +116,12 @@ export const HEALTH: AdminHealth = adminHealthSchema.parse({
     simulated: true,
     failedChecksLastHour: 0,
   },
+  assistant: {
+    status: 'up',
+    providerName: 'Wayora demo assistant (rule-based, not AI)',
+    simulated: true,
+    failedRequestsLastHour: 0,
+  },
 });
 
 const REFS = ['WYD-AAAA-AAAA', 'WYD-BBBB-BBBB', 'WYD-CCCC-CCCC'];

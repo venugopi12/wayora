@@ -20,6 +20,10 @@ export const REDACT_PATHS = [
   '*.accessToken',
   '*.refreshToken',
   '*.secret',
+  // Assistant provider credentials (docs/assistant.md): never logged, even by accident.
+  '*.apiKey',
+  '*.AI_API_KEY',
+  'AI_API_KEY',
   '*.cardNumber',
   '*.cvv',
   // Traveller details (bookings): never logged, even by accident.

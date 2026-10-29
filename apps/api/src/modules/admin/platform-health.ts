@@ -36,6 +36,13 @@ export interface PlatformHealthOptions {
     simulated: boolean;
     recentFailures: () => Promise<number>;
   } | null;
+  /** The travel assistant's provider, if one is configured (docs/assistant.md). */
+  assistant?: {
+    providerName: string;
+    simulated: boolean;
+    /** Failed provider calls in the last hour (from assistant_requests). */
+    recentFailures: () => Promise<number>;
+  } | null;
 }
 
 /** Outbox or payment work older than this is a backlog worth looking at. */
@@ -106,53 +113,56 @@ export class PlatformHealth {
     const prefix = `bull:${QUEUE_NAMES.system}`;
 
     const travel = this.options.travelStatus ?? null;
-    const [db, outbox, payments, ping, beacon, queue, tripFailures] = await Promise.all([
-      this.probe('database', () => prisma.$queryRaw`SELECT 1`),
-      this.probe('outbox', async () => {
-        const [byStatus, oldest] = await Promise.all([
-          prisma.notificationDelivery.groupBy({ by: ['status'], _count: { _all: true } }),
-          prisma.notificationDelivery.findFirst({
-            where: { status: 'PENDING' },
-            orderBy: { createdAt: 'asc' },
-            select: { createdAt: true },
-          }),
-        ]);
-        const n = (s: string) => byStatus.find((r) => r.status === s)?._count._all ?? 0;
-        return {
-          pending: n('PENDING'),
-          failed: n('FAILED'),
-          notConfigured: n('NOT_CONFIGURED'),
-          oldest: oldest?.createdAt ?? null,
-        };
-      }),
-      this.probe('payments', async () => {
-        const where = { status: { in: ['CREATED' as const, 'PENDING' as const] } };
-        const [count, oldest] = await Promise.all([
-          prisma.payment.count({ where }),
-          prisma.payment.findFirst({
-            where,
-            orderBy: { createdAt: 'asc' },
-            select: { createdAt: true },
-          }),
-        ]);
-        return { count, oldest: oldest?.createdAt ?? null };
-      }),
-      redis ? this.probe('redis', () => redis.ping()) : undefined,
-      redis ? this.probe('worker', () => redis.get(WORKER_HEARTBEAT_KEY)) : undefined,
-      redis
-        ? this.probe('queue', async () => {
-            const [wait, prioritized, active, delayed, failed] = await Promise.all([
-              redis.llen(`${prefix}:wait`),
-              redis.zcard(`${prefix}:prioritized`),
-              redis.llen(`${prefix}:active`),
-              redis.zcard(`${prefix}:delayed`),
-              redis.zcard(`${prefix}:failed`),
-            ]);
-            return { waiting: wait + prioritized, active, delayed, failed };
-          })
-        : undefined,
-      travel ? this.probe('travel-status', () => travel.recentFailures()) : undefined,
-    ]);
+    const assistant = this.options.assistant ?? null;
+    const [db, outbox, payments, ping, beacon, queue, tripFailures, assistantFailures] =
+      await Promise.all([
+        this.probe('database', () => prisma.$queryRaw`SELECT 1`),
+        this.probe('outbox', async () => {
+          const [byStatus, oldest] = await Promise.all([
+            prisma.notificationDelivery.groupBy({ by: ['status'], _count: { _all: true } }),
+            prisma.notificationDelivery.findFirst({
+              where: { status: 'PENDING' },
+              orderBy: { createdAt: 'asc' },
+              select: { createdAt: true },
+            }),
+          ]);
+          const n = (s: string) => byStatus.find((r) => r.status === s)?._count._all ?? 0;
+          return {
+            pending: n('PENDING'),
+            failed: n('FAILED'),
+            notConfigured: n('NOT_CONFIGURED'),
+            oldest: oldest?.createdAt ?? null,
+          };
+        }),
+        this.probe('payments', async () => {
+          const where = { status: { in: ['CREATED' as const, 'PENDING' as const] } };
+          const [count, oldest] = await Promise.all([
+            prisma.payment.count({ where }),
+            prisma.payment.findFirst({
+              where,
+              orderBy: { createdAt: 'asc' },
+              select: { createdAt: true },
+            }),
+          ]);
+          return { count, oldest: oldest?.createdAt ?? null };
+        }),
+        redis ? this.probe('redis', () => redis.ping()) : undefined,
+        redis ? this.probe('worker', () => redis.get(WORKER_HEARTBEAT_KEY)) : undefined,
+        redis
+          ? this.probe('queue', async () => {
+              const [wait, prioritized, active, delayed, failed] = await Promise.all([
+                redis.llen(`${prefix}:wait`),
+                redis.zcard(`${prefix}:prioritized`),
+                redis.llen(`${prefix}:active`),
+                redis.zcard(`${prefix}:delayed`),
+                redis.zcard(`${prefix}:failed`),
+              ]);
+              return { waiting: wait + prioritized, active, delayed, failed };
+            })
+          : undefined,
+        travel ? this.probe('travel-status', () => travel.recentFailures()) : undefined,
+        assistant ? this.probe('assistant', () => assistant.recentFailures()) : undefined,
+      ]);
 
     const age = (d: Date | null) => (d ? now.getTime() - d.getTime() : 0);
 
@@ -258,6 +268,26 @@ export class PlatformHealth {
               providerName: travel.providerName,
               simulated: travel.simulated,
               failedChecksLastHour: tripFailures.value,
+            },
+      assistant: !assistant
+        ? {
+            status: 'not-configured',
+            providerName: null,
+            simulated: false,
+            failedRequestsLastHour: null,
+          }
+        : !assistantFailures?.ok
+          ? {
+              status: 'unknown',
+              providerName: assistant.providerName,
+              simulated: assistant.simulated,
+              failedRequestsLastHour: null,
+            }
+          : {
+              status: assistantFailures.value > 0 ? 'degraded' : 'up',
+              providerName: assistant.providerName,
+              simulated: assistant.simulated,
+              failedRequestsLastHour: assistantFailures.value,
             },
     };
   }

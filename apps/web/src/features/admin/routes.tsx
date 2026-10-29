@@ -1131,6 +1131,26 @@ export function HealthRoute() {
                   </>
                 )}
               </Check>
+              <Check title="Travel assistant" status={h.assistant.status}>
+                {h.assistant.providerName === null ? (
+                  <p>No assistant provider is configured; the assistant is off for users.</p>
+                ) : (
+                  <>
+                    <p>
+                      {h.assistant.providerName}
+                      {h.assistant.simulated ? ': rule-based demo answers, not AI.' : '.'}
+                    </p>
+                    {h.assistant.failedRequestsLastHour !== null ? (
+                      <p>
+                        {formatCount(h.assistant.failedRequestsLastHour)} failed requests in the
+                        last hour (errors, timeouts, unusable answers).
+                      </p>
+                    ) : (
+                      <p>Recent failures are unknown.</p>
+                    )}
+                  </>
+                )}
+              </Check>
             </div>
             <Note>
               “Unknown” means the check couldn’t run; it is never shown as healthy. No connection

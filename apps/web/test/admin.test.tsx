@@ -250,6 +250,12 @@ describe('admin pages', JOURNEY, () => {
     expect(
       within(screen.getByRole('region', { name: 'Database' })).getByText('Healthy'),
     ).toBeInTheDocument();
+    // Phase 21: the assistant's provider, labelled honestly when it's the demo.
+    expect(
+      within(screen.getByRole('region', { name: 'Travel assistant' })).getByText(
+        /rule-based demo answers, not AI/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it('on small screens the sections are in a menu', async () => {
