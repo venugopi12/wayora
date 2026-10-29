@@ -479,6 +479,28 @@ export const adminHealthSchema = z.object({
     /** Bookings whose latest status check failed within the last hour. */
     failedChecksLastHour: z.number().int().nullable(),
   }),
+  /**
+   * Search providers (Phase 22, docs/providers.md#failures-retries-and-health): one entry per
+   * registered adapter. Status comes from what is actually known: the
+   * circuit breaker in this API process and provider calls recorded in the
+   * last hour. A provider with no recent calls is `unknown`, never `up`.
+   */
+  searchProviders: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      kind: z.enum(['demo', 'live']),
+      serviceTypes: z.array(z.string()),
+      enabled: z.boolean(),
+      disabledReason: z.string().nullable(),
+      status: adminCheckStatusSchema,
+      breaker: z.enum(['closed', 'open', 'half-open']),
+      callsLastHour: z.number().int().nullable(),
+      failedLastHour: z.number().int().nullable(),
+      /** Supports rechecking an offer's price and availability before booking. */
+      revalidates: z.boolean(),
+    }),
+  ),
   /** Travel assistant provider (Phase 21, docs/assistant.md). No network check: it would cost money. */
   assistant: z.object({
     status: adminCheckStatusSchema,

@@ -5,7 +5,7 @@ import { bookPath } from '../src/features/bookings/paths';
 import { offerPath } from '../src/features/offers/paths';
 import { demoBooking, installFakeBookingApi } from './fake-booking-api';
 import { renderRoute } from './render';
-import { DATE, cab, flight, hotel, metro } from './search-fixtures';
+import { DATE, cab, flight, hotel, metro, supplierFlight } from './search-fixtures';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -412,5 +412,22 @@ describe('My trips', JOURNEY, () => {
     renderRoute('/profile');
     const nav = await screen.findByRole('navigation', { name: /account/i });
     expect(within(nav).getByRole('link', { name: /my trips/i })).toHaveAttribute('href', '/trips');
+  });
+});
+
+describe('supplier offers (Phase 22)', JOURNEY, () => {
+  it('checkout refuses a supplier offer before asking for any details', async () => {
+    const result = supplierFlight(4520);
+    const { checkout } = setup([result]);
+    renderRoute(checkout(result));
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: 'This supplier offer can’t be booked on Wayora yet',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('button', { name: /confirm/i })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Back to the offer' })).toBeInTheDocument();
   });
 });

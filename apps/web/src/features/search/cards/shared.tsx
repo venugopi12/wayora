@@ -1,4 +1,4 @@
-import { ArrowRight, FlaskConical } from 'lucide-react';
+import { ArrowRight, FlaskConical, Store } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { SearchPrice, SearchResult } from '@wayora/contracts';
@@ -90,6 +90,24 @@ export function DemoBadge() {
   );
 }
 
+/**
+ * A result from a configured supplier (Phase 22, docs/providers.md). Plain
+ * wording: no "live" pulse or supplier logo, and it says nothing about the
+ * price being guaranteed or bookable.
+ */
+export function SupplierBadge() {
+  return (
+    <Badge size="sm" tone="neutral" icon={<Store />}>
+      Supplier offer
+    </Badge>
+  );
+}
+
+/** Demo or supplier, as the result says; never assumed. */
+export function SourceBadge({ source }: { source: SearchResult['source'] }) {
+  return source === 'demo' ? <DemoBadge /> : <SupplierBadge />;
+}
+
 export function Chips({ items }: { items: readonly string[] }) {
   if (items.length === 0) return null;
   return (
@@ -134,7 +152,7 @@ export function ResultCardShell({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-2">
-            {demo ? <DemoBadge /> : null}
+            <SourceBadge source={result.source} />
             {meta}
           </div>
           <h3 className="text-title text-ink">{heading}</h3>
@@ -145,7 +163,9 @@ export function ResultCardShell({
       {body}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
         <p className="text-caption text-ink-secondary">
-          {demo ? 'Demo offer: demo booking only.' : 'Price may change.'}
+          {demo
+            ? 'Demo offer: demo booking only.'
+            : 'Supplier price, may change. Can’t be booked on Wayora yet.'}
         </p>
         <Link
           to={href}

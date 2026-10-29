@@ -323,3 +323,37 @@ export function flightFacets(results: readonly FlightResult[]): SearchFacets {
 }
 
 export const ALL_CATEGORY_RESULTS: SearchResult[] = [hotel, train, bus, metro, cab, holiday];
+
+/**
+ * A result as a configured supplier would send it (Phase 22): `source:
+ * 'live'`, with the fare and stay terms only a supplier provides. Fictional
+ * test data, never shown by the app itself.
+ */
+export function supplierFlight(rupees: number): FlightResult {
+  const demo = flight('FXA 201', 9 * 60, rupees, { carrier: ['FXA', 'Fixture Airways'] });
+  return {
+    ...demo,
+    id: 'fixture-air:FXA-201',
+    providerId: 'fixture-air',
+    source: 'live',
+    offerRef: 'FXA-201',
+    fare: {
+      name: 'Saver',
+      refundable: false,
+      changeable: true,
+      checkedBaggage: { pieces: 1, weightKg: 15 },
+      cabinBaggage: { pieces: null, weightKg: 7 },
+    },
+  };
+}
+
+export const supplierHotel: HotelResult = {
+  ...hotel,
+  id: 'fixture-stays:FS-77',
+  providerId: 'fixture-stays',
+  source: 'live',
+  offerRef: 'FS-77',
+  property: { ...hotel.property, name: 'Fixture Stay Inn' },
+  title: 'Fixture Stay Inn, Assagao',
+  cancellationPolicy: { type: 'free-cancellation', until: `${DATE}T18:00:00+05:30` },
+};

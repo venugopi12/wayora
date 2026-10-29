@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Clock, Info, RotateCw, SearchX } from 'lucide-react';
+import { ArrowLeft, Clock, Info, RotateCw, SearchX, Store } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useForm, useWatch, type UseFormReturn } from 'react-hook-form';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -223,6 +223,28 @@ function Checkout({
           </div>
         </div>
       </Container>
+    );
+  }
+  if (offer.data.result.source !== 'demo') {
+    // The API refuses it too (SERVICE_UNAVAILABLE); no form is shown for an
+    // offer that can't be booked here.
+    const offerUrl = offerPath(serviceType, resultId, searchId, from ?? '');
+    return (
+      <Message
+        icon={<Store />}
+        title="This supplier offer can’t be booked on Wayora yet"
+        description="Wayora can show this supplier’s offer, but booking it isn’t available: no reservation, ticket or payment can be made here. Only demo offers can be booked for now."
+        action={
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button asChild>
+              <Link to={offerUrl}>Back to the offer</Link>
+            </Button>
+            <Button asChild variant="secondary">
+              <Link to={resultsPath}>Back to results</Link>
+            </Button>
+          </div>
+        }
+      />
     );
   }
   return (

@@ -199,7 +199,14 @@ from authorized plan data only, validated structured replies, and a fixed set
 of confirmed apply actions that go through the planner and budget services;
 `assistant_conversations`, `assistant_messages`, `assistant_requests` and
 `assistant_actions` hold what users saw, provider outcomes and applied
-proposals. See [assistant.md](assistant.md).
+proposals. See [assistant.md](assistant.md). Phase 22 prepared search for
+real suppliers without integrating one: a supplier toolkit in
+`modules/providers` (`http.ts`, `credentials.ts`, `normalize.ts`, and
+`live/index.ts`, where adapters are registered; empty today), optional
+supplier-only result fields (flight fare and baggage, hotel cancellation
+policy), per-call provider logs with attempts, provider health in the admin
+dashboard, and supplier offers refused at checkout. See
+[providers.md](providers.md).
 
 ### Conventions
 

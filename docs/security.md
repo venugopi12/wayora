@@ -390,6 +390,28 @@ Details: [assistant.md](assistant.md).
   time per conversation, bounded input/output, one overall timeout, bounded
   transient-only retries. Prompts and outputs are never logged or stored.
 
+### Travel supplier readiness (Phase 22)
+
+Details: [providers.md](providers.md). No live supplier is integrated.
+
+- Supplier settings are read from the API environment only (`readProviderConfig`);
+  `.env.example` has placeholders, never values. Secrets are `ProviderSecret`
+  objects that print `[redacted]` in JSON, strings and inspection; only the
+  adapter's header code calls `reveal()`.
+- URL settings must be absolute http(s) with no embedded credentials (https
+  required in production); adapters call only their configured base URL, never
+  a URL from a request, and redirects are refused.
+- Supplier error bodies are never read; error messages hold provider id,
+  method, path and status only (no query string, headers or payload) and are
+  scrubbed before logging. Users see fixed wording per error code.
+- Payloads are schema-validated before mapping and every result again against
+  the contracts; money is converted exactly or the offer is dropped.
+- Supplier offers can't be booked (`SERVICE_UNAVAILABLE` before any write); no
+  supplier booking, ticketing or payment call exists. Retries apply to read
+  operations only.
+- Admin health shows provider ids, kinds and counts only: no settings or
+  supplier text; a provider with no recent calls is "unknown".
+
 ## Planned approach for later phases
 
 ### Authentication extensions

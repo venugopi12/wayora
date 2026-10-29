@@ -1,4 +1,5 @@
 import {
+  type ProviderInfo,
   QUEUE_NAMES,
   WORKER_HEARTBEAT_KEY,
   WORKER_HEARTBEAT_STALE_MS,
@@ -35,6 +36,14 @@ export interface PlatformHealthOptions {
     providerName: string;
     simulated: boolean;
     recentFailures: () => Promise<number>;
+  } | null;
+  /**
+   * Search providers (docs/providers.md#failures-retries-and-health): the registry's safe metadata
+   * and this process's circuit-breaker states.
+   */
+  search?: {
+    describe: () => ProviderInfo[];
+    breakerStates: () => ReadonlyMap<string, 'closed' | 'open' | 'half-open'>;
   } | null;
   /** The travel assistant's provider, if one is configured (docs/assistant.md). */
   assistant?: {
@@ -114,7 +123,9 @@ export class PlatformHealth {
 
     const travel = this.options.travelStatus ?? null;
     const assistant = this.options.assistant ?? null;
-    const [db, outbox, payments, ping, beacon, queue, tripFailures, assistantFailures] =
+    const search = this.options.search ?? null;
+    const since = new Date(now.getTime() - 60 * 60 * 1000);
+    const [db, outbox, payments, ping, beacon, queue, tripFailures, assistantFailures, calls] =
       await Promise.all([
         this.probe('database', () => prisma.$queryRaw`SELECT 1`),
         this.probe('outbox', async () => {
@@ -162,6 +173,18 @@ export class PlatformHealth {
           : undefined,
         travel ? this.probe('travel-status', () => travel.recentFailures()) : undefined,
         assistant ? this.probe('assistant', () => assistant.recentFailures()) : undefined,
+        search
+          ? this.probe(
+              'search-providers',
+              () => prisma.$queryRaw<{ id: string; calls: number; failed: number }[]>`
+                SELECT p->>'id' AS id,
+                       count(*)::int AS calls,
+                       (count(*) FILTER (WHERE p->>'status' NOT IN ('success', 'empty')))::int AS failed
+                FROM search_events se, jsonb_array_elements(se.providers) p
+                WHERE se.created_at > ${since}
+                GROUP BY 1`,
+            )
+          : undefined,
       ]);
 
     const age = (d: Date | null) => (d ? now.getTime() - d.getTime() : 0);
@@ -269,6 +292,37 @@ export class PlatformHealth {
               simulated: travel.simulated,
               failedChecksLastHour: tripFailures.value,
             },
+      searchProviders: (search?.describe() ?? []).map((p) => {
+        const breaker = search?.breakerStates().get(p.id) ?? 'closed';
+        const stats = calls?.ok
+          ? (calls.value.find((r) => r.id === p.id) ?? { calls: 0, failed: 0 })
+          : null;
+        // Only what is known: no recent calls means unknown, never "up".
+        const status: AdminCheckStatus = !p.enabled
+          ? 'not-configured'
+          : breaker === 'open'
+            ? 'down'
+            : breaker === 'half-open'
+              ? 'degraded'
+              : !stats || stats.calls === 0
+                ? 'unknown'
+                : stats.failed > 0
+                  ? 'degraded'
+                  : 'up';
+        return {
+          id: p.id,
+          name: p.name,
+          kind: p.kind,
+          serviceTypes: [...p.serviceTypes],
+          enabled: p.enabled,
+          disabledReason: p.disabledReason,
+          status,
+          breaker,
+          callsLastHour: stats ? stats.calls : null,
+          failedLastHour: stats ? stats.failed : null,
+          revalidates: p.operations.revalidate === 'supported',
+        };
+      }),
       assistant: !assistant
         ? {
             status: 'not-configured',

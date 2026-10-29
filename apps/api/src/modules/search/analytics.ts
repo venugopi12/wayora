@@ -24,7 +24,7 @@ export interface SearchEventRecord {
   /** Error code when the search failed. */
   errorCode: string | null;
   /** Provider calls made for this request (none when an earlier session was reused). */
-  providers: { id: string; status: string; durationMs: number }[];
+  providers: { id: string; status: string; durationMs: number; attempts?: number }[];
 }
 
 export type SearchEventRecorder = (event: SearchEventRecord) => void;
@@ -36,8 +36,17 @@ export function outcomeFor(statuses: readonly ProviderStatus[], matched: number)
   return allAnswered ? 'SUCCESS' : 'PARTIAL';
 }
 
-export const providerCalls = (statuses: readonly ProviderStatus[]) =>
-  statuses.map((s) => ({ id: s.providerId, status: s.status, durationMs: s.durationMs }));
+/** Per-provider call records: id, normalized outcome, duration and attempts (no payloads). */
+export const providerCalls = (
+  statuses: readonly ProviderStatus[],
+  attempts: ReadonlyMap<string, number> = new Map(),
+) =>
+  statuses.map((s) => ({
+    id: s.providerId,
+    status: s.status,
+    durationMs: s.durationMs,
+    ...(attempts.has(s.providerId) ? { attempts: attempts.get(s.providerId)! } : {}),
+  }));
 
 /**
  * Writes events to `search_events`, best-effort and off the request path: a

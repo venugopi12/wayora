@@ -3,6 +3,9 @@ import {
   DEFAULT_SORT,
   SEARCH_PLACES,
   SORT_OPTIONS,
+  baggageAllowanceSchema,
+  flightFareSchema,
+  hotelResultSchema,
   offerResponseSchema,
   daysBetween,
   findPlace,
@@ -276,6 +279,33 @@ describe('search results and response', () => {
     expect(searchResultSchema.safeParse({ ...hotel, availability: 'probably' }).success).toBe(
       false,
     );
+  });
+
+  it('accepts supplier detail only when it is well-formed (Phase 22)', () => {
+    // Optional: demo results never set them, and a missing field is "not provided".
+    expect(hotelResultSchema.safeParse(hotel).success).toBe(true);
+    const policy = (cancellationPolicy: unknown) =>
+      searchResultSchema.safeParse({ ...hotel, cancellationPolicy }).success;
+    expect(policy({ type: 'non-refundable' })).toBe(true);
+    expect(policy({ type: 'free-cancellation', until: '2026-11-08T23:59:00+05:30' })).toBe(true);
+    expect(policy({ type: 'free-cancellation' })).toBe(false); // a deadline is required
+    expect(policy({ type: 'free-cancellation', until: '2026-11-08T23:59:00' })).toBe(false); // no offset
+    expect(policy({ type: 'flexible' })).toBe(false);
+
+    expect(baggageAllowanceSchema.safeParse({ pieces: 1, weightKg: null }).success).toBe(true);
+    expect(baggageAllowanceSchema.safeParse({ pieces: null, weightKg: 15 }).success).toBe(true);
+    expect(baggageAllowanceSchema.safeParse({ pieces: null, weightKg: null }).success).toBe(false);
+    expect(baggageAllowanceSchema.safeParse({ pieces: 1, weightKg: 7.5 }).success).toBe(false);
+    expect(
+      flightFareSchema.safeParse({
+        name: 'Saver',
+        refundable: false,
+        changeable: null,
+        checkedBaggage: { pieces: null, weightKg: 15 },
+        cabinBaggage: null,
+      }).success,
+    ).toBe(true);
+    expect(flightFareSchema.safeParse({ name: 'Saver' }).success).toBe(false); // unknowns are explicit nulls
   });
 
   it('accepts a response envelope', () => {

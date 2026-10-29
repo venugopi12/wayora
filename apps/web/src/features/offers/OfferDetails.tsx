@@ -29,6 +29,38 @@ import { DetailList, DetailSection } from './DetailList';
 const when = (dateTime: string) => `${formatDay(localDate(dateTime))}, ${localTime(dateTime)}`;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/**
+ * Supplier fare and stay terms (Phase 22). Present only when a supplier sent
+ * them; `null` renders "Not provided in this offer". The supplier's own
+ * terms apply; nothing here is a Wayora guarantee.
+ */
+export function baggageText(
+  allowance: NonNullable<FlightResult['fare']>['checkedBaggage'] | undefined,
+): string | null {
+  if (!allowance) return null;
+  if (allowance.pieces === 0) return 'None included';
+  const parts = [
+    allowance.pieces !== null ? plural(allowance.pieces, 'piece') : null,
+    allowance.weightKg !== null ? `${allowance.weightKg} kg` : null,
+  ].filter(Boolean);
+  return parts.join(', ');
+}
+
+export function ruleText(
+  value: boolean | null | undefined,
+  yes: string,
+  no: string,
+): string | null {
+  return value === true ? yes : value === false ? no : null;
+}
+
+export function cancellationText(policy: HotelResult['cancellationPolicy']): string | null {
+  if (!policy) return null;
+  return policy.type === 'non-refundable'
+    ? 'Non-refundable'
+    : `Free cancellation until ${when(policy.until)} (local time)`;
+}
+
 function minutesBetween(a: string, b: string): number {
   return Math.round((Date.parse(b) - Date.parse(a)) / 60_000);
 }
@@ -89,8 +121,17 @@ function FlightDetails({ result }: { result: FlightResult }) {
           rows={[
             { label: 'Cabin', value: cabinLabel(result.cabinClass) },
             { label: 'Airlines', value: carrierNames(result).join(', ') },
-            { label: 'Baggage allowance', value: null },
-            { label: 'Change and refund rules', value: null },
+            ...(result.fare?.name ? [{ label: 'Fare type', value: result.fare.name }] : []),
+            { label: 'Checked baggage', value: baggageText(result.fare?.checkedBaggage) },
+            { label: 'Cabin baggage', value: baggageText(result.fare?.cabinBaggage) },
+            {
+              label: 'Changes',
+              value: ruleText(result.fare?.changeable, 'Allowed', 'Not allowed'),
+            },
+            {
+              label: 'Refunds',
+              value: ruleText(result.fare?.refundable, 'Refundable', 'Non-refundable'),
+            },
           ]}
         />
       </DetailSection>
@@ -129,7 +170,7 @@ function HotelDetails({ result }: { result: HotelResult }) {
             { label: 'Room', value: `${result.roomType} × ${result.rooms}` },
             { label: 'Guests', value: String(result.guests) },
             { label: 'Breakfast', value: result.breakfastIncluded ? 'Included' : 'Not included' },
-            { label: 'Cancellation policy', value: null },
+            { label: 'Cancellation policy', value: cancellationText(result.cancellationPolicy) },
             { label: 'Room availability', value: null },
           ]}
         />

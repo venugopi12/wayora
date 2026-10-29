@@ -91,15 +91,57 @@ export const flightPassengersSchema = z.object({
 });
 export type FlightPassengers = z.infer<typeof flightPassengersSchema>;
 
+/**
+ * A baggage allowance as the supplier states it: pieces, a weight, or both.
+ * Never filled in by Wayora.
+ */
+export const baggageAllowanceSchema = z
+  .object({
+    pieces: z.number().int().min(0).max(10).nullable(),
+    weightKg: z.number().int().min(1).max(100).nullable(),
+  })
+  .refine((b) => b.pieces !== null || b.weightKg !== null, {
+    message: 'A baggage allowance needs pieces or a weight.',
+  });
+export type BaggageAllowance = z.infer<typeof baggageAllowanceSchema>;
+
+/**
+ * Fare conditions (Phase 22, docs/providers.md#normalization). Present ONLY
+ * when a supplier returns them; each field is null when the supplier didn't
+ * say. Demo fixtures never set it, so the web app shows "not provided"
+ * rather than guessing.
+ */
+export const flightFareSchema = z.object({
+  /** The supplier's fare name or brand. */
+  name: z.string().min(1).max(80).nullable(),
+  refundable: z.boolean().nullable(),
+  changeable: z.boolean().nullable(),
+  checkedBaggage: baggageAllowanceSchema.nullable(),
+  cabinBaggage: baggageAllowanceSchema.nullable(),
+});
+export type FlightFare = z.infer<typeof flightFareSchema>;
+
 export const flightResultSchema = z.object({
   serviceType: z.literal('flights'),
   ...resultBase,
   cabinClass: cabinClassSchema,
   itineraries: z.array(flightItinerarySchema).min(1).max(2),
   passengers: flightPassengersSchema,
+  fare: flightFareSchema.optional(),
 });
 
 // ─── Hotels ───────────────────────────────────────────────────────────────
+
+/**
+ * Cancellation terms (Phase 22), present ONLY when a supplier returns them.
+ * `free-cancellation` until a moment (the supplier's deadline, with offset);
+ * `non-refundable` when the supplier says so. Demo fixtures never set it.
+ */
+export const hotelCancellationPolicySchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('free-cancellation'), until: offsetDateTimeSchema }),
+  z.object({ type: z.literal('non-refundable') }),
+]);
+export type HotelCancellationPolicy = z.infer<typeof hotelCancellationPolicySchema>;
 
 export const hotelResultSchema = z.object({
   serviceType: z.literal('hotels'),
@@ -118,6 +160,7 @@ export const hotelResultSchema = z.object({
   guests: z.number().int().positive(),
   amenities: z.array(hotelAmenitySchema),
   breakfastIncluded: z.boolean(),
+  cancellationPolicy: hotelCancellationPolicySchema.optional(),
 });
 
 // ─── Trains ───────────────────────────────────────────────────────────────

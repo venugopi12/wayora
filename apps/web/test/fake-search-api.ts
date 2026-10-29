@@ -76,16 +76,19 @@ export function searchResponse(
   const providerStatuses = statuses ?? [okStatus(results.length)];
   const failed = providerStatuses.filter((s) => s.status !== 'success' && s.status !== 'empty');
   const flights = results.filter((r) => r.serviceType === 'flights');
+  const anyDemo = results.some((r) => r.source === 'demo');
+  const anyLive = results.some((r) => r.source === 'live');
   return searchResponseSchema.parse({
     searchId,
     serviceType: results[0]?.serviceType ?? 'flights',
     results,
     pagination: { page, pageSize, totalResults, totalPages: Math.ceil(totalResults / pageSize) },
     providerStatuses,
-    dataSource: results.length ? 'demo' : 'none',
-    disclaimer: DEMO_DATA_DISCLAIMER,
+    // As the API derives it: demo unless every result is a supplier's.
+    dataSource: !results.length ? 'none' : !anyDemo ? 'live' : anyLive ? 'mixed' : 'demo',
+    disclaimer: anyDemo || !results.length ? DEMO_DATA_DISCLAIMER : null,
     warnings: [
-      { code: 'DEMO_DATA', message: DEMO_DATA_DISCLAIMER },
+      ...(anyDemo || !results.length ? [{ code: 'DEMO_DATA', message: DEMO_DATA_DISCLAIMER }] : []),
       ...(failed.length
         ? [{ code: 'PARTIAL_RESULTS', message: 'Some providers didn’t answer.' }]
         : []),

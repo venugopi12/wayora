@@ -4,7 +4,17 @@ import { utcDateFromToday, type SearchResult } from '@wayora/contracts';
 import { offerPath, resultsPathFor } from '../src/features/offers/paths';
 import { installFakeSearchApi, searchResponse } from './fake-search-api';
 import { renderRoute } from './render';
-import { DATE, cab, connectingFlight, flight, holiday, hotel, metro } from './search-fixtures';
+import {
+  DATE,
+  cab,
+  connectingFlight,
+  flight,
+  holiday,
+  hotel,
+  metro,
+  supplierFlight,
+  supplierHotel,
+} from './search-fixtures';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -146,9 +156,11 @@ describe('offer details by category', () => {
       screen.getByText(/Change planes in Hyderabad \(HYD\): 1h 45m connection/),
     ).toBeInTheDocument();
     const fare = screen.getByRole('region', { name: 'Fare' });
-    expect(within(fare).getByText('Baggage allowance').nextSibling).toHaveTextContent(
-      'Not provided in this offer',
-    );
+    for (const row of ['Checked baggage', 'Cabin baggage', 'Changes', 'Refunds']) {
+      expect(within(fare).getByText(row).nextSibling).toHaveTextContent(
+        'Not provided in this offer',
+      );
+    }
     expect(screen.getByText('Demo offer')).toBeInTheDocument();
   });
 
@@ -390,5 +402,68 @@ describe('return navigation', () => {
     await act(() => router.navigate(-1));
     await waitFor(() => expect(router.state.location.pathname).toBe('/flights'));
     expect(await screen.findByRole('list', { name: 'Search results' })).toBeInTheDocument();
+  });
+});
+
+describe('supplier offers (Phase 22)', () => {
+  it('results label supplier and demo offers separately, with no demo notice for supplier-only results', async () => {
+    installFakeSearchApi({ kind: 'ok', response: searchResponse([supplierFlight(4520)]) });
+    renderRoute(`/flights?${SEARCH}`);
+    const list = await screen.findByRole('list', { name: 'Search results' });
+    const card = within(list).getByRole('article', { name: 'Fixture Airways' });
+    expect(within(card).getByText('Supplier offer')).toBeInTheDocument();
+    expect(within(card).queryByText('Demo data')).toBeNull();
+    expect(card).toHaveTextContent('Can’t be booked on Wayora yet');
+    expect(card).not.toHaveTextContent('Demo total');
+    // No "live" claims or indicators anywhere.
+    expect(screen.queryByText(/\blive\b/i)).toBeNull();
+  });
+
+  it('mixed results: each card says whether it is demo or a supplier offer', async () => {
+    installFakeSearchApi({
+      kind: 'ok',
+      response: searchResponse([supplierFlight(4520), flight('CDA 101', 370, 5420)]),
+    });
+    renderRoute(`/flights?${SEARCH}`);
+    const list = await screen.findByRole('list', { name: 'Search results' });
+    const card = (name: string) => within(list).getByRole('article', { name });
+    expect(within(card('Coral Demo Air')).getByText('Demo data')).toBeInTheDocument();
+    expect(within(card('Coral Demo Air')).queryByText('Supplier offer')).toBeNull();
+    expect(within(card('Fixture Airways')).getByText('Supplier offer')).toBeInTheDocument();
+    expect(within(card('Fixture Airways')).queryByText('Demo data')).toBeNull();
+  });
+
+  it('the offer page shows supplier fare terms, and no booking for a supplier offer', async () => {
+    const result = supplierFlight(4520);
+    const { url } = withSession([result]);
+    renderRoute(url(result));
+    await screen.findByRole('heading', { level: 1, name: 'Bengaluru to Delhi' });
+    expect(screen.getByText('Supplier offer')).toBeInTheDocument();
+    expect(screen.queryByText('Demo offer')).toBeNull();
+    expect(screen.queryByText('Demo data')).toBeNull();
+    const fare = screen.getByRole('region', { name: 'Fare' });
+    const row = (label: string) => within(fare).getByText(label).nextSibling;
+    expect(row('Fare type')).toHaveTextContent('Saver');
+    expect(row('Checked baggage')).toHaveTextContent('1 piece, 15 kg');
+    expect(row('Cabin baggage')).toHaveTextContent('7 kg');
+    expect(row('Changes')).toHaveTextContent('Allowed');
+    expect(row('Refunds')).toHaveTextContent('Non-refundable');
+
+    const price = screen.getByRole('complementary', { name: 'Price' });
+    expect(price).toHaveTextContent('Total');
+    expect(price).not.toHaveTextContent('Demo');
+    expect(price).toHaveTextContent('not rechecked with the provider yet');
+    expect(price).toHaveTextContent('Booking supplier offers on Wayora isn’t available yet');
+    expect(within(price).queryByRole('link', { name: /book/i })).toBeNull();
+  });
+
+  it('a supplier hotel shows its cancellation deadline', async () => {
+    const { url } = withSession([supplierHotel]);
+    renderRoute(url(supplierHotel));
+    await screen.findByRole('heading', { level: 1, name: 'Fixture Stay Inn' });
+    const stay = screen.getByRole('region', { name: 'Your stay' });
+    expect(within(stay).getByText('Cancellation policy').nextSibling).toHaveTextContent(
+      /^Free cancellation until .+, 18:00 \(local time\)$/,
+    );
   });
 });

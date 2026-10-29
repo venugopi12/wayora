@@ -498,7 +498,8 @@ interface SearchProvider {
   adapters (all demo adapters use it).
 
 **Registration** is explicit (`apps/api/src/app.ts`): the registry is built
-from `searchProviders` (default `DEMO_PROVIDERS`). A provider is **disabled**
+from `searchProviders` (default: `createLiveProviders(env)`, which returns
+no providers today, then `DEMO_PROVIDERS`; see [providers.md](providers.md)). A provider is **disabled**
 when listed in `SEARCH_DISABLED_PROVIDERS`, when it is a demo provider and
 demo data is off, or when any `requiredConfig` name is unset. Disabled
 providers are listed by `GET /providers` with a plain-words reason, and never
@@ -683,6 +684,10 @@ show none of these (driven by `source` and `disclaimer`).
 
 ## Adding a real supplier
 
+The step-by-step guide, the supplier toolkit (HTTP client, credentials,
+money normalization) and what a supplier must provide are in
+[providers.md](providers.md#adding-a-real-supplier). In short:
+
 1. Write an adapter in `apps/api/src/modules/providers/<supplier>/` with
    `kind: 'live'`, a stable `id`, `requiredConfig` naming its env vars, and
    `operations` declaring only what it implements.
@@ -793,8 +798,9 @@ npm run test --workspace @wayora/web         # results, filters, URL state, offe
 - Circuit breakers are per API process, not shared between instances.
 - The "results expired" notice uses the device clock.
 - Facets and filters cover the fields the contracts have; there are no
-  ratings, images, accessibility or baggage data, so no filters or details
-  for them.
+  ratings, images or accessibility data. Fare, baggage and cancellation
+  terms exist only for supplier results (Phase 22, none integrated), so the
+  demo shows them as "not provided" and there are no filters for them.
 - No side-by-side comparison view or result-density toggle; the cards are
   designed to be compared in the list.
 - Pagination is numbered pages (no infinite scroll); no virtualization, which

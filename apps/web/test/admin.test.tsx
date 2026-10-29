@@ -256,6 +256,13 @@ describe('admin pages', JOURNEY, () => {
         /rule-based demo answers, not AI/,
       ),
     ).toBeInTheDocument();
+    // Phase 22: search providers, demo labelled as demo; no calls = unknown, not up.
+    expect(screen.getByText(/No live supplier is registered/)).toBeInTheDocument();
+    const providers = screen.getByRole('region', { name: 'Search providers table' });
+    const hotels = within(providers).getByText('demo-hotels').closest('tr')!;
+    expect(within(hotels).getByText('Demo')).toBeInTheDocument();
+    expect(within(hotels).getByText('Unknown')).toBeInTheDocument();
+    expect(within(providers).queryByText('Supplier')).not.toBeInTheDocument();
   });
 
   it('on small screens the sections are in a menu', async () => {

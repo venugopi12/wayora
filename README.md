@@ -94,6 +94,7 @@ is missing. See the `.env.example` next to each app and
 - [Travel assistant](docs/assistant.md) (Phase 21): AI provider interface (demo rule-based assistant, Anthropic adapter, or off), configuration, authorized minimal context, prompt-injection defences, validated structured replies, confirmed apply actions (itinerary, activity, budget, moves), persistent conversations, rate limits and cost controls; migration (with rollback)
 - [Admin dashboard](docs/admin.md): roles and permissions, provisioning, API, metric definitions, search analytics, platform health and worker heartbeat, audit log, migration (with rollback)
 - [Authentication and accounts](docs/auth.md): sessions, cookies and CSRF, endpoints, migration, how to run the account tests, limitations
+- [Travel providers](docs/providers.md) (Phase 22): what is demo and what isn't (no live supplier is integrated), the supplier toolkit (HTTP, credentials, exact money conversion), normalized fare/baggage/cancellation fields, offer revalidation, failures and retries, provider health, honest labels, and how to add a real supplier
 - [Security](docs/security.md): current controls and the plan for payments and providers
 - [Deployment and release](docs/deployment.md): production configuration, build, backup and migrations, deploying the API/worker/web, health checks, smoke tests, rollback, logs, web server headers
 

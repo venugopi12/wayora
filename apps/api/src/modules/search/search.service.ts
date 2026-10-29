@@ -91,6 +91,14 @@ interface ProviderRound {
   status: ProviderStatus;
   results: { result: SearchResult; dedupeKey: string | undefined }[];
   invalidCount: number;
+  /** Calls made to the provider for this round (1 + retries; 0 when its breaker was open). */
+  attempts: number;
+}
+
+/** What a fresh provider round did, for analytics and logs. */
+interface CallRecord {
+  statuses: ProviderStatus[];
+  attempts: Map<string, number>;
 }
 
 const categoryName = (type: SearchRequest['serviceType']) =>
@@ -128,6 +136,15 @@ export class SearchService {
     this.resilience = { ...DEFAULT_RESILIENCE, ...options.resilience };
   }
 
+  /**
+   * Breaker states in this API process, read-only (admin health). Providers
+   * never called here yet have no breaker: they are reported `closed`, which
+   * says nothing about their health on its own.
+   */
+  breakerStates(): ReadonlyMap<string, 'closed' | 'open' | 'half-open'> {
+    return new Map([...this.breakers.entries()].map(([id, b]) => [id, b.state]));
+  }
+
   /** The circuit breaker for one provider (per process; shared by its operations). */
   breakerFor(providerId: string): CircuitBreaker {
     let breaker = this.breakers.get(providerId);
@@ -163,7 +180,7 @@ export class SearchService {
     if (!record) return this.runSearch(request, context);
     const started = this.resilience.clock();
     const elapsed = () => this.resilience.clock() - started;
-    const calls: { statuses: ProviderStatus[] } = { statuses: [] };
+    const calls: CallRecord = { statuses: [], attempts: new Map() };
     try {
       const response = await this.runSearch(request, context, calls);
       record({
@@ -173,7 +190,7 @@ export class SearchService {
         resultCount: response.pagination.totalResults,
         durationMs: elapsed(),
         errorCode: null,
-        providers: providerCalls(calls.statuses),
+        providers: providerCalls(calls.statuses, calls.attempts),
       });
       return response;
     } catch (error) {
@@ -186,7 +203,7 @@ export class SearchService {
           resultCount: 0,
           durationMs: elapsed(),
           errorCode: error instanceof AppError ? error.code : 'INTERNAL_ERROR',
-          providers: providerCalls(calls.statuses),
+          providers: providerCalls(calls.statuses, calls.attempts),
         });
       }
       throw error;
@@ -196,7 +213,7 @@ export class SearchService {
   private async runSearch(
     request: SearchRequest,
     context: CallContext,
-    calls?: { statuses: ProviderStatus[] },
+    calls?: CallRecord,
   ): Promise<SearchResponse> {
     const log = this.logFor(context);
     const providers = this.options.registry.searchProvidersFor(request.serviceType);
@@ -251,7 +268,7 @@ export class SearchService {
     providers: readonly SearchProvider[],
     signal: AbortSignal | undefined,
     log: Logger,
-    calls?: { statuses: ProviderStatus[] },
+    calls?: CallRecord,
   ): Promise<SearchSession> {
     const deadline = this.resilience.clock() + this.resilience.deadlineMs;
     const rounds = await mapWithConcurrency(providers, this.concurrency, (provider) =>
@@ -260,7 +277,30 @@ export class SearchService {
     signal?.throwIfAborted();
 
     const statuses = rounds.map((r) => r.status);
-    if (calls) calls.statuses = statuses;
+    if (calls) {
+      calls.statuses = statuses;
+      calls.attempts = new Map(rounds.map((r) => [r.status.providerId, r.attempts]));
+    }
+    // One line per provider call: duration, outcome (a normalized category,
+    // never supplier text) and retries. Correlated by the request's requestId.
+    for (const round of rounds) {
+      log.info(
+        {
+          provider: {
+            providerId: round.status.providerId,
+            kind: round.status.kind,
+            serviceType: request.serviceType,
+            operation: 'search',
+            outcome: round.status.status,
+            durationMs: round.status.durationMs,
+            attempts: round.attempts,
+            resultCount: round.status.resultCount,
+            invalidCount: round.invalidCount,
+          },
+        },
+        'Provider call finished',
+      );
+    }
     if (statuses.every((s) => s.status !== 'success' && s.status !== 'empty')) {
       log.warn(
         {
@@ -323,6 +363,7 @@ export class SearchService {
     { signal, deadline, log }: { signal: AbortSignal | undefined; deadline: number; log: Logger },
   ): Promise<ProviderRound> {
     const started = performance.now();
+    let attempts = 0;
     const status = (
       outcome: ProviderStatus['status'],
       resultCount: number,
@@ -362,7 +403,10 @@ export class SearchService {
               'Retrying provider call',
             ),
         },
-        (attemptSignal) => provider.search(request, { signal: attemptSignal, now: this.now() }),
+        (attemptSignal) => {
+          attempts += 1;
+          return provider.search(request, { signal: attemptSignal, now: this.now() });
+        },
       );
     } catch (error) {
       if (signal?.aborted) throw signal.reason;
@@ -380,6 +424,7 @@ export class SearchService {
         status: status(outcome, 0, PROVIDER_STATUS_MESSAGES[outcome]),
         results: [],
         invalidCount: 0,
+        attempts,
       };
     }
 
@@ -390,6 +435,7 @@ export class SearchService {
         status: status('error', 0, PROVIDER_STATUS_MESSAGES.invalid),
         results: [],
         invalidCount: 0,
+        attempts,
       };
     }
 
@@ -423,12 +469,14 @@ export class SearchService {
     }
 
     if (results.length > 0)
-      return { status: status('success', results.length, null), results, invalidCount };
-    if (raw.length === 0) return { status: status('empty', 0, null), results, invalidCount };
+      return { status: status('success', results.length, null), results, invalidCount, attempts };
+    if (raw.length === 0)
+      return { status: status('empty', 0, null), results, invalidCount, attempts };
     return {
       status: status('error', 0, PROVIDER_STATUS_MESSAGES.invalid),
       results,
       invalidCount,
+      attempts,
     };
   }
 
@@ -597,6 +645,23 @@ export class SearchService {
   ): Promise<{ result: SearchResult; validation: OfferValidation }> {
     const { signal } = context;
     let answer: unknown;
+    let attempts = 0;
+    const started = performance.now();
+    const finished = (outcome: string) =>
+      log.info(
+        {
+          provider: {
+            providerId: provider.id,
+            kind: provider.kind,
+            serviceType: session.serviceType,
+            operation: 'revalidate',
+            outcome,
+            durationMs: Math.round(performance.now() - started),
+            attempts,
+          },
+        },
+        'Provider call finished',
+      );
     try {
       answer = await callProvider(
         {
@@ -621,11 +686,15 @@ export class SearchService {
               'Retrying provider call',
             ),
         },
-        (attemptSignal) => provider.revalidate!(offer, { signal: attemptSignal, now: this.now() }),
+        (attemptSignal) => {
+          attempts += 1;
+          return provider.revalidate!(offer, { signal: attemptSignal, now: this.now() });
+        },
       );
     } catch (error) {
       if (signal?.aborted) throw signal.reason;
       const outcome = outcomeOf(error);
+      finished(outcome);
       log.warn(
         { providerId: provider.id, operation: 'revalidate', outcome, err: errorForLog(error) },
         error instanceof CircuitOpenError
@@ -636,6 +705,7 @@ export class SearchService {
     }
 
     const parsed = revalidationOutcomeSchema.safeParse(answer);
+    finished(parsed.success ? parsed.data.status : 'invalid');
     if (!parsed.success) {
       log.warn({ providerId: provider.id }, 'Provider returned an invalid revalidation answer');
       throw revalidationFailedError('invalid');

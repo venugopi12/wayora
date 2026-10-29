@@ -122,6 +122,34 @@ export const HEALTH: AdminHealth = adminHealthSchema.parse({
     simulated: true,
     failedRequestsLastHour: 0,
   },
+  searchProviders: [
+    {
+      id: 'demo-flights',
+      name: 'Wayora demo flights',
+      kind: 'demo',
+      serviceTypes: ['flights'],
+      enabled: true,
+      disabledReason: null,
+      status: 'up',
+      breaker: 'closed',
+      callsLastHour: 12,
+      failedLastHour: 0,
+      revalidates: false,
+    },
+    {
+      id: 'demo-hotels',
+      name: 'Wayora demo hotels',
+      kind: 'demo',
+      serviceTypes: ['hotels'],
+      enabled: true,
+      disabledReason: null,
+      status: 'unknown',
+      breaker: 'closed',
+      callsLastHour: 0,
+      failedLastHour: 0,
+      revalidates: false,
+    },
+  ],
 });
 
 const REFS = ['WYD-AAAA-AAAA', 'WYD-BBBB-BBBB', 'WYD-CCCC-CCCC'];

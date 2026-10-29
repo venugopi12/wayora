@@ -1029,6 +1029,66 @@ function Check({
   );
 }
 
+const BREAKER_LABEL: Record<AdminHealth['searchProviders'][number]['breaker'], string> = {
+  closed: 'Closed',
+  open: 'Open: calls paused',
+  'half-open': 'Half-open: testing',
+};
+
+/**
+ * Each search provider as this API process knows it (Phase 22): enabled or
+ * why not, its circuit breaker, and calls recorded in the last hour. With no
+ * calls the status is "Unknown", never "Up".
+ */
+function SearchProvidersHealth({ providers }: { providers: AdminHealth['searchProviders'] }) {
+  const live = providers.filter((p) => p.kind === 'live');
+  return (
+    <section aria-labelledby="search-providers-heading" className="flex flex-col gap-3">
+      <h2 id="search-providers-heading" className="text-title">
+        Search providers
+      </h2>
+      <p className="text-body-sm text-ink-secondary">
+        {live.length === 0
+          ? 'No live supplier is registered: every search result comes from demo providers.'
+          : `${formatCount(live.length)} supplier ${live.length === 1 ? 'integration is' : 'integrations are'} registered, alongside the demo providers.`}
+      </p>
+      <Table
+        label="Search providers"
+        head={['Provider', 'Source', 'Categories', 'Status', 'Breaker', 'Calls (last hour)']}
+      >
+        {providers.map((p) => (
+          <tr key={p.id}>
+            <td>
+              <p className="font-medium">{p.name}</p>
+              <p className={`${mono} text-caption text-ink-secondary`}>{p.id}</p>
+            </td>
+            <td>
+              {p.kind === 'demo' ? (
+                <Badge tone="brand">Demo</Badge>
+              ) : (
+                <Badge tone="neutral">Supplier</Badge>
+              )}
+            </td>
+            <td>{p.serviceTypes.join(', ')}</td>
+            <td>
+              <Badge tone={CHECK[p.status].tone}>{CHECK[p.status].label}</Badge>
+              {p.disabledReason ? (
+                <p className="mt-1 text-caption text-ink-secondary">{p.disabledReason}</p>
+              ) : null}
+            </td>
+            <td className="whitespace-nowrap">{p.enabled ? BREAKER_LABEL[p.breaker] : '—'}</td>
+            <td className="whitespace-nowrap tabular-nums">
+              {p.callsLastHour === null
+                ? 'Unknown'
+                : `${formatCount(p.callsLastHour)} · ${formatCount(p.failedLastHour ?? 0)} failed`}
+            </td>
+          </tr>
+        ))}
+      </Table>
+    </section>
+  );
+}
+
 export function HealthRoute() {
   const query = useQuery({
     queryKey: adminKeys.view('health'),
@@ -1152,9 +1212,10 @@ export function HealthRoute() {
                 )}
               </Check>
             </div>
+            <SearchProvidersHealth providers={h.searchProviders} />
             <Note>
-              “Unknown” means the check couldn’t run; it is never shown as healthy. No connection
-              details are shown here.
+              “Unknown” means the check couldn’t run (for a search provider: no calls in the last
+              hour); it is never shown as healthy. No connection details are shown here.
             </Note>
           </>
         )}

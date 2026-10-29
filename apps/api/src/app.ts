@@ -25,6 +25,7 @@ import { AuthService } from './modules/auth/auth.service.js';
 import { BookingsService } from './modules/bookings/bookings.service.js';
 import { SessionService } from './modules/auth/session.service.js';
 import { DEMO_PROVIDERS } from './modules/providers/demo/index.js';
+import { createLiveProviders } from './modules/providers/live/index.js';
 import type { SearchProvider } from './modules/providers/provider.js';
 import { ProviderRegistry } from './modules/providers/registry.js';
 import { SearchService, type ResilienceOptions } from './modules/search/search.service.js';
@@ -76,8 +77,9 @@ export interface AppDependencies {
   /** Clock override for session and search tests. */
   now?: () => Date;
   /**
-   * Search providers to register. Defaults to the built-in demo providers;
-   * live adapters are added here (docs/search.md#adding-a-supplier).
+   * Search providers to register. Defaults to the live adapters from
+   * `createLiveProviders` (none yet) and the built-in demo providers
+   * (docs/providers.md#adding-a-real-supplier).
    */
   searchProviders?: readonly SearchProvider[];
   /**
@@ -239,7 +241,7 @@ export function createApp({
   createRateLimitStore,
   prisma,
   now,
-  searchProviders = DEMO_PROVIDERS,
+  searchProviders,
   searchSessions,
   searchResilience,
   providerConfig = process.env,
@@ -335,9 +337,27 @@ export function createApp({
   const registry = new ProviderRegistry({
     demoEnabled: demoProvidersEnabled(env),
     disabledIds: env.SEARCH_DISABLED_PROVIDERS,
-    isConfigured: (name) => Boolean(providerConfig[name]),
+    // Blank counts as missing, as in readProviderConfig (providers/credentials.ts).
+    isConfigured: (name) => Boolean(providerConfig[name]?.trim()),
   });
-  for (const provider of searchProviders) registry.register(provider);
+  // Live suppliers first (none integrated yet: docs/providers.md), then demo fixtures.
+  const providers = searchProviders ?? [...createLiveProviders(providerConfig), ...DEMO_PROVIDERS];
+  for (const provider of providers) registry.register(provider);
+  // What search will use, in plain words: never configuration values.
+  logger.info(
+    {
+      searchProviders: registry.describe().map((p) => ({
+        id: p.id,
+        kind: p.kind,
+        enabled: p.enabled,
+        disabledReason: p.disabledReason,
+        revalidate: p.operations.revalidate,
+        book: p.operations.book,
+      })),
+      liveProviders: registry.describe().filter((p) => p.kind === 'live' && p.enabled).length,
+    },
+    'Search providers registered',
+  );
   if (!searchSessions && env.NODE_ENV === 'production') {
     // config/env.ts already refuses this; never fall back to memory silently.
     throw new Error('Production needs the Redis search-session store (searchSessions).');
@@ -453,6 +473,10 @@ export function createApp({
                     recentFailures: () => trips.recentFailures(),
                   }
                 : null,
+              search: {
+                describe: () => registry.describe(),
+                breakerStates: () => search.breakerStates(),
+              },
               assistant: assistantService.provider
                 ? {
                     providerName: assistantService.provider.label,

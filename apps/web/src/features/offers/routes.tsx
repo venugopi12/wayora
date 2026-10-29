@@ -17,7 +17,7 @@ import { ApiClientError } from '../../lib/api-client';
 import { fetchOffer, searchTravel } from '../../services/search';
 import { serviceBySlug } from '../navigation/config';
 import { readSearchParams } from '../search/params';
-import { DemoBadge, PriceBlock, money } from '../search/cards/shared';
+import { PriceBlock, SourceBadge, money } from '../search/cards/shared';
 import { OfferDetails, offerHeading } from './OfferDetails';
 import { bookPath } from '../bookings/paths';
 import { offerPath, readOfferParams, resultsPathFor } from './paths';
@@ -323,7 +323,7 @@ function OfferPage({
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            {demo ? <DemoBadge /> : null}
+            <SourceBadge source={result.source} />
             <span className="text-caption text-ink-secondary">{service.name}</span>
           </div>
           <h1 className="text-heading-1">{heading!.title}</h1>
@@ -388,7 +388,7 @@ function OfferPage({
               <p className="rounded-md bg-sunken px-3 py-2 text-body-sm text-ink-secondary">
                 {demo
                   ? 'This offer has no price, so it can’t be booked.'
-                  : 'Only demo offers can be booked on Wayora for now.'}
+                  : 'Booking supplier offers on Wayora isn’t available yet: no reservation, ticket or payment can be made here. Only demo offers can be booked for now.'}
               </p>
             )}
             {backToResults}
