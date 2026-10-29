@@ -22,6 +22,7 @@ import {
   type NotificationType,
   type Pagination,
   type PaymentStatus,
+  type ReservationState,
   type UserRole,
 } from '@wayora/contracts';
 import type { z } from 'zod';
@@ -29,16 +30,19 @@ import type { Prisma, PrismaClient } from '@wayora/database';
 import type {
   BookingStatus as DbBookingStatus,
   PaymentStatus as DbPaymentStatus,
+  ReservationStatus as DbReservationStatus,
   UserRole as DbUserRole,
   UserStatus as DbUserStatus,
 } from '@wayora/database';
 import { CATEGORY, SERVICE_TYPE } from '../../utils/categories.js';
 import { AppError } from '../../utils/errors.js';
 import { toUserRole } from '../auth/safe-user.js';
+import type { ReservationService } from '../bookings/reservations.service.js';
 
 /*
  * Admin read models (docs/admin.md). Read-only: nothing here changes a
- * booking, payment or user. Every figure is computed in the database
+ * booking, payment or user (the two Phase 23 reservation actions live in
+ * reservations.service.ts and are called from the routes). Every figure is computed in the database
  * (COUNT / GROUP BY / SUM over indexed columns) for a bounded window; lists
  * are paginated. What the database doesn't know is reported as unavailable,
  * never filled in.
@@ -159,6 +163,20 @@ function presentPayment(row: PaymentRow): AdminPaymentSummary {
   };
 }
 
+const RESERVATION_STATE: Record<DbReservationStatus, ReservationState> = {
+  PENDING: 'requested',
+  IN_PROGRESS: 'in-progress',
+  CONFIRMED: 'confirmed',
+  FAILED: 'failed',
+  UNKNOWN: 'unknown',
+  CANCELLATION_PENDING: 'cancellation-pending',
+  CANCELLED: 'cancelled',
+};
+
+/** A supplier reference shown to staff who can't manage reservations: last four characters. */
+const maskReference = (value: string | null) =>
+  value === null ? null : value.length <= 4 ? '••••' : `••••${value.slice(-4)}`;
+
 const bookingSelect = {
   reference: true,
   category: true,
@@ -171,11 +189,14 @@ const bookingSelect = {
   startsOn: true,
   createdAt: true,
   user: { select: { email: true } },
+  reservation: { select: { status: true, needsAttention: true } },
 } satisfies Prisma.BookingSelect;
 type BookingRow = Prisma.BookingGetPayload<{ select: typeof bookingSelect }>;
 
 function presentBooking(row: BookingRow): AdminBookingSummary {
   return {
+    reservationStatus: row.reservation ? RESERVATION_STATE[row.reservation.status] : null,
+    needsAttention: row.reservation?.needsAttention ?? false,
     reference: row.reference,
     serviceType: SERVICE_TYPE[row.category],
     status: BOOKING_STATUS[row.status],
@@ -196,6 +217,8 @@ export interface AdminServiceOptions {
   now?: () => Date;
   /** Whether an email provider delivers notifications (none exists yet). */
   emailConfigured: boolean;
+  /** Supplier reservations (Phase 23): capabilities and the actions available. */
+  reservations?: ReservationService | null;
 }
 
 export class AdminService {
@@ -537,6 +560,7 @@ export class AdminService {
       ...(query.serviceType ? { category: CATEGORY[query.serviceType] } : {}),
       ...(query.status ? { status: { in: DB_BOOKING_STATUSES[query.status] } } : {}),
       ...(query.userId ? { userId: query.userId } : {}),
+      ...(query.attention ? { reservation: { needsAttention: true } } : {}),
       ...(dayRange(query.from, query.to) ? { createdAt: dayRange(query.from, query.to)! } : {}),
     };
     const [total, rows] = await Promise.all([
@@ -555,7 +579,14 @@ export class AdminService {
     };
   }
 
-  async booking(reference: string): Promise<AdminBookingDetail> {
+  /**
+   * One booking. `canManageReservations` (admin.reservations.manage) shows
+   * the supplier's reference in full and the actions; otherwise it is masked.
+   */
+  async booking(
+    reference: string,
+    viewer: { canManageReservations: boolean } = { canManageReservations: false },
+  ): Promise<AdminBookingDetail> {
     const row = await this.prisma.booking.findUnique({
       where: { reference: reference.toUpperCase() },
       select: {
@@ -584,15 +615,30 @@ export class AdminService {
           take: 50,
           select: { type: true, title: true, readAt: true, createdAt: true },
         },
+        refunds: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!row) throw new AppError('NOT_FOUND', 'There is no booking with that reference.');
+    const reservation = row.isDemo
+      ? null
+      : await this.prisma.supplierReservation.findUnique({
+          where: { bookingId: row.id },
+          include: {
+            events: { orderBy: { createdAt: 'asc' } },
+            documents: { orderBy: { issuedAt: 'asc' } },
+          },
+        });
+    const ops = reservation
+      ? (this.options.reservations?.operationsFor(reservation.provider) ?? null)
+      : null;
+    const showReference = (value: string | null) =>
+      viewer.canManageReservations ? value : maskReference(value);
     const snapshot = row.offerSnapshot as { providerName?: unknown } | null;
     return {
       ...presentBooking(row),
       providerName:
         typeof snapshot?.providerName === 'string' ? snapshot.providerName : (row.provider ?? ''),
-      supplierReference: row.isDemo ? null : row.providerReference,
+      supplierReference: row.isDemo ? null : showReference(row.providerReference),
       partySize: row.partySize,
       endsOn: fromDate(row.endsOn),
       paymentDueAt: isoOrNull(row.paymentDueAt),
@@ -612,6 +658,60 @@ export class AdminService {
         note: e.note,
       })),
       payments: row.payments.map(presentPayment),
+      reservation: reservation
+        ? {
+            provider: reservation.provider,
+            status: RESERVATION_STATE[reservation.status],
+            supplierReference: showReference(reservation.supplierReference),
+            requestId: reservation.requestId,
+            attempts: reservation.attempts,
+            checks: reservation.checks,
+            cancelAttempts: reservation.cancelAttempts,
+            lastAttemptAt: isoOrNull(reservation.lastAttemptAt),
+            nextCheckAt: isoOrNull(reservation.nextCheckAt),
+            errorCategory: reservation.errorCategory,
+            ambiguous: reservation.ambiguous,
+            needsAttention: reservation.needsAttention,
+            confirmedAt: isoOrNull(reservation.confirmedAt),
+            cancellationRequestedAt: isoOrNull(reservation.cancellationRequestedAt),
+            cancelledAt: isoOrNull(reservation.cancelledAt),
+            capabilities: {
+              lookup: Boolean(ops?.lookup),
+              cancel: Boolean(ops?.cancel),
+              idempotentReserve: Boolean(ops?.idempotentReserve),
+            },
+            actions:
+              viewer.canManageReservations && this.options.reservations
+                ? this.options.reservations.adminActions(reservation)
+                : { recheck: false, resolve: false },
+            documents: reservation.documents.map((d) => ({
+              type: d.type.toLowerCase(),
+              reference: showReference(d.reference) ?? '',
+              issuedAt: iso(d.issuedAt),
+            })),
+            history: reservation.events.map((e) => ({
+              status: RESERVATION_STATE[e.toStatus],
+              at: iso(e.createdAt),
+              by: e.actorType.toLowerCase(),
+              note: e.note,
+              errorCategory: e.errorCategory,
+              requestId: e.requestId,
+            })),
+          }
+        : null,
+      refunds: row.refunds.map((r) => ({
+        id: r.id,
+        paymentId: r.paymentId,
+        status: r.status.toLowerCase(),
+        reason: r.reason.toLowerCase(),
+        mode: lower<'demo' | 'live'>(r.mode),
+        amount: money(r.amountMinor, r.currency),
+        attempts: r.attempts,
+        failureCode: r.failureCode,
+        needsAttention: r.needsAttention,
+        createdAt: iso(r.createdAt),
+        completedAt: isoOrNull(r.completedAt),
+      })),
       notifications: row.notifications.map((n) => ({
         type: lower<NotificationType>(n.type),
         title: n.title,
@@ -866,6 +966,7 @@ export class AdminService {
           'BOOKING_CONFIRMED',
           'BOOKING_CANCELLED',
           'BOOKING_EXPIRED',
+          'BOOKING_FAILED',
           'PAYMENT_PENDING',
           'PAYMENT_SUCCEEDED',
           'PAYMENT_FAILED',

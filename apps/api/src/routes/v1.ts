@@ -20,7 +20,7 @@ import type { NotificationsService } from '../modules/notifications/notification
 import { plannerRouter, type PlannerRouterOptions } from '../modules/planner/planner.routes.js';
 import { providersRouter } from '../modules/providers/providers.routes.js';
 import type { ProviderRegistry } from '../modules/providers/registry.js';
-import { searchRouter } from '../modules/search/search.routes.js';
+import { searchRouter, type BookingAvailability } from '../modules/search/search.routes.js';
 import type { SearchService } from '../modules/search/search.service.js';
 import { healthRouter, type HealthRouterOptions } from '../modules/system/health.routes.js';
 import { usersRouter } from '../modules/users/users.routes.js';
@@ -58,7 +58,13 @@ export interface V1RouterOptions {
   health: HealthRouterOptions;
   /** Auth, profile, travellers and bookings; mounted only when a database is configured. */
   accounts?: AccountsRouterOptions;
-  search: { service: SearchService; registry: ProviderRegistry; limiter?: RequestHandler };
+  search: {
+    service: SearchService;
+    registry: ProviderRegistry;
+    limiter?: RequestHandler;
+    /** How an offer can be booked now (Phase 23); absent = demo offers only. */
+    bookingAvailability?: BookingAvailability;
+  };
 }
 
 /**
@@ -69,7 +75,14 @@ export function v1Router(options: V1RouterOptions): Router {
   const router = Router();
   router.use('/health', healthRouter(options.health));
   router.use('/catalog', catalogRouter());
-  router.use('/search', searchRouter(options.search.service, options.search.limiter));
+  router.use(
+    '/search',
+    searchRouter(
+      options.search.service,
+      options.search.limiter,
+      options.search.bookingAvailability,
+    ),
+  );
   router.use('/providers', providersRouter(options.search.registry));
   if (options.accounts) {
     const {

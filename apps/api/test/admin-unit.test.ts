@@ -39,8 +39,12 @@ describe('roles and permissions (one map, enforced by the API)', () => {
     for (const p of ADMIN_PERMISSIONS) expect(hasPermission('admin', p)).toBe(true);
   });
 
-  it('defines only read permissions (the dashboard has no write actions)', () => {
-    for (const p of ADMIN_PERMISSIONS) expect(p).toMatch(/\.read$/);
+  it('defines read permissions plus one write, admin-only: managing supplier reservations (Phase 23)', () => {
+    const writes = ADMIN_PERMISSIONS.filter((p) => !p.endsWith('.read'));
+    expect(writes).toEqual(['admin.reservations.manage']);
+    expect(ROLE_PERMISSIONS.support).not.toContain('admin.reservations.manage');
+    expect(ROLE_PERMISSIONS.user).toEqual([]);
+    expect(ROLE_PERMISSIONS.admin).toContain('admin.reservations.manage');
   });
 });
 

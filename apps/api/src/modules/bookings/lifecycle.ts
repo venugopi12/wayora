@@ -11,8 +11,15 @@ import { messages, notify } from '../notifications/notify.js';
  *   PENDING → FAILED     (system; reserved)
  *   PENDING | CONFIRMED → CANCELLED (the account holder, before travel)
  * CANCELLED, EXPIRED and FAILED are final. HELD (a supplier hold) is reserved
- * for real suppliers and never used by demo bookings. CONFIRMED is always a
- * demo confirmation: no supplier has reserved anything.
+ * and never used.
+ *
+ * Demo bookings: CONFIRMED is a demo confirmation; no supplier reserved anything.
+ * Supplier bookings (Phase 23, reservations.service.ts): the booking follows
+ * its supplier reservation (a database trigger enforces it):
+ *   PENDING → CONFIRMED  only when the supplier confirmed the reservation
+ *   PENDING → FAILED     only when the reservation definitively failed
+ *   CONFIRMED → CANCELLED only when the supplier confirmed the cancellation
+ * While the reservation's outcome is unknown, the booking stays PENDING.
  */
 export const TRANSITIONS: Record<DbBookingStatus, readonly DbBookingStatus[]> = {
   PENDING: ['CONFIRMED', 'FAILED', 'CANCELLED', 'EXPIRED'],
@@ -44,7 +51,7 @@ export async function transitionBooking(
   bookingId: string,
   from: DbBookingStatus,
   to: DbBookingStatus,
-  event: { actorType: 'USER' | 'SYSTEM'; note: string },
+  event: { actorType: 'USER' | 'SYSTEM' | 'PROVIDER' | 'ADMIN'; note: string },
 ): Promise<boolean> {
   if (!TRANSITIONS[from].includes(to)) return false;
   const changed = await tx.booking.updateMany({

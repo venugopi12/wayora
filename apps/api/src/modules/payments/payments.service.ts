@@ -16,7 +16,9 @@ import { expireIfOverdue, lockBooking } from '../bookings/lifecycle.js';
 import { notifyPaymentChange } from '../notifications/events.js';
 import { errorForLog } from '../search/errors.js';
 import type { CallContext } from '../search/search.service.js';
+import { withTimeout } from '../search/concurrency.js';
 import { IN_PROGRESS, PaymentEventProcessor } from './events.js';
+import { openRefunds } from './refunds.js';
 import {
   ProviderPaymentError,
   type PaymentProvider,
@@ -57,6 +59,11 @@ export interface PaymentsServiceOptions {
 }
 
 const NOT_FOUND_MESSAGE = "We couldn't find that payment.";
+
+/** Refund calls (Phase 23): time limit, lease while one is in flight, and attempts before staff take over. */
+const REFUND_CALL_TIMEOUT_MS = 12_000;
+const REFUND_LEASE_MS = 2 * 60_000;
+const MAX_REFUND_ATTEMPTS = 5;
 const BOOKING_NOT_FOUND_MESSAGE = "We couldn't find that booking.";
 
 const paymentInclude = {
@@ -546,31 +553,178 @@ export class PaymentsService {
     }
   }
 
-  // ─── Refunds (extension point) ──────────────────────────────────────────
+  // ─── Refunds (Phase 23, docs/payments.md#refunds) ────────────────────────
+
+  /** Whether payments of this provider can be refunded through Wayora. */
+  canRefund(providerId: string): boolean {
+    const provider = this.providerFor(providerId);
+    return Boolean(provider?.capabilities.refund && provider.refund);
+  }
 
   /**
-   * Requests a refund through the payment's provider. Only providers that can
-   * refund AND confirm it implement this; the status becomes `refunded` only
-   * when the provider's event says so. The demo provider can't refund (no
-   * money was taken), so this is refused for demo payments. Not exposed over
-   * HTTP yet: there is no refund flow to put it in.
+   * Requests a refund of one successful payment through its provider (not
+   * exposed over HTTP; refunds normally follow a cancellation). Only
+   * providers that can refund AND confirm it support this; the refund is
+   * `succeeded` only when the provider's event says so.
    */
-  async requestRefund(userId: string, paymentId: string): Promise<Payment> {
-    const row = await this.prisma.payment.findFirst({
-      where: { id: paymentId, userId },
-      include: { booking: { select: { reference: true } } },
-    });
+  async requestRefund(userId: string, paymentId: string, context: CallContext = {}) {
+    const row = await this.prisma.payment.findFirst({ where: { id: paymentId, userId } });
     if (!row) throw new AppError('NOT_FOUND', NOT_FOUND_MESSAGE);
-    const provider = this.providerFor(row.provider);
-    if (!provider?.capabilities.refund || !provider.refund) {
+    if (!this.canRefund(row.provider)) {
       throw new AppError('PAYMENT_NOT_ALLOWED', 'Refunds aren’t supported for this payment.');
     }
     if (row.status !== 'SUCCEEDED') {
       throw new AppError('PAYMENT_NOT_ALLOWED', 'Only a successful payment can be refunded.');
     }
-    const result = await provider.refund(this.attemptOf(row));
-    await this.applyResult(provider, paymentId, result, 'call');
+    const ids = await this.prisma.$transaction(async (tx) => {
+      await lockBooking(tx, row.bookingId);
+      return openRefunds(
+        tx,
+        this.now(),
+        { bookingId: row.bookingId, paymentId: row.id },
+        'MANUAL',
+        (id) => this.canRefund(id),
+      );
+    });
+    for (const id of ids) await this.sendRefund(id, context);
     return this.read(userId, paymentId);
+  }
+
+  /** Records the refunds a cancelled booking's payments are owed (inside its transaction). */
+  openRefunds(tx: Prisma.TransactionClient, now: Date, bookingId: string): Promise<string[]> {
+    return openRefunds(tx, now, { bookingId }, 'BOOKING_CANCELLED', (id) => this.canRefund(id));
+  }
+
+  private refundDelay(attempts: number): number {
+    return Math.min(30 * 60_000, 30_000 * 2 ** Math.max(0, attempts - 1));
+  }
+
+  /**
+   * Sends one refund request (REQUESTED), or asks again after an unknown
+   * outcome (UNKNOWN) once the provider's own record shows nothing settled.
+   * Always with the same refund id. Never throws.
+   */
+  async sendRefund(refundId: string, context: CallContext = {}): Promise<void> {
+    const log = this.log(context).child({ refundId });
+    const row = await this.prisma.refund.findUnique({
+      where: { id: refundId },
+      include: { payment: { include: { booking: { select: { reference: true } } } } },
+    });
+    if (!row || !['REQUESTED', 'UNKNOWN'].includes(row.status)) return;
+    const provider = this.providerFor(row.provider);
+    if (!provider?.capabilities.refund || !provider.refund) return;
+    if (row.attempts >= MAX_REFUND_ATTEMPTS) {
+      await this.prisma.refund.updateMany({
+        where: { id: row.id, status: row.status },
+        data: { needsAttention: true, nextAttemptAt: null },
+      });
+      log.warn('Refund attempts exhausted; staff must reconcile it');
+      return;
+    }
+    const now = this.now();
+    // Claim: only one process sends it (attempt counted before the call).
+    const claimed = await this.prisma.refund.updateMany({
+      where: { id: row.id, status: row.status, attempts: row.attempts },
+      data: {
+        attempts: { increment: 1 },
+        nextAttemptAt: new Date(now.getTime() + REFUND_LEASE_MS),
+      },
+    });
+    if (claimed.count !== 1) return;
+    try {
+      const result = await withTimeout(REFUND_CALL_TIMEOUT_MS, undefined, (signal) =>
+        provider.refund!(
+          this.attemptOf(row.payment),
+          { refundId: row.id, amountMinor: row.amountMinor, currency: row.currency },
+          signal,
+        ),
+      );
+      await this.applyResult(provider, row.paymentId, result, 'call');
+    } catch (error) {
+      if (error instanceof ProviderPaymentError && error.kind === 'rejected') {
+        await this.prisma.refund.updateMany({
+          where: { id: row.id, status: { in: ['REQUESTED', 'UNKNOWN'] } },
+          data: {
+            status: 'FAILED',
+            failureCode: error.code.slice(0, 64),
+            completedAt: this.now(),
+            nextAttemptAt: null,
+          },
+        });
+        log.warn({ err: errorForLog(error) }, 'Provider refused the refund');
+        return;
+      }
+      log.warn({ err: errorForLog(error) }, 'Refund outcome unknown; it will be checked first');
+    }
+    // No provider event settled it: unknown, checked again later.
+    await this.prisma.refund.updateMany({
+      where: { id: row.id, status: { in: ['REQUESTED', 'UNKNOWN'] } },
+      data: {
+        status: 'UNKNOWN',
+        nextAttemptAt: new Date(this.now().getTime() + this.refundDelay(row.attempts + 1)),
+      },
+    });
+  }
+
+  /**
+   * Works through refunds whose next step is due (run periodically):
+   * REQUESTED ones are sent; PENDING and UNKNOWN ones are first checked with
+   * the provider (retrieve), and an UNKNOWN one is sent again (same refund
+   * id) only if that check settled nothing.
+   */
+  async processRefunds(limit = 20): Promise<number> {
+    const due = await this.prisma.refund.findMany({
+      where: {
+        status: { in: ['REQUESTED', 'PENDING', 'UNKNOWN'] },
+        needsAttention: false,
+        nextAttemptAt: { lte: this.now() },
+      },
+      orderBy: { nextAttemptAt: 'asc' },
+      take: limit,
+      include: { payment: { include: { booking: { select: { reference: true } } } } },
+    });
+    for (const row of due) {
+      try {
+        if (row.status === 'REQUESTED') {
+          await this.sendRefund(row.id);
+          continue;
+        }
+        const provider = this.providerFor(row.provider);
+        if (!provider) continue;
+        const leased = await this.prisma.refund.updateMany({
+          where: { id: row.id, status: row.status, nextAttemptAt: row.nextAttemptAt },
+          data: { nextAttemptAt: new Date(this.now().getTime() + REFUND_LEASE_MS) },
+        });
+        if (leased.count !== 1) continue;
+        const result = await withTimeout(REFUND_CALL_TIMEOUT_MS, undefined, (signal) =>
+          provider.retrieve(this.attemptOf(row.payment), signal),
+        );
+        await this.applyResult(provider, row.paymentId, result, 'poll');
+        const after = await this.prisma.refund.findUnique({
+          where: { id: row.id },
+          select: { status: true },
+        });
+        if (after?.status === 'UNKNOWN') await this.sendRefund(row.id);
+        else if (after?.status === 'PENDING') {
+          await this.prisma.refund.updateMany({
+            where: { id: row.id, status: 'PENDING' },
+            data: { nextAttemptAt: new Date(this.now().getTime() + 5 * 60_000) },
+          });
+        }
+      } catch (error) {
+        this.options.logger.warn(
+          { refundId: row.id, err: errorForLog(error) },
+          'Refund check failed; will retry',
+        );
+        await this.prisma.refund.updateMany({
+          where: { id: row.id, status: row.status },
+          data: {
+            nextAttemptAt: new Date(this.now().getTime() + this.refundDelay(row.attempts + 1)),
+          },
+        });
+      }
+    }
+    return due.length;
   }
 
   // ─── Background maintenance ─────────────────────────────────────────────

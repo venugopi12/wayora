@@ -393,6 +393,18 @@ export const offerResponseSchema = z.object({
   generatedAt: offsetDateTimeSchema,
   expiresAt: offsetDateTimeSchema,
   validation: offerValidationSchema,
+  /**
+   * Whether this offer can be booked on Wayora now, and how (Phase 23): a
+   * demo booking, a supplier reservation, or not at all (`reason` says why).
+   * Absent from older servers: treat as demo-only.
+   */
+  booking: z
+    .object({
+      available: z.boolean(),
+      kind: z.enum(['demo', 'supplier']),
+      reason: z.string().nullable(),
+    })
+    .optional(),
 });
 export type OfferResponse = z.infer<typeof offerResponseSchema>;
 

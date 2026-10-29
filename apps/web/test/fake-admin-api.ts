@@ -8,6 +8,7 @@ import {
   type AdminAuditEntry,
   type AdminBookingSummary,
   type AdminPaymentSummary,
+  type AdminReservation,
   adminHealthSchema,
   adminOverviewSchema,
   adminUserDetailSchema,
@@ -165,8 +166,68 @@ export const BOOKINGS: AdminBookingSummary[] = REFS.map((reference, i) =>
     total: i === 1 ? null : { amountMinor: '1170000', currency: 'INR' },
     startsOn: '2026-11-12',
     createdAt: new Date(Date.UTC(2026, 9, 20 - i)).toISOString(),
+    reservationStatus: null,
+    needsAttention: false,
   }),
 );
+
+/**
+ * A supplier booking (Phase 23) whose reservation outcome is unknown and
+ * needs staff attention: from the TEST-ONLY fixture supplier, never real.
+ */
+export const SUPPLIER_BOOKING: AdminBookingSummary = adminBookingSummarySchema.parse({
+  reference: 'WY-DDDD-DDDD',
+  serviceType: 'flights',
+  status: 'pending',
+  demo: false,
+  paymentMode: 'none',
+  userId: '01890000-0000-7000-b000-000000000001',
+  userEmail: 'traveller1@example.com',
+  total: { amountMinor: '452050', currency: 'INR' },
+  startsOn: '2026-12-14',
+  createdAt: new Date(Date.UTC(2026, 9, 21)).toISOString(),
+  reservationStatus: 'unknown',
+  needsAttention: true,
+});
+
+const unknownReservation = (): AdminReservation => ({
+  provider: 'fixture-air',
+  status: 'unknown',
+  supplierReference: null,
+  requestId: 'req-reserve-1',
+  attempts: 1,
+  checks: 0,
+  cancelAttempts: 0,
+  lastAttemptAt: '2026-10-21T10:00:00.000Z',
+  nextCheckAt: null,
+  errorCategory: 'TIMEOUT',
+  ambiguous: true,
+  needsAttention: true,
+  confirmedAt: null,
+  cancellationRequestedAt: null,
+  cancelledAt: null,
+  capabilities: { lookup: false, cancel: false, idempotentReserve: false },
+  actions: { recheck: false, resolve: true },
+  documents: [],
+  history: [
+    {
+      status: 'requested',
+      at: '2026-10-21T10:00:00.000Z',
+      by: 'user',
+      note: 'Reservation recorded by Wayora; not sent to the supplier yet.',
+      errorCategory: null,
+      requestId: 'req-reserve-1',
+    },
+    {
+      status: 'unknown',
+      at: '2026-10-21T10:00:12.000Z',
+      by: 'system',
+      note: 'No definitive answer, and this supplier has no status lookup: staff must check with the supplier.',
+      errorCategory: 'TIMEOUT',
+      requestId: 'req-reserve-1',
+    },
+  ],
+});
 export const PAYMENTS: AdminPaymentSummary[] = [
   ['succeeded', 0],
   ['failed', 2],
@@ -217,6 +278,7 @@ const ENDPOINT_PERMISSION: [RegExp, string][] = [
   [/^\/admin\/me$/, 'admin.overview.read'],
   [/^\/admin\/overview$/, 'admin.overview.read'],
   [/^\/admin\/users/, 'admin.users.read'],
+  [/^\/admin\/bookings\/[^/]+\/reservation\/(recheck|resolve)$/, 'admin.reservations.manage'],
   [/^\/admin\/bookings/, 'admin.bookings.read'],
   [/^\/admin\/payments/, 'admin.payments.read'],
   [/^\/admin\/search-analytics$/, 'admin.search.read'],
@@ -229,13 +291,24 @@ export function installFakeAdminApi({
   role = 'admin',
   signedIn = true,
   users = Array.from({ length: 30 }, (_, i) => adminUser(i + 1)),
-}: { role?: UserRole; signedIn?: boolean; users?: AdminUserSummary[] } = {}) {
+  withSupplierBooking = false,
+}: {
+  role?: UserRole;
+  signedIn?: boolean;
+  users?: AdminUserSummary[];
+  /** Add SUPPLIER_BOOKING (Phase 23) to the bookings. */
+  withSupplierBooking?: boolean;
+} = {}) {
+  const bookings = withSupplierBooking ? [SUPPLIER_BOOKING, ...BOOKINGS] : BOOKINGS;
+  let reservation = unknownReservation();
+  let supplierStatus: AdminBookingSummary['status'] = 'pending';
+  const resolutions: unknown[] = [];
   const account = installFakeAccountApi({ signedIn, account: { ...TEST_USER, role } });
   const accountFetch = account.fetch as unknown as typeof fetch;
   const requests: string[] = [];
   const state = { role, failNext: null as null | { path: string; status: number; code: string } };
 
-  const handle = (url: URL): Response => {
+  const handle = (url: URL, init?: RequestInit): Response => {
     const path = url.pathname.replace(/^\/api\/v1/, '');
     const page = Number(url.searchParams.get('page') ?? '1');
     requests.push(`${path}${url.search}`);
@@ -305,18 +378,76 @@ export function installFakeAdminApi({
       },
     });
     if (path === '/admin/audit-logs') return ok(pageOf(AUDIT));
+    const supplierDetail = () =>
+      adminBookingDetailSchema.parse({
+        ...SUPPLIER_BOOKING,
+        status: supplierStatus,
+        reservationStatus: reservation.status,
+        needsAttention: reservation.needsAttention,
+        providerName: 'Fixture Air (test supplier)',
+        supplierReference: reservation.supplierReference,
+        partySize: 1,
+        endsOn: null,
+        paymentDueAt: null,
+        confirmedAt: null,
+        cancelledAt: null,
+        travellers: [{ firstName: 'Asha', lastName: 'Rao', type: 'adult' }],
+        contactPhoneMasked: null,
+        offerSnapshot: { v: 1 },
+        history: [{ status: 'pending', at: SUPPLIER_BOOKING.createdAt, by: 'user', note: null }],
+        payments: [],
+        notifications: [],
+        reservation,
+        refunds: [],
+      });
+    const action = /^\/admin\/bookings\/([^/]+)\/reservation\/(recheck|resolve)$/.exec(path);
+    if (action && init?.method === 'POST') {
+      if (action[1] !== SUPPLIER_BOOKING.reference || !withSupplierBooking) {
+        return fail(409, 'CONFLICT', 'This booking has no supplier reservation.');
+      }
+      if (action[2] === 'recheck')
+        return fail(409, 'CONFLICT', 'This reservation can’t be rechecked now.');
+      const body = JSON.parse(String(init.body ?? '{}')) as {
+        outcome: string;
+        supplierReference?: string;
+        reason?: string;
+      };
+      resolutions.push(body);
+      if (!body.reason || body.reason.length < 10) {
+        return fail(400, 'VALIDATION_FAILED', 'Say how this was confirmed (10+ characters).');
+      }
+      const confirmed = body.outcome === 'confirmed';
+      reservation = {
+        ...reservation,
+        status: confirmed ? 'confirmed' : 'failed',
+        supplierReference: confirmed ? (body.supplierReference ?? null) : null,
+        ambiguous: false,
+        needsAttention: false,
+        confirmedAt: confirmed ? '2026-10-21T11:00:00.000Z' : null,
+        actions: { recheck: false, resolve: false },
+      };
+      supplierStatus = confirmed ? 'confirmed' : 'failed';
+      return ok(supplierDetail());
+    }
     if (path === '/admin/bookings') {
       const type = url.searchParams.get('serviceType');
       const status = url.searchParams.get('status');
+      const attention = url.searchParams.get('attention') === 'true';
       return ok(
         pageOf(
-          BOOKINGS.filter(
-            (b) => (!type || b.serviceType === type) && (!status || b.status === status),
+          bookings.filter(
+            (b) =>
+              (!type || b.serviceType === type) &&
+              (!status || b.status === status) &&
+              (!attention || b.needsAttention),
           ),
         ),
       );
     }
     const bookingMatch = /^\/admin\/bookings\/([^/]+)$/.exec(path);
+    if (bookingMatch && bookingMatch[1] === SUPPLIER_BOOKING.reference && withSupplierBooking) {
+      return ok(supplierDetail());
+    }
     if (bookingMatch) {
       const b = BOOKINGS.find((x) => x.reference === bookingMatch[1]);
       if (!b) return fail(404, 'NOT_FOUND', 'There is no booking with that reference.');
@@ -336,6 +467,8 @@ export function installFakeAdminApi({
           history: [{ status: b.status, at: b.createdAt, by: 'user', note: null }],
           payments: PAYMENTS.filter((p) => p.bookingReference === b.reference),
           notifications: [],
+          reservation: null,
+          refunds: [],
         }),
       );
     }
@@ -353,7 +486,7 @@ export function installFakeAdminApi({
 
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
-    if (url.pathname.startsWith('/api/v1/admin')) return handle(url);
+    if (url.pathname.startsWith('/api/v1/admin')) return handle(url, init);
     return accountFetch(input, init);
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -366,6 +499,8 @@ export function installFakeAdminApi({
     setRole: (next: UserRole) => {
       state.role = next;
     },
+    /** Bodies sent to the reservation "resolve" action. */
+    resolutions,
     /** Answer the next request for `path` (e.g. "/admin/health") with this error. */
     failNext: (path: string, status: number, code: string) => {
       state.failNext = { path, status, code };

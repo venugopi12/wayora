@@ -22,20 +22,22 @@ never filled in.
 
 ## Scope
 
-| Area            | What staff can do                                                                                                      | What deliberately doesn't exist                                     |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Overview        | Counts for a 24h / 7d / 30d UTC window, recent activity                                                                | Revenue from demo payments                                          |
-| Users           | List, filter (name/email/id, role, status), page, view one account                                                     | Editing, suspending, deleting, impersonating, role changes          |
-| Bookings        | List, filter (reference, category, status, dates, user), view one booking with history, payments and notifications     | Cancelling, confirming or changing a booking; contacting a supplier |
-| Payments        | List, filter (payment id or booking reference, status, mode, dates), view one attempt with history and provider events | "Mark as paid", refunds, retries                                    |
-| Search activity | Volume by category/outcome, hourly/daily series, provider call stats                                                   | Routes, dates, travellers or who searched                           |
-| Notifications   | Created notifications by type, email deliveries by status                                                              | Re-sending, editing                                                 |
-| Audit log       | Filter and page the audit trail (administrators only)                                                                  | Editing or deleting entries                                         |
-| Platform health | API, database, Redis, worker heartbeat, queue, email outbox, payments in progress                                      | Connection strings, hosts, versions, environment values             |
+| Area            | What staff can do                                                                                                                                                                                                                                                                              | What deliberately doesn't exist                                       |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Overview        | Counts for a 24h / 7d / 30d UTC window, recent activity                                                                                                                                                                                                                                        | Revenue from demo payments                                            |
+| Users           | List, filter (name/email/id, role, status), page, view one account                                                                                                                                                                                                                             | Editing, suspending, deleting, impersonating, role changes            |
+| Bookings        | List, filter (reference, category, status, reservation needing attention, dates, user), view one booking with history, payments, refunds, supplier reservation and notifications; admins: recheck a reservation (read-only lookup) or record an outcome confirmed with the supplier (Phase 23) | Cancelling or changing a booking; sending a reservation to a supplier |
+| Payments        | List, filter (payment id or booking reference, status, mode, dates), view one attempt with history and provider events                                                                                                                                                                         | "Mark as paid", refunds, retries                                      |
+| Search activity | Volume by category/outcome, hourly/daily series, provider call stats                                                                                                                                                                                                                           | Routes, dates, travellers or who searched                             |
+| Notifications   | Created notifications by type, email deliveries by status                                                                                                                                                                                                                                      | Re-sending, editing                                                   |
+| Audit log       | Filter and page the audit trail (administrators only)                                                                                                                                                                                                                                          | Editing or deleting entries                                           |
+| Platform health | API, database, Redis, worker heartbeat, queue, email outbox, payments in progress                                                                                                                                                                                                              | Connection strings, hosts, versions, environment values               |
 
-Write actions are out of scope for this phase on purpose: each one (refund,
-cancellation, suspension) needs its own rules, confirmation, audit and tests,
-and none of them can be honest yet for demo bookings and payments.
+Write actions are out of scope on purpose: each one (refund, cancellation,
+suspension) needs its own rules, confirmation, audit and tests. The only
+exceptions are the two supplier-reservation actions added in Phase 23
+([Supplier reservations](#supplier-reservations-phase-23)). Neither can make
+Wayora send a reservation.
 
 ## Roles and permissions
 
@@ -44,16 +46,17 @@ The mapping lives in one place, `packages/contracts/src/admin.ts`
 (`ROLE_PERMISSIONS`), shared by the API (which enforces it) and the web app
 (which only hides what a role can't use).
 
-| Permission                 | user | support | admin |
-| -------------------------- | ---- | ------- | ----- |
-| `admin.overview.read`      | –    | ✓       | ✓     |
-| `admin.users.read`         | –    | ✓       | ✓     |
-| `admin.bookings.read`      | –    | ✓       | ✓     |
-| `admin.payments.read`      | –    | ✓       | ✓     |
-| `admin.search.read`        | –    | ✓       | ✓     |
-| `admin.notifications.read` | –    | ✓       | ✓     |
-| `admin.health.read`        | –    | ✓       | ✓     |
-| `admin.audit.read`         | –    | –       | ✓     |
+| Permission                  | user | support | admin |
+| --------------------------- | ---- | ------- | ----- |
+| `admin.overview.read`       | –    | ✓       | ✓     |
+| `admin.users.read`          | –    | ✓       | ✓     |
+| `admin.bookings.read`       | –    | ✓       | ✓     |
+| `admin.payments.read`       | –    | ✓       | ✓     |
+| `admin.search.read`         | –    | ✓       | ✓     |
+| `admin.notifications.read`  | –    | ✓       | ✓     |
+| `admin.health.read`         | –    | ✓       | ✓     |
+| `admin.audit.read`          | –    | –       | ✓     |
+| `admin.reservations.manage` | –    | –       | ✓     |
 
 Enforcement (`apps/api/src/modules/admin/access.ts`):
 
@@ -101,20 +104,22 @@ It uses `DATABASE_URL` from `apps/api/.env` or the environment.
 
 ## API
 
-All `GET`, under `/api/v1/admin`, `Cache-Control: no-store`, strict query
-validation (unknown parameters are `400`), pages of at most 100 rows.
+All `GET` except the two Phase 23 reservation actions
+([Supplier reservations](#supplier-reservations-phase-23)). Everything is
+under `/api/v1/admin`, answers `Cache-Control: no-store`, validates queries
+strictly (unknown parameters are `400`), and pages at most 100 rows.
 
-| Path                                            | Permission    | Query                                                                                                          |
-| ----------------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------- |
-| `/admin/me`                                     | overview      | –                                                                                                              |
-| `/admin/overview`                               | overview      | `range=24h\|7d\|30d` (default `7d`)                                                                            |
-| `/admin/users`, `/admin/users/:userId`          | users         | `q`, `role`, `status`, `page`, `pageSize`                                                                      |
-| `/admin/bookings`, `/admin/bookings/:reference` | bookings      | `reference` (prefix), `serviceType`, `status`, `userId`, `from`, `to` (UTC days, ≤ 1 year), `page`, `pageSize` |
-| `/admin/payments`, `/admin/payments/:paymentId` | payments      | `q` (payment id or booking-reference prefix), `status`, `mode`, `from`, `to`, `page`, `pageSize`               |
-| `/admin/search-analytics`                       | search        | `range`                                                                                                        |
-| `/admin/notifications`                          | notifications | `range`                                                                                                        |
-| `/admin/audit-logs`                             | audit         | `action` (prefix), `actorId`, `entityType`, `entityId`, `from`, `to`, `page`, `pageSize`                       |
-| `/admin/health`                                 | health        | –                                                                                                              |
+| Path                                            | Permission    | Query                                                                                                                                       |
+| ----------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/admin/me`                                     | overview      | –                                                                                                                                           |
+| `/admin/overview`                               | overview      | `range=24h\|7d\|30d` (default `7d`)                                                                                                         |
+| `/admin/users`, `/admin/users/:userId`          | users         | `q`, `role`, `status`, `page`, `pageSize`                                                                                                   |
+| `/admin/bookings`, `/admin/bookings/:reference` | bookings      | `reference` (prefix), `serviceType`, `status`, `attention=true` (Phase 23), `userId`, `from`, `to` (UTC days, ≤ 1 year), `page`, `pageSize` |
+| `/admin/payments`, `/admin/payments/:paymentId` | payments      | `q` (payment id or booking-reference prefix), `status`, `mode`, `from`, `to`, `page`, `pageSize`                                            |
+| `/admin/search-analytics`                       | search        | `range`                                                                                                                                     |
+| `/admin/notifications`                          | notifications | `range`                                                                                                                                     |
+| `/admin/audit-logs`                             | audit         | `action` (prefix), `actorId`, `entityType`, `entityId`, `from`, `to`, `page`, `pageSize`                                                    |
+| `/admin/health`                                 | health        | –                                                                                                                                           |
 
 Response schemas: `packages/contracts/src/admin.ts`. Detail views write an
 audit entry (`admin.user_viewed`, `admin.booking_viewed`,
@@ -192,6 +197,44 @@ key or a timestamp older than 60 seconds = **down**; Redis unreadable =
 
 The public `/health` (liveness) and `/health/ready` (readiness) endpoints are
 unchanged; this page is the protected, operator view.
+
+## Supplier reservations (Phase 23)
+
+**Where it shows**
+
+- The bookings list has a "Supplier reservation" column and a "Needs
+  attention" filter (`?attention=true`).
+- A supplier booking's detail page has a reservation panel:
+  - status, ambiguity and the last error category (normalized, never supplier
+    text);
+  - reservation, cancellation and status-check counts, and the last and next
+    attempt times;
+  - the correlation id, the supplier's capabilities and issued documents;
+  - the reservation history.
+- Admin booking detail also lists refunds.
+
+**Who sees what**
+
+- Support staff see the supplier reference masked to its last four
+  characters. Admins (`admin.reservations.manage`) see it in full.
+- No supplier payloads, credentials or extra traveller data are shown.
+
+**Admin actions**, under `admin.reservations.manage` (admins only):
+
+| Action                                                | What it does                                                                                                                                                                                                                                                            | Never                                        |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `POST /admin/bookings/:reference/reservation/recheck` | One read-only status lookup now, for an open reservation whose supplier has a lookup                                                                                                                                                                                    | Sends a reservation (even a same-key resend) |
+| `POST /admin/bookings/:reference/reservation/resolve` | Records what staff confirmed with the supplier for an ambiguous or stuck reservation: `confirmed` (with the supplier's reference) / `failed`, or for a pending cancellation `cancelled` / `confirmed` (reference must match). A reason of 10–500 characters is required | Contacts the supplier                        |
+
+**Audit and enforcement**
+
+- Both actions are audited (`reservation.recheck_requested`,
+  `reservation.resolved_manually` with the outcome and reason).
+- The reason stays staff-only.
+- A refused attempt is `403` and audited as `admin.access_denied`.
+
+The handling procedure is in
+[bookings.md](bookings.md#operational-handling-of-ambiguous-reservations).
 
 ## Audit log
 

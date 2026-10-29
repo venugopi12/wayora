@@ -74,18 +74,29 @@ toolkit below.
 `GET /api/v1/providers` lists what is registered at runtime, with `kind`,
 operations and why a provider is disabled.
 
-**Supported booking operations with a supplier: none.** Every adapter
-declares `book: 'unsupported'`. The booking API refuses any offer whose
-`source` isn't `demo` (`503 SERVICE_UNAVAILABLE`, "Booking this offer isn’t
-available yet."). It creates no booking row and no reference, and makes no
-supplier call. The web checkout shows the same refusal before asking for any
-details.
+**Supported booking operations with a real supplier: none.** No registered
+adapter implements reservations, so every one declares `book: 'unsupported'`.
+The booking API refuses any supplier offer (`503 SERVICE_UNAVAILABLE`,
+"Booking this offer isn’t available yet."); it creates no booking row and no
+reference, and makes no supplier call. The web checkout shows the same
+refusal before asking for any details.
+
+Since Phase 23 the platform is ready for a supplier that has a documented
+booking API ([bookings.md](bookings.md#supplier-reservations-phase-23)):
+
+- the `SupplierReservations` interface (reserve, and optionally lookup and
+  cancel), plus idempotency keys;
+- recovery of unknown outcomes, travel documents and staff tools.
+
+It is switched on by `SUPPLIER_RESERVATIONS_ENABLED=true`, and only for
+providers that implement it. It is exercised only with the test-only
+fixture supplier.
 
 ## Features still using demo data
 
 - Search results, prices and availability in all seven categories.
 - Offer details, including flight segments, hotel rooms and holiday inclusions.
-- Bookings: demo bookings, with no supplier reservation, ticket or PNR ([bookings.md](bookings.md)).
+- Bookings: demo bookings, with no supplier reservation, ticket or PNR ([bookings.md](bookings.md)). The supplier reservation lifecycle exists (Phase 23) but no real supplier implements it.
 - Payments: a demo payment provider, unless a real one is configured ([payments.md](payments.md)).
 - Trip status and disruptions: simulated ([trips.md](trips.md)).
 - The travel assistant: rule-based demo answers unless an AI provider is configured ([assistant.md](assistant.md)).
@@ -256,9 +267,12 @@ Before writing code, you need from the supplier:
   production.
 - **Their API documentation**: authentication scheme, endpoints, request and response schemas,
   error codes, rate limits, offer expiry and revalidation (or price-check) semantics.
-- **Booking rules**, if bookings are in scope: order creation, ticketing, cancellation,
-  idempotency, webhooks. Booking is **out of scope** until these, real payments and a
-  reconciliation process exist ([search.md#adding-a-real-supplier](search.md#adding-a-real-supplier)).
+- **Booking rules**, if bookings are in scope: reservation creation and its exact refusal codes,
+  whether it de-duplicates by a client key, a status lookup, cancellation and its terms,
+  ticketing/voucher issue, webhooks, and **who takes payment**.
+  - Wayora can book only suppliers that the traveller pays directly
+    (`settlement: 'supplier'`). Wayora has no real payment gateway.
+  - The reservation lifecycle is in [bookings.md](bookings.md#supplier-reservations-phase-23).
 
 Then:
 
@@ -268,13 +282,25 @@ Then:
    - Use `ProviderHttpClient` for every call.
    - Set `kind: 'live'`, a stable `id`, the `serviceTypes` it really covers, a realistic
      `timeoutMs`, `requiredConfig: requiredNames(spec)`, and `operations` with
-     `book: 'unsupported'`.
+     `book: 'unsupported'` unless step 3b applies.
 2. Validate the supplier payload with a zod schema, then map it to the contracts:
    - `source: 'live'`, `id: '<providerId>:<offerRef>'`, `validUntil` from the supplier's offer
      expiry;
    - money via `supplierMoney`;
    - fare, baggage and cancellation fields only when sent. Drop offers you can't map.
 3. Implement `revalidate` if the supplier has a price check, and declare `revalidate: 'supported'`.
+
+   3b. If the supplier has a documented booking API, implement `reservations`
+   (`providers/reservations.ts`) and declare `book: 'supported'`:
+   - `reserve` sends one request built from the given server records, with the idempotency key
+     if the supplier takes one.
+   - Return `rejected` only for documented refusals; throw for anything else (the outcome is
+     then unknown).
+   - Set `idempotentReserve: true` only if the supplier documents de-duplication by that key.
+   - Add `lookup` and `cancel` only when they exist.
+   - Test with `apps/api/test/integration/reservations.test.ts` as the model. Verify against
+     the sandbox before setting `SUPPLIER_RESERVATIONS_ENABLED=true` anywhere.
+
 4. Register it in `createLiveProviders` (`providers/live/index.ts`).
 5. Add empty placeholders for its settings to `apps/api/.env.example`, document them here, and set
    real values only in the deployment's secret store.

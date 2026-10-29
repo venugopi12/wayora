@@ -40,7 +40,28 @@ const requestIdOf = (res: Response): string | undefined =>
  * comes from the path and may be repeated in the body only if it matches.
  * Search is public: it uses no session and returns nothing user-specific.
  */
-export function searchRouter(service: SearchService, limiter?: RequestHandler): Router {
+/** How an offer can be booked now (Phase 23): demo booking, supplier reservation, or not at all. */
+export type BookingAvailability = (result: { source: string; providerId: string }) => {
+  available: boolean;
+  kind: 'demo' | 'supplier';
+  reason: string | null;
+};
+
+/** Without a booking service: demo offers only (the Phase 12–22 behaviour). */
+const demoOnly: BookingAvailability = (result) =>
+  result.source === 'demo'
+    ? { available: true, kind: 'demo', reason: null }
+    : {
+        available: false,
+        kind: 'supplier',
+        reason: 'Booking supplier offers on Wayora isn’t available for this supplier.',
+      };
+
+export function searchRouter(
+  service: SearchService,
+  limiter?: RequestHandler,
+  bookingAvailability: BookingAvailability = demoOnly,
+): Router {
   const router = Router();
   const searchLimit: RequestHandler[] = limiter ? [limiter] : [];
 
@@ -69,7 +90,7 @@ export function searchRouter(service: SearchService, limiter?: RequestHandler): 
       throw error;
     }
     res.setHeader('Cache-Control', 'no-store');
-    sendData(res, offer);
+    sendData(res, { ...offer, booking: bookingAvailability(offer.result) });
   });
 
   router.post('/:serviceType', ...searchLimit, async (req, res) => {

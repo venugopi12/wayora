@@ -7,6 +7,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { z } from 'zod';
 import {
   DEMO_BOOKING_NOTICE,
+  SUPPLIER_BOOKING_NOTICE,
   bookingRequirementsFor,
   bookingTravellerInputSchema,
   offerTravelDates,
@@ -225,7 +226,10 @@ function Checkout({
       </Container>
     );
   }
-  if (offer.data.result.source !== 'demo') {
+  const bookable =
+    offer.data.result.source === 'demo' ||
+    (offer.data.booking?.available === true && offer.data.booking.kind === 'supplier');
+  if (!bookable) {
     // The API refuses it too (SERVICE_UNAVAILABLE); no form is shown for an
     // offer that can't be booked here.
     const offerUrl = offerPath(serviceType, resultId, searchId, from ?? '');
@@ -233,7 +237,7 @@ function Checkout({
       <Message
         icon={<Store />}
         title="This supplier offer can’t be booked on Wayora yet"
-        description="Wayora can show this supplier’s offer, but booking it isn’t available: no reservation, ticket or payment can be made here. Only demo offers can be booked for now."
+        description={`${offer.data.booking?.reason ?? 'Wayora can show this supplier’s offer, but booking it isn’t available.'} No reservation, ticket or payment can be made here.`}
         action={
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button asChild>
@@ -297,6 +301,8 @@ function CheckoutFlow({
   const [params, setParams] = useSearchParams();
   const service = serviceBySlug[serviceType];
   const result = offer.result;
+  /** A supplier reservation request (Phase 23) rather than a demo booking. */
+  const supplier = result.source !== 'demo';
   const requirements = bookingRequirementsFor(result);
   const heading = offerHeading(result);
   const dates = offerTravelDates(result);
@@ -424,7 +430,7 @@ function CheckoutFlow({
       travellers: values.travellers,
       ...(requirements.contactPhone === 'required' ? { contactPhone: values.contactPhone } : {}),
       acceptedPrice: result.price,
-      acceptDemoTerms: true,
+      ...(supplier ? { acceptSupplierTerms: true } : { acceptDemoTerms: true }),
     };
     inProgressRetries.current = 0;
     create.mutate({ body, key: keyFor(body) });
@@ -448,16 +454,22 @@ function CheckoutFlow({
       <header className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
           <p className="text-caption font-semibold tracking-wide text-brand-ink uppercase">
-            Demo booking · {service.name}
+            {supplier ? 'Booking request' : 'Demo booking'} · {service.name}
           </p>
           <h1 className="text-heading-1">{heading.title}</h1>
           <p className="text-body-lg text-ink-secondary">{heading.subtitle}</p>
         </div>
         <BookingSteps current={step} />
       </header>
-      <Alert tone="warning" role="none" title="This is a demo booking">
-        {DEMO_BOOKING_NOTICE}
-      </Alert>
+      {supplier ? (
+        <Alert tone="info" role="none" title="A booking request, confirmed only by the supplier">
+          {SUPPLIER_BOOKING_NOTICE}
+        </Alert>
+      ) : (
+        <Alert tone="warning" role="none" title="This is a demo booking">
+          {DEMO_BOOKING_NOTICE}
+        </Alert>
+      )}
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-10">
         <div className="flex min-w-0 flex-col gap-6">
@@ -472,11 +484,13 @@ function CheckoutFlow({
               <OfferStep
                 headingRef={stepHeading}
                 offer={offer}
+                supplier={supplier}
                 onContinue={() => goTo('details')}
               />
             ) : step === 'details' ? (
               <DetailsStep
                 headingRef={stepHeading}
+                supplier={supplier}
                 form={form}
                 requirements={requirements}
                 onBack={() => goTo('offer')}
@@ -488,6 +502,7 @@ function CheckoutFlow({
             ) : (
               <ReviewStep
                 headingRef={stepHeading}
+                supplier={supplier}
                 offer={offer}
                 requirements={requirements}
                 values={form.getValues()}
@@ -549,10 +564,12 @@ function StepHeading({
 function OfferStep({
   headingRef,
   offer,
+  supplier,
   onContinue,
 }: {
   headingRef: Ref<HTMLHeadingElement>;
   offer: OfferResponse;
+  supplier: boolean;
   onContinue: () => void;
 }) {
   return (
@@ -561,7 +578,9 @@ function OfferStep({
         <StepHeading headingRef={headingRef}>Check the offer</StepHeading>
         <p className="text-body-sm text-ink-secondary">
           {offer.validation.status === 'session'
-            ? 'As your search found it. Demo offers are not rechecked with any supplier.'
+            ? supplier
+              ? 'As your search found it; not rechecked with the supplier. The supplier confirms the price when it confirms the reservation.'
+              : 'As your search found it. Demo offers are not rechecked with any supplier.'
             : `Checked with the provider at ${timeFormat.format(new Date(offer.validation.checkedAt!))}.`}
         </p>
       </div>
@@ -583,12 +602,14 @@ function OfferStep({
 
 function DetailsStep({
   headingRef,
+  supplier,
   form,
   requirements,
   onBack,
   onContinue,
 }: {
   headingRef: Ref<HTMLHeadingElement>;
+  supplier: boolean;
   form: DetailsForm;
   requirements: BookingRequirements;
   onBack: () => void;
@@ -633,7 +654,9 @@ function DetailsStep({
         <p className="text-body-sm text-ink-secondary">
           {nothingToAsk
             ? 'Nothing to fill in for this booking.'
-            : 'Only what this booking needs. Names are used for this demo booking only.'}
+            : supplier
+              ? 'Only what this booking needs. Names are sent to the supplier for this reservation only.'
+              : 'Only what this booking needs. Names are used for this demo booking only.'}
         </p>
       </div>
       {requirements.note ? (
@@ -721,6 +744,7 @@ function DetailsStep({
 
 function ReviewStep({
   headingRef,
+  supplier,
   offer,
   requirements,
   values,
@@ -733,6 +757,7 @@ function ReviewStep({
   onSubmit,
 }: {
   headingRef: Ref<HTMLHeadingElement>;
+  supplier: boolean;
   offer: OfferResponse;
   requirements: BookingRequirements;
   values: DetailsValues;
@@ -833,34 +858,63 @@ function ReviewStep({
         ) : null}
       </section>
 
-      <section
-        aria-labelledby="demo-terms"
-        className="flex flex-col gap-3 rounded-xl border border-line bg-sunken p-5"
-      >
-        <h3 id="demo-terms" className="text-title">
-          Demo terms
-        </h3>
-        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-body-sm text-ink-secondary">
-          <li>
-            This is a demo. Wayora saves the booking, but no supplier reservation, ticket or payment
-            is made, and nothing is charged.
-          </li>
-          <li>The price is this demo offer&apos;s price, not a supplier guarantee.</li>
-          <li>
-            If a payment step follows, it is a demo payment: no card details are asked for and no
-            real money moves.
-          </li>
-          <li>
-            You can cancel it in My trips until the travel date. Cancelling only changes its status.
-            This offer includes no cancellation terms, and nothing is refunded because nothing is
-            paid.
-          </li>
-        </ul>
-        <Checkbox
-          label="I understand this is a demo booking"
-          {...review.register('accept', { required: true })}
-        />
-      </section>
+      {supplier ? (
+        <section
+          aria-labelledby="booking-terms"
+          className="flex flex-col gap-3 rounded-xl border border-line bg-sunken p-5"
+        >
+          <h3 id="booking-terms" className="text-title">
+            How this booking works
+          </h3>
+          <ul className="flex list-disc flex-col gap-1.5 pl-5 text-body-sm text-ink-secondary">
+            <li>
+              Wayora sends this reservation request to the supplier. It is confirmed only when the
+              supplier confirms it; until then it isn&apos;t booked.
+            </li>
+            <li>
+              Wayora takes no payment. You pay the supplier under its own terms, which also decide
+              cancellations and refunds.
+            </li>
+            <li>
+              If the supplier doesn&apos;t answer clearly, Wayora checks with it and never sends a
+              second request on its own.
+            </li>
+          </ul>
+          <Checkbox
+            label="I understand how this supplier booking works"
+            {...review.register('accept', { required: true })}
+          />
+        </section>
+      ) : (
+        <section
+          aria-labelledby="demo-terms"
+          className="flex flex-col gap-3 rounded-xl border border-line bg-sunken p-5"
+        >
+          <h3 id="demo-terms" className="text-title">
+            Demo terms
+          </h3>
+          <ul className="flex list-disc flex-col gap-1.5 pl-5 text-body-sm text-ink-secondary">
+            <li>
+              This is a demo. Wayora saves the booking, but no supplier reservation, ticket or
+              payment is made, and nothing is charged.
+            </li>
+            <li>The price is this demo offer&apos;s price, not a supplier guarantee.</li>
+            <li>
+              If a payment step follows, it is a demo payment: no card details are asked for and no
+              real money moves.
+            </li>
+            <li>
+              You can cancel it in My trips until the travel date. Cancelling only changes its
+              status. This offer includes no cancellation terms, and nothing is refunded because
+              nothing is paid.
+            </li>
+          </ul>
+          <Checkbox
+            label="I understand this is a demo booking"
+            {...review.register('accept', { required: true })}
+          />
+        </section>
+      )}
 
       {problem}
       {offer.result.price === null ? (
@@ -882,7 +936,7 @@ function ReviewStep({
             disabled={!accepted || busy || offer.result.price === null}
             aria-describedby={accepted ? undefined : 'confirm-hint'}
           >
-            Confirm demo booking
+            {supplier ? 'Send booking request' : 'Confirm demo booking'}
           </Button>
           <p
             id="confirm-hint"
@@ -893,7 +947,9 @@ function ReviewStep({
               ? 'Still saving your booking…'
               : accepted
                 ? ''
-                : 'Tick “I understand this is a demo booking” to confirm.'}
+                : supplier
+                  ? 'Tick “I understand how this supplier booking works” to send it.'
+                  : 'Tick “I understand this is a demo booking” to confirm.'}
           </p>
         </div>
       </div>

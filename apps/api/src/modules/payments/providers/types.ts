@@ -59,6 +59,15 @@ export interface ProviderAttempt {
   status: string;
 }
 
+/** A refund Wayora asks for (Phase 23): always the whole payment, by Wayora's refund id. */
+export interface ProviderRefund {
+  /** Wayora's refund id: the provider-side idempotency key for this refund. */
+  refundId: string;
+  /** The payment's own amount and currency (never another figure). */
+  amountMinor: bigint;
+  currency: string;
+}
+
 export interface ProviderCallResult {
   providerReference: string;
   /** What the provider reported, in order. */
@@ -85,8 +94,18 @@ export interface PaymentProvider {
   retrieve(attempt: ProviderAttempt, signal?: AbortSignal): Promise<ProviderCallResult>;
   /** Cancels a pending attempt, or throws ProviderPaymentError('not_cancellable'). */
   cancel(attempt: ProviderAttempt, signal?: AbortSignal): Promise<ProviderCallResult>;
-  /** Requests a refund. Only providers whose capabilities say `refund` implement it. */
-  refund?(attempt: ProviderAttempt, signal?: AbortSignal): Promise<ProviderCallResult>;
+  /**
+   * Requests a refund of the whole payment. Only providers whose
+   * capabilities say `refund` implement it. Must be idempotent on
+   * `refund.refundId`: asking again with the same id never refunds twice.
+   * Throws ProviderPaymentError('rejected') when the provider definitely
+   * refused it, 'unknown' (or anything else) when the outcome is unknown.
+   */
+  refund?(
+    attempt: ProviderAttempt,
+    refund: ProviderRefund,
+    signal?: AbortSignal,
+  ): Promise<ProviderCallResult>;
   /**
    * Verifies an inbound webhook (signature over the raw body, timestamp
    * tolerance) and returns its events. Throws on anything not authentic.
@@ -109,7 +128,8 @@ export class ProviderPaymentError extends Error {
   constructor(
     readonly kind: 'rejected' | 'not_cancellable' | 'unknown',
     message: string,
-    readonly code = kind,
+    /** A provider failure code (e.g. `refund_declined`); Wayora maps it to its own wording. */
+    readonly code: string = kind,
   ) {
     super(message);
     this.name = 'ProviderPaymentError';

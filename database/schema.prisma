@@ -127,6 +127,8 @@ enum NotificationType {
   BOOKING_CONFIRMED
   BOOKING_CANCELLED
   BOOKING_EXPIRED
+  /// A supplier reservation failed (Phase 23; never for demo bookings).
+  BOOKING_FAILED
   PAYMENT_PENDING
   PAYMENT_SUCCEEDED
   PAYMENT_FAILED
@@ -324,6 +326,8 @@ model User {
 
   assistantConversations AssistantConversation[]
   assistantRequests      AssistantRequest[]
+  /// Refunds of this user's payments (Phase 23).
+  refunds                Refund[]
   assistantActions       AssistantAction[]
 
   @@index([status])
@@ -458,6 +462,10 @@ model Booking {
   planExpenses  PlanExpense[]
   tripStatus    TripStatus?
   disruptions   TripDisruption[]
+  /// The supplier reservation of a non-demo booking (Phase 23).
+  reservation   SupplierReservation?
+  documents     TravelDocument[]
+  refunds       Refund[]
 
   @@unique([provider, providerReference])
   @@index([orderId])
@@ -548,6 +556,7 @@ model Payment {
   user          User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
   events        PaymentStatusEvent[]
   notifications Notification[]
+  refunds       Refund[]
 
   @@unique([bookingId, attempt])
   @@unique([provider, providerReference])
@@ -1318,4 +1327,195 @@ model AssistantAction {
 
   @@index([messageId])
   @@map("assistant_actions")
+}
+
+// ─── Supplier reservations, travel documents, refunds (Phase 23) ──────────
+
+/// A supplier reservation's lifecycle (docs/bookings.md#supplier-reservations).
+enum ReservationStatus {
+  /// Recorded by Wayora; nothing sent to the supplier yet.
+  PENDING
+  /// Sent, or the supplier accepted it without confirming yet.
+  IN_PROGRESS
+  /// The supplier confirmed it and gave its reference.
+  CONFIRMED
+  /// The supplier definitely did not reserve it.
+  FAILED
+  /// Sent, but no definitive answer: the supplier may or may not have it.
+  UNKNOWN
+  /// Cancellation asked of the supplier; not confirmed yet.
+  CANCELLATION_PENDING
+  /// The supplier confirmed the cancellation.
+  CANCELLED
+
+  @@map("reservation_status")
+}
+
+/// Normalized reasons; never supplier text.
+enum ReservationErrorCategory {
+  TIMEOUT
+  UNAVAILABLE
+  INVALID_RESPONSE
+  OFFER_UNAVAILABLE
+  PRICE_CHANGED
+  INVALID_DETAILS
+  REJECTED
+  NOT_FOUND
+  NOT_CANCELLABLE
+  PRICE_MISMATCH
+  UNKNOWN
+
+  @@map("reservation_error_category")
+}
+
+enum TravelDocumentType {
+  TICKET
+  VOUCHER
+  ITINERARY
+
+  @@map("travel_document_type")
+}
+
+/// A refund's lifecycle (docs/payments.md#refunds).
+enum RefundStatus {
+  /// Owed, but the payment's provider can't refund (demo: no money was taken).
+  REQUIRED
+  /// To be sent to the provider (or being sent).
+  REQUESTED
+  /// The provider accepted it and is processing it.
+  PENDING
+  /// The provider confirmed it.
+  SUCCEEDED
+  /// The provider refused it.
+  FAILED
+  /// Sent, but no definitive answer yet.
+  UNKNOWN
+
+  @@map("refund_status")
+}
+
+enum RefundReason {
+  BOOKING_CANCELLED
+  PAID_AFTER_CLOSE
+  /// Requested directly through the payments service (operators, tests).
+  MANUAL
+
+  @@map("refund_reason")
+}
+
+/// The supplier side of a non-demo booking. One per booking; status changes
+/// are conditional updates, and every change is in reservation_events.
+model SupplierReservation {
+  id                      String                    @id @default(uuid(7)) @db.Uuid
+  bookingId               String                    @unique @map("booking_id") @db.Uuid
+  provider                String                    @db.VarChar(64)
+  status                  ReservationStatus         @default(PENDING)
+  /// Wayora's key for this reservation; sent to suppliers that de-duplicate by it.
+  idempotencyKey          String                    @unique @map("idempotency_key") @db.Uuid
+  /// The supplier's confirmation reference. Set once, from the supplier only.
+  supplierReference       String?                   @map("supplier_reference") @db.VarChar(128)
+  /// Reservation requests sent.
+  attempts                Int                       @default(0) @db.SmallInt
+  /// Status lookups made.
+  checks                  Int                       @default(0) @db.SmallInt
+  /// Cancellation requests sent.
+  cancelAttempts          Int                       @default(0) @map("cancel_attempts") @db.SmallInt
+  lastAttemptAt           DateTime?                 @map("last_attempt_at") @db.Timestamptz(3)
+  /// When recovery next looks at it (also a lease while one process does).
+  nextCheckAt             DateTime?                 @map("next_check_at") @db.Timestamptz(3)
+  errorCategory           ReservationErrorCategory? @map("error_category")
+  /// The last request got no definitive answer.
+  ambiguous               Boolean                   @default(false)
+  /// Automatic recovery stopped: staff must reconcile with the supplier.
+  needsAttention          Boolean                   @default(false) @map("needs_attention")
+  /// Correlation id of the request that last changed it.
+  requestId               String?                   @map("request_id") @db.VarChar(128)
+  /// What the supplier confirmed (validated, normalized). Set once.
+  confirmedDetails        Json?                     @map("confirmed_details")
+  confirmedAt             DateTime?                 @map("confirmed_at") @db.Timestamptz(3)
+  cancellationKey         String?                   @unique @map("cancellation_key") @db.Uuid
+  cancellationReference   String?                   @map("cancellation_reference") @db.VarChar(128)
+  cancellationRequestedAt DateTime?                 @map("cancellation_requested_at") @db.Timestamptz(3)
+  cancelledAt             DateTime?                 @map("cancelled_at") @db.Timestamptz(3)
+  createdAt               DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  booking   Booking            @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  events    ReservationEvent[]
+  documents TravelDocument[]
+
+  @@unique([provider, supplierReference])
+  @@index([status, nextCheckAt])
+  @@index([needsAttention])
+  @@map("supplier_reservations")
+}
+
+/// Append-only history of a reservation's status (a trigger forbids changes).
+model ReservationEvent {
+  id            String                    @id @default(uuid(7)) @db.Uuid
+  reservationId String                    @map("reservation_id") @db.Uuid
+  fromStatus    ReservationStatus?        @map("from_status")
+  toStatus      ReservationStatus         @map("to_status")
+  actorType     AuditActorType            @map("actor_type")
+  errorCategory ReservationErrorCategory? @map("error_category")
+  note          String?                   @db.VarChar(255)
+  requestId     String?                   @map("request_id") @db.VarChar(128)
+  createdAt     DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  reservation SupplierReservation @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+
+  @@index([reservationId, createdAt])
+  @@map("reservation_events")
+}
+
+/// A ticket, voucher or itinerary reference the supplier actually issued
+/// (never generated by Wayora). Immutable.
+model TravelDocument {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  reservationId     String             @map("reservation_id") @db.Uuid
+  bookingId         String             @map("booking_id") @db.Uuid
+  type              TravelDocumentType
+  reference         String             @db.VarChar(128)
+  /// Which booked traveller it is for (position), if per traveller.
+  travellerPosition Int?               @map("traveller_position") @db.SmallInt
+  issuedAt          DateTime           @map("issued_at") @db.Timestamptz(3)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  reservation SupplierReservation @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  booking     Booking             @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+
+  @@unique([reservationId, type, reference])
+  @@index([bookingId])
+  @@map("travel_documents")
+}
+
+/// A refund of one payment, tracked apart from the payment and the booking.
+/// Amount and currency are the payment's (a trigger checks it).
+model Refund {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  paymentId      String       @map("payment_id") @db.Uuid
+  bookingId      String       @map("booking_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  provider       String       @db.VarChar(64)
+  mode           PaymentMode
+  status         RefundStatus
+  reason         RefundReason
+  amountMinor    BigInt       @map("amount_minor")
+  currency       String       @db.Char(3)
+  failureCode    String?      @map("failure_code") @db.VarChar(64)
+  attempts       Int          @default(0) @db.SmallInt
+  nextAttemptAt  DateTime?    @map("next_attempt_at") @db.Timestamptz(3)
+  needsAttention Boolean      @default(false) @map("needs_attention")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  completedAt    DateTime?    @map("completed_at") @db.Timestamptz(3)
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([bookingId])
+  @@index([paymentId])
+  @@index([status, nextAttemptAt])
+  @@map("refunds")
 }

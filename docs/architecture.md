@@ -206,7 +206,14 @@ real suppliers without integrating one: a supplier toolkit in
 supplier-only result fields (flight fare and baggage, hotel cancellation
 policy), per-call provider logs with attempts, provider health in the admin
 dashboard, and supplier offers refused at checkout. See
-[providers.md](providers.md).
+[providers.md](providers.md). Phase 23 completed the booking lifecycle: a
+supplier reservation per non-demo booking (`supplier_reservations`, with an
+append-only history), tickets and vouchers only as suppliers issue them
+(`travel_documents`), refunds as their own lifecycle (`refunds`), an adapter
+boundary for supplier reservations (`providers/reservations.ts`), recovery of
+unknown outcomes in the API's maintenance timers, and two audited admin
+actions. No real supplier implements reservations; see
+[bookings.md](bookings.md#supplier-reservations-phase-23).
 
 ### Conventions
 

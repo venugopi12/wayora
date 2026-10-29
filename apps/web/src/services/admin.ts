@@ -12,13 +12,14 @@ import {
   adminUserDetailSchema,
   adminUserListSchema,
   type AdminRange,
+  type AdminReservationResolve,
 } from '@wayora/contracts';
 import { api } from './api';
 
 /*
  * Admin dashboard API (docs/admin.md#api). Every call is authorized on the
  * server by the session's role; nothing here sends a role or user identity.
- * All read-only.
+ * Read-only, except the two reservation actions (admins only).
  */
 
 /** Query string from a filter object, skipping empty values. */
@@ -62,6 +63,20 @@ export const adminApi = {
     api.request(`/admin/bookings/${encodeURIComponent(reference)}`, {
       schema: adminBookingDetailSchema,
       ...opts(signal),
+    }),
+  // The only admin writes (Phase 23): neither sends a reservation to a supplier.
+  /** One read-only status lookup with the supplier now. */
+  recheckReservation: (reference: string) =>
+    api.request(`/admin/bookings/${encodeURIComponent(reference)}/reservation/recheck`, {
+      method: 'POST',
+      schema: adminBookingDetailSchema,
+    }),
+  /** Records an outcome staff confirmed with the supplier (with a reason). */
+  resolveReservation: (reference: string, body: AdminReservationResolve) =>
+    api.request(`/admin/bookings/${encodeURIComponent(reference)}/reservation/resolve`, {
+      method: 'POST',
+      body,
+      schema: adminBookingDetailSchema,
     }),
   payments: (filters: Filters, signal?: AbortSignal) =>
     api.request(`/admin/payments${queryString(filters)}`, {

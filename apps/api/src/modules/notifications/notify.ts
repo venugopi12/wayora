@@ -46,6 +46,7 @@ const CATEGORY: Partial<
   BOOKING_CONFIRMED: 'emailBookings',
   BOOKING_CANCELLED: 'emailBookings',
   BOOKING_EXPIRED: 'emailBookings',
+  BOOKING_FAILED: 'emailBookings',
   PAYMENT_PENDING: 'emailPayments',
   PAYMENT_SUCCEEDED: 'emailPayments',
   PAYMENT_FAILED: 'emailPayments',
@@ -61,6 +62,7 @@ const EMAILED = new Set<DbNotificationType>([
   'BOOKING_CONFIRMED',
   'BOOKING_CANCELLED',
   'BOOKING_EXPIRED',
+  'BOOKING_FAILED',
   'PAYMENT_SUCCEEDED',
   'PAYMENT_FAILED',
   'PAYMENT_REFUNDED',
@@ -153,6 +155,28 @@ export const messages = {
     type: 'BOOKING_EXPIRED' as const,
     title: 'Demo booking expired',
     message: `Booking ${reference} expired because its payment wasn’t completed in time. Nothing was charged.`,
+  }),
+  // Supplier bookings (Phase 23): real reservations, so no demo wording. The
+  // supplier's own text is never used; only its name and reference.
+  supplierBookingRequested: (reference: string, supplier: string) => ({
+    type: 'BOOKING_CREATED' as const,
+    title: 'Booking requested',
+    message: `Booking ${reference} was sent to ${supplier}. It is confirmed only when ${supplier} confirms it; we’ll tell you when it does.`,
+  }),
+  supplierBookingConfirmed: (reference: string, supplier: string, supplierReference: string) => ({
+    type: 'BOOKING_CONFIRMED' as const,
+    title: 'Booking confirmed',
+    message: `${supplier} confirmed booking ${reference}. Its reference is ${supplierReference}.`,
+  }),
+  supplierBookingFailed: (reference: string, supplier: string) => ({
+    type: 'BOOKING_FAILED' as const,
+    title: 'Booking not confirmed',
+    message: `${supplier} didn’t confirm booking ${reference}, so nothing was reserved. Wayora took no payment.`,
+  }),
+  supplierBookingCancelled: (reference: string, supplier: string) => ({
+    type: 'BOOKING_CANCELLED' as const,
+    title: 'Booking cancelled',
+    message: `${supplier} confirmed the cancellation of booking ${reference}. Any refund of what you paid ${supplier} follows ${supplier}’s own terms.`,
   }),
   paymentPending: (reference: string, amount: string, demo: boolean) => ({
     type: 'PAYMENT_PENDING' as const,

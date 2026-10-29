@@ -12,6 +12,10 @@ import {
   type ProviderResult,
   type SearchProvider,
 } from '../src/modules/providers/provider.js';
+import type {
+  ReservationOutcome,
+  SupplierReservations,
+} from '../src/modules/providers/reservations.js';
 
 /*
  * TEST-ONLY "live" supplier (docs/providers.md#testing): a fictional flight
@@ -57,10 +61,66 @@ const supplierOffer = z.object({
 });
 const searchAnswer = z.object({ offers: z.array(z.unknown()) });
 const priceAnswer = z.object({ total: z.object({ amount: z.unknown(), currency: z.unknown() }) });
+/** The fictional supplier's reservation record (Phase 23). */
+const reservationAnswer = z.object({
+  status: z.enum(['confirmed', 'pending', 'cancelled', 'failed']),
+  reservationRef: z.string().nullable(),
+  total: z.object({ amount: z.unknown(), currency: z.unknown() }).nullable().optional(),
+  tickets: z
+    .array(z.object({ number: z.string(), passenger: z.number().int().nullable() }))
+    .optional(),
+  cancellationRef: z.string().nullable().optional(),
+});
+
+/** "4520.50" from 452050 minor units (2-digit currencies only: the fixture uses INR). */
+const decimal = (amountMinor: string) =>
+  `${amountMinor.slice(0, -2) || '0'}.${amountMinor.slice(-2).padStart(2, '0')}`;
+
+function mapReservation(answer: z.infer<typeof reservationAnswer>): ReservationOutcome {
+  switch (answer.status) {
+    case 'confirmed': {
+      if (!answer.reservationRef) {
+        // "Confirmed" without a reference is unusable: never invent one.
+        throw new ProviderError('error', 'fixture-air: confirmation without a reference');
+      }
+      const total = answer.total ? supplierMoney(answer.total.amount, answer.total.currency) : null;
+      return {
+        status: 'confirmed',
+        supplierReference: answer.reservationRef,
+        price: total,
+        documents: (answer.tickets ?? []).map((t) => ({
+          type: 'ticket' as const,
+          reference: t.number,
+          travellerIndex: t.passenger,
+        })),
+      };
+    }
+    case 'pending':
+      return { status: 'pending', supplierReference: answer.reservationRef };
+    case 'cancelled':
+      return { status: 'cancelled', cancellationReference: answer.cancellationRef ?? null };
+    case 'failed':
+      return { status: 'rejected', reason: 'other' };
+  }
+}
+
+export interface FixtureReservationOptions {
+  /** The supplier has a status lookup. */
+  lookup?: boolean;
+  /** The supplier can cancel. */
+  cancel?: boolean;
+  /** The supplier documents de-duplicating reservations by Wayora's key. */
+  idempotent?: boolean;
+}
 
 export function createFixtureAirProvider(
   source: ConfigSource,
-  options: { fetch?: typeof fetch; operations?: SearchProvider['operations'] } = {},
+  options: {
+    fetch?: typeof fetch;
+    operations?: SearchProvider['operations'];
+    /** Phase 23: give the adapter the fictional supplier's reservation API. */
+    reservations?: FixtureReservationOptions;
+  } = {},
 ): SearchProvider {
   const http = new ProviderHttpClient({
     providerId: 'fixture-air',
@@ -83,8 +143,9 @@ export function createFixtureAirProvider(
     operations: options.operations ?? {
       search: 'supported',
       revalidate: 'supported',
-      book: 'unsupported',
+      book: options.reservations ? 'supported' : 'unsupported',
     },
+    ...(options.reservations ? { reservations: reservationsFor(options.reservations) } : {}),
     timeoutMs: 2000,
     requiredConfig: requiredNames(FIXTURE_SPEC),
 
@@ -197,6 +258,84 @@ export function createFixtureAirProvider(
       return { status: 'available', price: { kind: 'total', total, perUnit: null } };
     },
   };
+
+  function reservationsFor(features: FixtureReservationOptions): SupplierReservations {
+    return {
+      settlement: 'supplier',
+      idempotentReserve: features.idempotent ?? false,
+      async reserve(request, { signal }) {
+        if (request.expectedPrice.kind !== 'total') throw new Error('fixture: totals only');
+        const { status, body } = await http.requestJson({
+          method: 'POST',
+          url: `${config().FIXTURE_AIR_BASE_URL}/v1/reservations`,
+          headers: auth(),
+          body: {
+            offerRef: request.offer.offerRef,
+            idempotencyKey: request.idempotencyKey,
+            bookingReference: request.bookingReference,
+            expectedTotal: {
+              amount: decimal(request.expectedPrice.total.amountMinor),
+              currency: request.expectedPrice.total.currency,
+            },
+            passengers: request.travellers,
+            contactPhone: request.contactPhone,
+          },
+          signal,
+          // Documented refusals: nothing was reserved.
+          acceptStatuses: [400, 409, 422],
+        });
+        if (status === 400) return { status: 'rejected', reason: 'invalid-details' };
+        if (status === 409) return { status: 'rejected', reason: 'offer-unavailable' };
+        if (status === 422) return { status: 'rejected', reason: 'price-changed' };
+        const answer = reservationAnswer.safeParse(body);
+        if (!answer.success)
+          throw new ProviderError('error', 'fixture-air: unexpected reservation answer');
+        return mapReservation(answer.data);
+      },
+      ...(features.lookup
+        ? {
+            async lookup(request, { signal }) {
+              const { status, body } = await http.requestJson({
+                url: `${config().FIXTURE_AIR_BASE_URL}/v1/reservations`,
+                query: { key: request.idempotencyKey },
+                headers: auth(),
+                signal,
+                acceptStatuses: [404],
+              });
+              if (status === 404) return { status: 'not-found' };
+              const answer = reservationAnswer.safeParse(body);
+              if (!answer.success)
+                throw new ProviderError('error', 'fixture-air: unexpected lookup answer');
+              return mapReservation(answer.data);
+            },
+          }
+        : {}),
+      ...(features.cancel
+        ? {
+            async cancel(request, { signal }) {
+              const { status, body } = await http.requestJson({
+                method: 'POST',
+                url: `${config().FIXTURE_AIR_BASE_URL}/v1/reservations/${encodeURIComponent(request.supplierReference)}/cancel`,
+                headers: auth(),
+                body: { key: request.cancellationKey },
+                signal,
+                acceptStatuses: [409],
+              });
+              if (status === 409) return { status: 'rejected', reason: 'not-cancellable' };
+              if (status === 202) return { status: 'pending' };
+              const answer = reservationAnswer.safeParse(body);
+              if (!answer.success || answer.data.status !== 'cancelled') {
+                throw new ProviderError('error', 'fixture-air: unexpected cancellation answer');
+              }
+              return {
+                status: 'cancelled',
+                cancellationReference: answer.data.cancellationRef ?? null,
+              };
+            },
+          }
+        : {}),
+    };
+  }
 }
 
 // ── The fake supplier server ───────────────────────────────────────────────
@@ -205,6 +344,39 @@ export interface SupplierCall {
   method: string;
   url: URL;
   headers: Headers;
+  /** Parsed JSON request body (POSTs). */
+  body: unknown;
+}
+
+/** How the fictional supplier answers a reservation request (Phase 23). */
+export type ReserveBehaviour =
+  | { kind: 'confirm'; tickets?: boolean; total?: { amount: string; currency: string } }
+  | { kind: 'pending' }
+  /** A documented refusal: nothing recorded. */
+  | { kind: 'reject'; status: 400 | 409 | 422 }
+  /** Fails before processing: nothing recorded. */
+  | { kind: 'status'; status: number }
+  /** Records a confirmed reservation, then never answers (Wayora times out). */
+  | { kind: 'store-then-hang' }
+  /** Records a confirmed reservation, then answers with an error. */
+  | { kind: 'store-then-status'; status: number }
+  /** Records a confirmed reservation, then answers with something unreadable. */
+  | { kind: 'store-then-garble' };
+
+export type CancelBehaviour =
+  | { kind: 'cancel' }
+  | { kind: 'refuse' }
+  | { kind: 'pending' }
+  /** Cancels it, then never answers. */
+  | { kind: 'cancel-then-hang' };
+
+export interface StoredReservation {
+  key: string;
+  ref: string;
+  status: 'confirmed' | 'pending' | 'cancelled';
+  offerRef: string;
+  passengers: unknown;
+  cancellationRef: string | null;
 }
 
 export type SupplierBehaviour =
@@ -239,11 +411,70 @@ export class FixtureSupplierServer {
   prices = new Map<string, { amount: unknown; currency: unknown }>([
     ['FA-1001', { amount: '4520.50', currency: 'INR' }],
   ]);
+  // Reservations (Phase 23).
+  reserveBehaviour: ReserveBehaviour = { kind: 'confirm', tickets: true };
+  cancelBehaviour: CancelBehaviour = { kind: 'cancel' };
+  /** Lookups answer this status instead (e.g. 503), when set. */
+  lookupStatus: number | null = null;
+  /** The supplier de-duplicates reservation requests by key (as documented). */
+  dedupe = false;
+  reservations: StoredReservation[] = [];
+  private nextRef = 1;
+
+  /** Calls to one endpoint ("POST /api/v1/reservations", …). */
+  callsTo(method: string, pathPrefix: string): SupplierCall[] {
+    return this.calls.filter((c) => c.method === method && c.url.pathname.startsWith(pathPrefix));
+  }
+
+  /** The supplier confirms a reservation it had pending. */
+  confirmPending(): void {
+    for (const r of this.reservations) if (r.status === 'pending') r.status = 'confirmed';
+  }
+
+  private hang(init: RequestInit | undefined): Promise<Response> {
+    return new Promise<Response>((_, reject) =>
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true }),
+    );
+  }
+
+  private store(
+    body: { idempotencyKey: string; offerRef: string; passengers: unknown },
+    status: StoredReservation['status'],
+  ) {
+    const existing = this.dedupe
+      ? this.reservations.find((r) => r.key === body.idempotencyKey)
+      : undefined;
+    if (existing) return existing;
+    const stored: StoredReservation = {
+      key: body.idempotencyKey,
+      ref: `FXR${String(this.nextRef++).padStart(5, '0')}`,
+      status,
+      offerRef: body.offerRef,
+      passengers: body.passengers,
+      cancellationRef: null,
+    };
+    this.reservations.push(stored);
+    return stored;
+  }
+
+  private answer(r: StoredReservation, tickets = true) {
+    return {
+      status: r.status,
+      reservationRef: r.ref,
+      total: { amount: '4520.50', currency: 'INR' },
+      tickets:
+        tickets && r.status === 'confirmed'
+          ? [{ number: `098${r.ref.slice(3)}0001`, passenger: 0 }]
+          : [],
+      cancellationRef: r.cancellationRef,
+    };
+  }
 
   readonly fetch: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
     const headers = new Headers(init?.headers);
-    this.calls.push({ method: init?.method ?? 'GET', url, headers });
+    const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+    this.calls.push({ method: init?.method ?? 'GET', url, headers, body });
     if (headers.get('authorization') !== `Bearer ${FIXTURE_CONFIG.FIXTURE_AIR_API_KEY}`) {
       return new Response('{"error":"bad key"}', { status: 401 });
     }
@@ -275,6 +506,43 @@ export class FixtureSupplierServer {
         });
       if (b.kind === 'not-a-list') return json({ offers: 'none' });
       return json({ offers: this.offers });
+    }
+    if (url.pathname === '/api/v1/reservations' && init?.method === 'POST') {
+      const b = this.reserveBehaviour;
+      const request = body as { idempotencyKey: string; offerRef: string; passengers: unknown };
+      if (b.kind === 'reject') return json({ code: 'refused' }, b.status);
+      if (b.kind === 'status') return new Response('{"error":"down"}', { status: b.status });
+      if (b.kind === 'pending') return json(this.answer(this.store(request, 'pending')), 202);
+      if (b.kind === 'confirm') {
+        const stored = this.store(request, 'confirmed');
+        return json(
+          { ...this.answer(stored, b.tickets ?? true), ...(b.total ? { total: b.total } : {}) },
+          201,
+        );
+      }
+      this.store(request, 'confirmed');
+      if (b.kind === 'store-then-hang') return this.hang(init);
+      if (b.kind === 'store-then-status')
+        return new Response('{"error":"oops"}', { status: b.status });
+      return json({ status: 'maybe?', ref: 42 });
+    }
+    if (url.pathname === '/api/v1/reservations' && (init?.method ?? 'GET') === 'GET') {
+      if (this.lookupStatus) return new Response('{"error":"down"}', { status: this.lookupStatus });
+      const key = url.searchParams.get('key');
+      const found = [...this.reservations].reverse().find((r) => r.key === key);
+      return found ? json(this.answer(found)) : json({ error: 'not found' }, 404);
+    }
+    const cancel = /^\/api\/v1\/reservations\/([^/]+)\/cancel$/.exec(url.pathname);
+    if (cancel && init?.method === 'POST') {
+      const found = this.reservations.find((r) => r.ref === decodeURIComponent(cancel[1]!));
+      if (!found) return json({ error: 'not found' }, 404);
+      const b = this.cancelBehaviour;
+      if (b.kind === 'refuse') return json({ code: 'not-cancellable' }, 409);
+      if (b.kind === 'pending') return json(this.answer(found), 202);
+      found.status = 'cancelled';
+      found.cancellationRef ??= `FXC${found.ref.slice(3)}`;
+      if (b.kind === 'cancel-then-hang') return this.hang(init);
+      return json(this.answer(found));
     }
     const price = /^\/api\/v1\/flight-offers\/([^/]+)\/price$/.exec(url.pathname);
     if (price) {

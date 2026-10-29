@@ -1,5 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, ChevronLeft, ChevronRight, Luggage, RotateCw, SearchX } from 'lucide-react';
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Luggage,
+  RotateCw,
+  SearchX,
+} from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, Navigate, useParams, useSearchParams } from 'react-router';
 import {
@@ -39,6 +47,7 @@ import { serviceBySlug } from '../navigation/config';
 import { OfferDetails, offerHeading } from '../offers/OfferDetails';
 import { DemoBadge, money } from '../search/cards/shared';
 import { BookingPriceSummary } from './BookingPriceSummary';
+import { BookingStatusPanel, ReservationAlert, SupplierBookingBadge } from './BookingStatus';
 import {
   DisruptionsPanel,
   TravelStatusPanel,
@@ -47,6 +56,7 @@ import {
   useTripStatus,
 } from './TripTracking';
 import {
+  OPEN_RESERVATION,
   bookingStatusLabel,
   formatMoment,
   partyText,
@@ -290,6 +300,14 @@ export function useBooking(reference: string | null) {
     queryFn: ({ signal }) => getBooking(reference!, signal),
     enabled: reference !== null,
     retry: false,
+    // A supplier reservation still settling is read again (the API checks
+    // with the supplier on its own schedule; reading never resends anything).
+    refetchInterval: (query) => {
+      const r = query.state.data?.reservation;
+      return r?.kind === 'supplier' && r.state && OPEN_RESERVATION.includes(r.state)
+        ? 15_000
+        : false;
+    },
   });
 }
 
@@ -361,7 +379,11 @@ export function referenceParam(value: string | undefined): string | null {
 export function ConfirmationRoute() {
   const reference = referenceParam(useParams().reference);
   const booking = useBooking(reference);
-  useDocumentTitle(booking.data ? `Demo booking ${booking.data.reference}` : 'Demo booking');
+  useDocumentTitle(
+    booking.data
+      ? `${booking.data.demo ? 'Demo booking' : 'Booking'} ${booking.data.reference}`
+      : 'Booking',
+  );
   if (reference === null) return <BookingNotFound />;
   if (!booking.data) return <BookingLoadState query={booking} />;
   const b = booking.data;
@@ -384,6 +406,7 @@ export function ConfirmationRoute() {
   }
   const heading = offerHeading(b.offer);
   const service = serviceBySlug[b.serviceType];
+  if (b.reservation.kind === 'supplier') return <SupplierConfirmation booking={b} />;
   return (
     <Container size="narrow" className="flex flex-col gap-6 py-section-sm">
       <Reveal
@@ -453,6 +476,101 @@ export function ConfirmationRoute() {
   );
 }
 
+/**
+ * After a supplier booking request (Phase 23): what the supplier has said
+ * so far, never more. "Confirmed" only when it confirmed.
+ */
+function SupplierConfirmation({ booking: b }: { booking: Booking }) {
+  const heading = offerHeading(b.offer);
+  const service = serviceBySlug[b.serviceType];
+  const confirmed = b.status === 'confirmed';
+  const failed = b.status === 'failed';
+  const title = confirmed
+    ? `${b.providerName} confirmed your booking`
+    : failed
+      ? 'Your booking wasn’t confirmed'
+      : 'Your booking request was sent';
+  useDocumentTitle(title);
+  return (
+    <Container size="narrow" className="flex flex-col gap-6 py-section-sm">
+      <Reveal
+        trigger="mount"
+        preset="fadeUp"
+        className="flex flex-col items-center gap-4 text-center"
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            'grid size-14 place-items-center rounded-full [&_svg]:size-7',
+            confirmed
+              ? 'bg-success-soft text-success'
+              : failed
+                ? 'bg-danger-soft text-danger'
+                : 'bg-warning-soft text-warning',
+          )}
+        >
+          {confirmed ? <CheckCircle2 /> : failed ? <SearchX /> : <Clock />}
+        </span>
+        <div className="flex flex-col gap-2">
+          <h1 className="text-heading-1">{title}</h1>
+          <p className="text-body-lg text-ink-secondary">
+            {service.name}: {heading.title}
+          </p>
+        </div>
+        <div className="flex flex-col items-center gap-1 rounded-xl border border-line bg-card px-6 py-4 shadow-xs">
+          <p className="text-caption text-ink-secondary">Wayora reference</p>
+          <p className="font-mono text-heading-2 tracking-wider">{b.reference}</p>
+          {b.reservation.supplierReference ? (
+            <p className="text-body-sm">
+              {b.providerName} reference{' '}
+              <span className="font-mono">{b.reservation.supplierReference}</span>
+            </p>
+          ) : (
+            <p className="text-caption text-ink-secondary">
+              Wayora’s own reference, not the supplier’s.
+            </p>
+          )}
+        </div>
+        <StatusBadge booking={b} />
+      </Reveal>
+      <Alert
+        tone={confirmed ? 'success' : failed ? 'danger' : 'info'}
+        role="none"
+        title="Supplier reservation"
+      >
+        {b.reservation.explanation}
+      </Alert>
+      <Panel title="What you booked">
+        <dl className="grid gap-x-8 gap-y-3 text-body-sm sm:grid-cols-[9rem_minmax(0,1fr)]">
+          <dt className="text-ink-secondary">Service</dt>
+          <dd>
+            {heading.title}
+            <span className="block text-ink-secondary">{heading.subtitle}</span>
+          </dd>
+          <dt className="text-ink-secondary">Travel dates</dt>
+          <dd>{travelDates(b)}</dd>
+          <dt className="text-ink-secondary">For</dt>
+          <dd>{partyText(b)}</dd>
+          <dt className="text-ink-secondary">Supplier</dt>
+          <dd>{b.providerName}</dd>
+          <dt className="text-ink-secondary">Tickets and vouchers</dt>
+          <dd>{b.documents.explanation}</dd>
+          <dt className="text-ink-secondary">Payment</dt>
+          <dd>Wayora took no payment: you pay {b.providerName} under its own terms.</dd>
+        </dl>
+      </Panel>
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+        <Button asChild size="lg">
+          <Link to={tripPath(b.reference)}>View booking details</Link>
+        </Button>
+        <Button asChild size="lg" variant="secondary">
+          <Link to="/trips">Go to My trips</Link>
+        </Button>
+      </div>
+    </Container>
+  );
+}
+
 // ─── /trips/:reference ───────────────────────────────────────────────────
 
 export function TripDetailRoute() {
@@ -468,6 +586,15 @@ function TripDetail({ booking }: { booking: Booking }) {
   const heading = offerHeading(booking.offer);
   const service = serviceBySlug[booking.serviceType];
   const [cancelledNow, setCancelledNow] = useState(false);
+  const queryClient = useQueryClient();
+  const [checking, setChecking] = useState(false);
+  const checkAgain = () => {
+    setChecking(true);
+    void queryClient
+      .refetchQueries({ queryKey: bookingKeys.detail(booking.reference), exact: true })
+      .finally(() => setChecking(false));
+  };
+  const supplier = booking.reservation.kind === 'supplier';
   // Updates matter only while the booking can still change.
   const live = useTripLiveUpdates(
     booking.reference,
@@ -486,31 +613,42 @@ function TripDetail({ booking }: { booking: Booking }) {
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge booking={booking} />
-          {booking.demo ? <DemoBadge /> : null}
+          {booking.demo ? <DemoBadge /> : <SupplierBookingBadge />}
           <span className="text-caption text-ink-secondary">{service.name}</span>
         </div>
         <h1 className="text-heading-1">{heading.title}</h1>
         <p className="text-body-lg text-ink-secondary">{heading.subtitle}</p>
         <p className="text-body-sm text-ink-secondary">
-          Demo reference <span className="font-mono text-ink">{booking.reference}</span> · booked{' '}
+          {supplier ? 'Wayora reference' : 'Demo reference'}{' '}
+          <span className="font-mono text-ink">{booking.reference}</span> · booked{' '}
           {formatMoment(booking.createdAt)}
         </p>
       </header>
-      {cancelledNow ? (
+      {cancelledNow && !supplier ? (
         <Alert tone="success" title="Booking cancelled">
           {booking.payment.state === 'refund-required'
             ? 'Only its status changed. No supplier was contacted. Its demo payment would be owed back, but the demo provider can’t refund; no real money was charged.'
             : 'Only its status changed. No supplier was contacted, and nothing is refunded because nothing was paid.'}
         </Alert>
       ) : null}
-      <Alert tone="warning" role="none" title="Demo booking">
-        {DEMO_BOOKING_NOTICE}
-      </Alert>
+      {cancelledNow && supplier && booking.status === 'cancelled' ? (
+        <Alert tone="success" title="Booking cancelled">
+          {booking.cancellation.explanation}
+        </Alert>
+      ) : null}
+      {supplier ? (
+        <ReservationAlert booking={booking} />
+      ) : (
+        <Alert tone="warning" role="none" title="Demo booking">
+          {DEMO_BOOKING_NOTICE}
+        </Alert>
+      )}
 
       <DisruptionsPanel reference={booking.reference} />
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-10">
         <div className="flex min-w-0 flex-col gap-6">
+          <BookingStatusPanel booking={booking} onCheck={checkAgain} checking={checking} />
           <TravelStatusPanel reference={booking.reference} query={status} live={live} />
           <Panel title="Trip">
             <dl className="grid gap-x-8 gap-y-3 text-body-sm sm:grid-cols-[9rem_minmax(0,1fr)]">
@@ -568,10 +706,16 @@ function TripDetail({ booking }: { booking: Booking }) {
   );
 }
 
+const POLICY_TEXT = (policy: NonNullable<Booking['cancellation']['policy']>) =>
+  policy.type === 'non-refundable'
+    ? 'Non-refundable, under the supplier’s terms.'
+    : `Free cancellation until ${formatMoment(policy.until)}, under the supplier’s terms.`;
+
 function CancelPanel({ booking, onCancelled }: { booking: Booking; onCancelled: () => void }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const supplier = booking.reservation.kind === 'supplier';
   const cancel = useMutation({
     mutationFn: () => cancelBooking(booking.reference),
     retry: false,
@@ -581,8 +725,18 @@ function CancelPanel({ booking, onCancelled }: { booking: Booking; onCancelled: 
       void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
       setOpen(false);
       onCancelled();
-      toast({ tone: 'success', title: 'Demo booking cancelled' });
+      toast({
+        tone: 'success',
+        title: !supplier
+          ? 'Demo booking cancelled'
+          : updated.status === 'cancelled'
+            ? 'Booking cancelled'
+            : 'Cancellation requested',
+      });
     },
+    // A refused cancellation leaves the booking as it was: show its current state.
+    onError: () =>
+      void queryClient.invalidateQueries({ queryKey: bookingKeys.detail(booking.reference) }),
   });
   const cancelError =
     cancel.error instanceof ApiClientError ? cancel.error : cancel.isError ? null : undefined;
@@ -595,24 +749,35 @@ function CancelPanel({ booking, onCancelled }: { booking: Booking; onCancelled: 
       <h2 id="cancel-heading" className="text-title">
         Cancellation
       </h2>
+      {booking.cancellation.policy ? (
+        <p className="text-body-sm">{POLICY_TEXT(booking.cancellation.policy)}</p>
+      ) : null}
       {booking.cancellable ? (
         <>
           <p className="text-body-sm text-ink-secondary">
-            You can cancel this demo booking until the travel date. This offer includes no
-            cancellation terms; cancelling only changes the booking&apos;s status.
+            {supplier ? (
+              booking.cancellation.explanation
+            ) : (
+              <>
+                You can cancel this demo booking until the travel date. This offer includes no
+                cancellation terms; cancelling only changes the booking&apos;s status.
+              </>
+            )}
           </p>
           <Dialog open={open} onOpenChange={(next) => !cancel.isPending && setOpen(next)}>
             <Button variant="secondary" onClick={() => setOpen(true)}>
-              Cancel demo booking
+              {supplier ? 'Request cancellation' : 'Cancel demo booking'}
             </Button>
             <DialogContent
-              title="Cancel this demo booking?"
+              title={supplier ? 'Ask the supplier to cancel?' : 'Cancel this demo booking?'}
               description={
-                booking.payment.state === 'paid'
-                  ? 'Its status changes to cancelled. No supplier is contacted. Its demo payment would be owed back, but the demo provider can’t refund; no real money was charged. This can’t be undone.'
-                  : booking.payment.state === 'processing'
-                    ? 'Its status changes to cancelled, and the demo payment in progress is cancelled too. No supplier is contacted. This can’t be undone.'
-                    : 'Its status changes to cancelled. No supplier is contacted, and nothing is refunded because nothing was paid. This can’t be undone.'
+                supplier
+                  ? `Wayora asks ${booking.providerName} to cancel it. It is cancelled only when ${booking.providerName} confirms; until then it stays confirmed. Any refund of what you paid follows ${booking.providerName}’s terms.`
+                  : booking.payment.state === 'paid'
+                    ? 'Its status changes to cancelled. No supplier is contacted. Its demo payment would be owed back, but the demo provider can’t refund; no real money was charged. This can’t be undone.'
+                    : booking.payment.state === 'processing'
+                      ? 'Its status changes to cancelled, and the demo payment in progress is cancelled too. No supplier is contacted. This can’t be undone.'
+                      : 'Its status changes to cancelled. No supplier is contacted, and nothing is refunded because nothing was paid. This can’t be undone.'
               }
               footer={
                 <>
@@ -626,7 +791,7 @@ function CancelPanel({ booking, onCancelled }: { booking: Booking; onCancelled: 
                     loading={cancel.isPending}
                     onClick={() => cancel.mutate()}
                   >
-                    Cancel booking
+                    {supplier ? 'Request cancellation' : 'Cancel booking'}
                   </Button>
                 </>
               }
@@ -645,6 +810,8 @@ function CancelPanel({ booking, onCancelled }: { booking: Booking; onCancelled: 
             </DialogContent>
           </Dialog>
         </>
+      ) : supplier ? (
+        <p className="text-body-sm text-ink-secondary">{booking.cancellation.explanation}</p>
       ) : (
         <p className="text-body-sm text-ink-secondary">
           {booking.status === 'cancelled'
@@ -693,7 +860,7 @@ function PaymentPanel({ booking }: { booking: Booking }) {
                 : payment.state === 'unpaid'
                   ? 'Waiting for a demo payment. It is confirmed once the payment succeeds.'
                   : payment.state === 'refund-required'
-                    ? 'A demo payment completed after the booking was closed. A refund would be owed, but the demo provider can’t refund; no real money was charged.'
+                    ? 'Paid with a demo payment, and the booking is now closed. A refund would be owed, but the demo provider can’t refund; no real money was charged.'
                     : 'Not paid. This booking can no longer be paid; nothing was charged.'}
           </p>
           {payment.state === 'unpaid' && payment.dueAt ? (

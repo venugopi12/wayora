@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { userRoleSchema, type UserRole } from './auth.js';
-import { bookingReferenceSchema, bookingStatusSchema } from './bookings.js';
+import { bookingReferenceSchema, bookingStatusSchema, reservationStateSchema } from './bookings.js';
 import { moneySchema } from './money.js';
 import { notificationTypeSchema } from './notifications.js';
 import { paymentModeSchema, paymentStatusSchema } from './payments.js';
@@ -24,6 +24,8 @@ export const ADMIN_PERMISSIONS = [
   'admin.notifications.read',
   'admin.health.read',
   'admin.audit.read',
+  /** Recheck a supplier reservation, or record a manual outcome (Phase 23). Admins only. */
+  'admin.reservations.manage',
 ] as const;
 export const adminPermissionSchema = z.enum(ADMIN_PERMISSIONS);
 export type AdminPermission = z.infer<typeof adminPermissionSchema>;
@@ -215,11 +217,16 @@ export const adminBookingListQuerySchema = withDateLimit(
         .string()
         .trim()
         .toUpperCase()
-        .regex(/^[A-Z0-9-]{1,13}$/, 'Use letters, digits and "-" (a WYD- reference or its start).')
+        .regex(
+          /^[A-Z0-9-]{1,13}$/,
+          'Use letters, digits and "-" (a WYD- or WY- reference or its start).',
+        )
         .optional(),
       serviceType: searchServiceTypeSchema.optional(),
       status: bookingStatusSchema.optional(),
       userId: z.uuid().optional(),
+      /** Only supplier bookings whose reservation needs staff attention (Phase 23). */
+      attention: z.literal('true').optional(),
       ...dateFilter,
       ...page,
     })
@@ -238,6 +245,10 @@ export const adminBookingSummarySchema = z.object({
   total: moneySchema.nullable(),
   startsOn: z.string().nullable(),
   createdAt: z.iso.datetime(),
+  /** Supplier reservation state (null for demo bookings; Phase 23). */
+  reservationStatus: reservationStateSchema.nullable(),
+  /** Automatic recovery stopped: reconcile with the supplier. */
+  needsAttention: z.boolean(),
 });
 export type AdminBookingSummary = z.infer<typeof adminBookingSummarySchema>;
 
@@ -269,6 +280,62 @@ const historyItemSchema = z.object({
   note: z.string().nullable(),
 });
 
+/** The operational view of a supplier reservation (no payloads, secrets or traveller data). */
+export const adminReservationSchema = z.object({
+  provider: z.string(),
+  status: reservationStateSchema,
+  /**
+   * The supplier's reference: in full for staff who can manage
+   * reservations, otherwise masked to its last four characters.
+   */
+  supplierReference: z.string().nullable(),
+  /** Correlation id of the request that last changed it. */
+  requestId: z.string().nullable(),
+  attempts: z.number().int(),
+  checks: z.number().int(),
+  cancelAttempts: z.number().int(),
+  lastAttemptAt: z.iso.datetime().nullable(),
+  nextCheckAt: z.iso.datetime().nullable(),
+  errorCategory: z.string().nullable(),
+  ambiguous: z.boolean(),
+  needsAttention: z.boolean(),
+  confirmedAt: z.iso.datetime().nullable(),
+  cancellationRequestedAt: z.iso.datetime().nullable(),
+  cancelledAt: z.iso.datetime().nullable(),
+  /** What the supplier can do through its adapter (from the registry). */
+  capabilities: z.object({
+    lookup: z.boolean(),
+    cancel: z.boolean(),
+    idempotentReserve: z.boolean(),
+  }),
+  /** The safe admin actions available now. */
+  actions: z.object({ recheck: z.boolean(), resolve: z.boolean() }),
+  documents: z.array(
+    z.object({ type: z.string(), reference: z.string(), issuedAt: z.iso.datetime() }),
+  ),
+  history: z.array(
+    historyItemSchema.extend({
+      errorCategory: z.string().nullable(),
+      requestId: z.string().nullable(),
+    }),
+  ),
+});
+export type AdminReservation = z.infer<typeof adminReservationSchema>;
+
+export const adminRefundSchema = z.object({
+  id: z.uuid(),
+  paymentId: z.uuid(),
+  status: z.string(),
+  reason: z.string(),
+  mode: paymentModeSchema,
+  amount: moneySchema,
+  attempts: z.number().int(),
+  failureCode: z.string().nullable(),
+  needsAttention: z.boolean(),
+  createdAt: z.iso.datetime(),
+  completedAt: z.iso.datetime().nullable(),
+});
+
 export const adminBookingDetailSchema = adminBookingSummarySchema.extend({
   providerName: z.string(),
   /** The supplier's own reference; null for demo bookings (no supplier is contacted). */
@@ -288,6 +355,9 @@ export const adminBookingDetailSchema = adminBookingSummarySchema.extend({
   offerSnapshot: z.unknown(),
   history: z.array(historyItemSchema),
   payments: z.array(adminPaymentSummarySchema),
+  /** Supplier bookings only (Phase 23). */
+  reservation: adminReservationSchema.nullable(),
+  refunds: z.array(adminRefundSchema),
   notifications: z.array(
     z.object({
       type: notificationTypeSchema,
@@ -298,6 +368,42 @@ export const adminBookingDetailSchema = adminBookingSummarySchema.extend({
   ),
 });
 export type AdminBookingDetail = z.infer<typeof adminBookingDetailSchema>;
+
+/**
+ * Recording the outcome of a reservation that automatic recovery couldn't
+ * settle, after staff confirmed it with the supplier (Phase 23). Never sends
+ * anything to the supplier.
+ * - A reservation request: `confirmed` (with the supplier's reference) or `failed`.
+ * - A cancellation: `cancelled`, or `confirmed` (the supplier kept the
+ *   reservation; its reference must match the one on record).
+ */
+export const adminReservationResolveSchema = z.discriminatedUnion('outcome', [
+  z
+    .object({
+      outcome: z.literal('confirmed'),
+      supplierReference: z
+        .string()
+        .trim()
+        .min(1)
+        .max(128)
+        .regex(/^[\x21-\x7e]+$/, 'Use the supplier’s reference exactly as it gave it.'),
+      reason: z.string().trim().min(10, 'Say how this was confirmed (10+ characters).').max(500),
+    })
+    .strict(),
+  z
+    .object({
+      outcome: z.literal('failed'),
+      reason: z.string().trim().min(10, 'Say how this was confirmed (10+ characters).').max(500),
+    })
+    .strict(),
+  z
+    .object({
+      outcome: z.literal('cancelled'),
+      reason: z.string().trim().min(10, 'Say how this was confirmed (10+ characters).').max(500),
+    })
+    .strict(),
+]);
+export type AdminReservationResolve = z.input<typeof adminReservationResolveSchema>;
 
 // ─── Payments ────────────────────────────────────────────────────────────
 

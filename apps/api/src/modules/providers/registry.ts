@@ -31,6 +31,13 @@ export class ProviderRegistry {
     if (this.registrations.some((r) => r.provider.id === provider.id)) {
       throw new Error(`Provider "${provider.id}" is already registered.`);
     }
+    // Declared and implemented booking must agree; demo providers never book.
+    const books = provider.operations.book === 'supported';
+    if (books !== Boolean(provider.reservations) || (books && provider.kind === 'demo')) {
+      throw new Error(
+        `Provider "${provider.id}": operations.book and reservations must agree (and demo providers can't book).`,
+      );
+    }
     const { demoEnabled, disabledIds = [], isConfigured = () => false } = this.options;
     const missing = provider.requiredConfig.filter((name) => !isConfigured(name));
     let disabledReason: string | null = null;

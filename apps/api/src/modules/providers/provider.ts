@@ -8,6 +8,7 @@ import type {
   SearchResultFor,
   SearchServiceType,
 } from '@wayora/contracts';
+import type { SupplierReservations } from './reservations.js';
 
 /*
  * Provider adapter interface (docs/search.md#adapters).
@@ -61,8 +62,9 @@ export interface SearchProvider {
   readonly serviceTypes: readonly SearchServiceType[];
   /**
    * What this provider can do. `revalidate` is used only when declared
-   * `supported` AND `revalidate()` is implemented; booking is not part of
-   * the platform yet.
+   * `supported` AND `revalidate()` is implemented; `book` only when declared
+   * `supported` AND `reservations` is implemented (the registry refuses a
+   * provider whose declaration and implementation disagree).
    */
   readonly operations: OperationSupport;
   /** Time limit per call (each attempt), within the overall search deadline. */
@@ -76,6 +78,8 @@ export interface SearchProvider {
    * The response is validated before use. Demo adapters don't implement it.
    */
   revalidate?(offer: SearchResult, context: ProviderSearchContext): Promise<RevalidationOutcome>;
+  /** Supplier reservations (Phase 23, providers/reservations.ts). No real supplier has them yet. */
+  readonly reservations?: SupplierReservations;
 }
 
 /**

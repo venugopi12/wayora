@@ -2,7 +2,11 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Clock, RotateCw, SearchX } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import type { ReactNode } from 'react';
-import type { SearchPrice, SearchServiceType } from '@wayora/contracts';
+import {
+  SUPPLIER_BOOKING_NOTICE,
+  type SearchPrice,
+  type SearchServiceType,
+} from '@wayora/contracts';
 import {
   Alert,
   Breadcrumbs,
@@ -372,7 +376,16 @@ function OfferPage({
                 </>
               )}
             </p>
-            {demo && result.price && searchId ? (
+            {!demo && offer.data.booking?.available && result.price && searchId ? (
+              <>
+                <Button asChild size="lg">
+                  <Link to={bookPath(serviceType, result.id, searchId, from ?? '')}>
+                    Request this booking
+                  </Link>
+                </Button>
+                <p className="text-caption text-ink-secondary">{SUPPLIER_BOOKING_NOTICE}</p>
+              </>
+            ) : demo && result.price && searchId ? (
               <>
                 <Button asChild size="lg">
                   <Link to={bookPath(serviceType, result.id, searchId, from ?? '')}>
@@ -388,7 +401,7 @@ function OfferPage({
               <p className="rounded-md bg-sunken px-3 py-2 text-body-sm text-ink-secondary">
                 {demo
                   ? 'This offer has no price, so it can’t be booked.'
-                  : 'Booking supplier offers on Wayora isn’t available yet: no reservation, ticket or payment can be made here. Only demo offers can be booked for now.'}
+                  : `${offer.data.booking?.reason ?? 'Booking supplier offers on Wayora isn’t available yet.'} No reservation, ticket or payment can be made here.`}
               </p>
             )}
             {backToResults}

@@ -8,24 +8,39 @@ import {
   searchPriceSchema,
   searchServiceTypeSchema,
 } from './search/common.js';
-import { offerValidationSchema, searchResultSchema, type SearchResult } from './search/results.js';
+import {
+  hotelCancellationPolicySchema,
+  offerValidationSchema,
+  searchResultSchema,
+  type SearchResult,
+} from './search/results.js';
 
 /*
- * Demo bookings (Phase 12, docs/bookings.md).
+ * Bookings (Phase 12, docs/bookings.md; supplier reservations since Phase 23).
  *
- * A booking is created from an offer of a live search session. It is a
- * DEMO: Wayora stores the booking and simulates its confirmation, but no
- * supplier reservation, ticket or payment exists. Every booking says so
- * (`demo: true`), and its reference starts with `WYD-` ("Wayora demo").
+ * A booking is created from an offer of a live search session.
+ * - A DEMO booking (`demo: true`, reference `WYD-…`, "Wayora demo"): Wayora
+ *   stores it and simulates its confirmation; no supplier reservation,
+ *   ticket or payment exists.
+ * - A SUPPLIER booking (`demo: false`, reference `WY-…`): Wayora asks a
+ *   configured supplier to reserve it, and it is confirmed only when the
+ *   supplier confirms. No real supplier implements reservations yet
+ *   (docs/providers.md), so every booking made today is a demo booking.
+ *
+ * Wayora references are Wayora's own, never supplier identifiers; a
+ * supplier's reference appears only in `reservation.supplierReference`.
  */
 
-/** `WYD-` + two groups of four characters from an alphabet without look-alikes (no 0/O, 1/I/L). */
+/** `WYD-` (demo) or `WY-` (supplier booking) + two groups of four characters from an alphabet without look-alikes (no 0/O, 1/I/L). */
 export const BOOKING_REFERENCE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 export const bookingReferenceSchema = z
   .string({ error: 'Name the booking.' })
   .trim()
   .toUpperCase()
-  .regex(/^WYD-[23456789A-HJKMNP-Z]{4}-[23456789A-HJKMNP-Z]{4}$/, 'Not a valid booking reference.');
+  .regex(
+    /^WYD?-[23456789A-HJKMNP-Z]{4}-[23456789A-HJKMNP-Z]{4}$/,
+    'Not a valid booking reference.',
+  );
 
 /**
  * Lifecycle (server-enforced; docs/bookings.md#statuses, docs/payments.md):
@@ -210,9 +225,18 @@ export const createBookingRequestSchema = z
     travellers: z.array(bookingTravellerInputSchema).max(20, 'Too many travellers.'),
     contactPhone: phoneE164Schema.nullable().optional(),
     acceptedPrice: searchPriceSchema.nullable(),
-    acceptDemoTerms: z.literal(true, {
-      error: 'Confirm that you understand this is a demo booking.',
-    }),
+    /** Required for a demo offer (the server checks which kind it is). */
+    acceptDemoTerms: z
+      .literal(true, { error: 'Confirm that you understand this is a demo booking.' })
+      .optional(),
+    /**
+     * Required for a supplier offer: the reservation is requested from the
+     * supplier, confirmed only when it confirms, and paid to the supplier
+     * under its terms (Wayora takes no payment).
+     */
+    acceptSupplierTerms: z
+      .literal(true, { error: 'Confirm that you understand how this supplier booking works.' })
+      .optional(),
   })
   .strict();
 export type CreateBookingRequest = z.input<typeof createBookingRequestSchema>;
@@ -229,8 +253,11 @@ export type BookingTraveller = z.infer<typeof bookingTravellerSchema>;
 export const bookingEventSchema = z.object({
   status: bookingStatusSchema,
   at: offsetDateTimeSchema,
-  /** `you` for the account holder, `wayora` for the system (the demo confirmation). */
-  by: z.enum(['you', 'wayora']),
+  /**
+   * `you` for the account holder, `wayora` for Wayora (the demo confirmation,
+   * or staff), `supplier` for a supplier's answer (Phase 23).
+   */
+  by: z.enum(['you', 'wayora', 'supplier']),
   note: z.string().nullable(),
 });
 export type BookingEvent = z.infer<typeof bookingEventSchema>;
@@ -297,15 +324,118 @@ export const bookingPaymentSchema = z.object({
 });
 export type BookingPayment = z.infer<typeof bookingPaymentSchema>;
 
+// ─── Supplier side of a booking (Phase 23) ───────────────────────────────
+
+/**
+ * The supplier reservation of a supplier booking
+ * (docs/bookings.md#supplier-reservations):
+ * - `requested`: recorded by Wayora, not sent yet
+ * - `in-progress`: sent, or accepted by the supplier and not confirmed yet
+ * - `confirmed`: the supplier confirmed it (with its reference)
+ * - `failed`: the supplier did not reserve it
+ * - `unknown`: sent, but no definitive answer; Wayora is checking, and never
+ *   sends a second reservation until it knows
+ * - `cancellation-pending`: cancellation asked of the supplier, not confirmed yet
+ * - `cancelled`: the supplier confirmed the cancellation
+ */
+export const reservationStateSchema = z.enum([
+  'requested',
+  'in-progress',
+  'confirmed',
+  'failed',
+  'unknown',
+  'cancellation-pending',
+  'cancelled',
+]);
+export type ReservationState = z.infer<typeof reservationStateSchema>;
+
+export const bookingReservationSchema = z.object({
+  /** `demo`: no supplier reservation exists (state is null). */
+  kind: z.enum(['demo', 'supplier']),
+  state: reservationStateSchema.nullable(),
+  /** The supplier's confirmation reference, only once the supplier gave it. */
+  supplierReference: z.string().nullable(),
+  confirmedAt: offsetDateTimeSchema.nullable(),
+  /** The supplier confirmed a price different from the booked one (staff follow up). */
+  priceMismatch: z.boolean(),
+  /** Automatic checks stopped; Wayora staff are confirming with the supplier. */
+  needsAttention: z.boolean(),
+  /** Wayora's own explanation of where it stands (never supplier text). */
+  explanation: z.string(),
+});
+export type BookingReservation = z.infer<typeof bookingReservationSchema>;
+
+export const travelDocumentTypeSchema = z.enum(['ticket', 'voucher', 'itinerary']);
+export type TravelDocumentType = z.infer<typeof travelDocumentTypeSchema>;
+
+/** Tickets and vouchers: only references a supplier actually issued, never generated ones. */
+export const bookingDocumentsSchema = z.object({
+  /** `not-applicable` for demo bookings (nothing is ever issued). */
+  state: z.enum(['not-applicable', 'none-issued', 'issued']),
+  items: z.array(
+    z.object({
+      type: travelDocumentTypeSchema,
+      reference: z.string(),
+      /** The booked traveller it is for, when the supplier says. */
+      travellerName: z.string().nullable(),
+      issuedAt: offsetDateTimeSchema,
+    }),
+  ),
+  explanation: z.string(),
+});
+export type BookingDocuments = z.infer<typeof bookingDocumentsSchema>;
+
+export const bookingCancellationSchema = z.object({
+  /** Same as `cancellable`: whether you can ask to cancel now. */
+  available: z.boolean(),
+  state: z.enum(['not-requested', 'pending', 'cancelled']),
+  /** Why it can or can't be cancelled, and what happens if it is. */
+  explanation: z.string(),
+  /** The supplier's cancellation terms from the booked offer, if it sent any. */
+  policy: hotelCancellationPolicySchema.nullable(),
+});
+export type BookingCancellation = z.infer<typeof bookingCancellationSchema>;
+
+/**
+ * A refund of the booking's payment (docs/payments.md#refunds), tracked
+ * apart from the booking and the payment:
+ * - `not-applicable`: nothing was paid on Wayora
+ * - `required`: owed, but the payment's provider can't refund (demo: no money was taken)
+ * - `requested` / `pending`: asked of the provider / the provider is processing it
+ * - `succeeded`: the provider confirmed it
+ * - `failed`: the provider refused it
+ * - `unknown`: asked, no definitive answer yet (Wayora checks again)
+ */
+export const refundStateSchema = z.enum([
+  'not-applicable',
+  'required',
+  'requested',
+  'pending',
+  'succeeded',
+  'failed',
+  'unknown',
+]);
+export type RefundState = z.infer<typeof refundStateSchema>;
+
+export const bookingRefundSchema = z.object({
+  state: refundStateSchema,
+  /** The original payment's amount and currency (never another figure). */
+  amount: moneySchema.nullable(),
+  /** A demo payment: no real money was ever involved. */
+  demo: z.boolean(),
+  explanation: z.string(),
+});
+export type BookingRefund = z.infer<typeof bookingRefundSchema>;
+
 const bookingCore = {
   reference: bookingReferenceSchema,
   status: bookingStatusSchema,
-  /** Always true today: no supplier reservation, ticket or payment exists. */
+  /** A demo booking: no supplier reservation, ticket or payment exists. */
   demo: z.boolean(),
   serviceType: searchServiceTypeSchema,
   /** The offer exactly as it was when the booking was made (immutable). */
   offer: searchResultSchema,
-  /** The provider's display name at booking time (a demo provider). */
+  /** The provider's display name at booking time. */
   providerName: z.string(),
   /** The booked price: the offer's server-side price at booking time. */
   price: searchPriceSchema.nullable(),
@@ -318,6 +448,8 @@ const bookingCore = {
   cancellable: z.boolean(),
   /** How it is paid, and where that stands (Phase 13). */
   payment: bookingPaymentSchema,
+  /** The supplier side (Phase 23): `kind: 'demo'` for demo bookings. */
+  reservation: bookingReservationSchema,
 };
 
 /** One booking, as its owner sees it. */
@@ -328,6 +460,9 @@ export const bookingSchema = z.object({
   /** How the price was checked when booking: `session` for demo offers (never rechecked). */
   priceCheck: offerValidationSchema.shape.status,
   history: z.array(bookingEventSchema).min(1),
+  documents: bookingDocumentsSchema,
+  cancellation: bookingCancellationSchema,
+  refund: bookingRefundSchema,
 });
 export type Booking = z.infer<typeof bookingSchema>;
 
@@ -363,6 +498,10 @@ export const bookingListResponseSchema = z.object({
 export type BookingListResponse = z.infer<typeof bookingListResponseSchema>;
 
 export const bookingParamsSchema = z.object({ reference: bookingReferenceSchema });
+
+/** What a supplier booking means before it is made (checkout terms). */
+export const SUPPLIER_BOOKING_NOTICE =
+  'Wayora sends this reservation request to the supplier. It is confirmed only when the supplier confirms it. Wayora takes no payment: you pay the supplier under its own terms.';
 
 /** What a demo booking means, shown wherever one is created or displayed. */
 export const DEMO_BOOKING_NOTICE =

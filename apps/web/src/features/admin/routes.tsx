@@ -23,6 +23,8 @@ import {
 } from './format';
 import { adminKeys } from './keys';
 import { ADMIN_PATHS } from './paths';
+import { ReservationPanel } from './ReservationPanel';
+import { RESERVATION_LABEL } from '../bookings/format';
 import {
   AdminPage,
   BarList,
@@ -341,6 +343,7 @@ export function BookingsRoute() {
     'reference',
     'serviceType',
     'status',
+    'attention',
     'from',
     'to',
     'userId',
@@ -368,6 +371,12 @@ export function BookingsRoute() {
             kind: 'select',
             options: options(bookingStatusSchema.options),
           },
+          {
+            name: 'attention',
+            label: 'Supplier reservation',
+            kind: 'select',
+            options: [{ value: 'true', label: 'Needs attention' }],
+          },
           { name: 'from', label: 'Created from', kind: 'date' },
           { name: 'to', label: 'Created to', kind: 'date' },
         ]}
@@ -393,6 +402,7 @@ export function BookingsRoute() {
                   'Category',
                   'Status',
                   'Kind',
+                  'Supplier reservation',
                   'Total',
                   'Customer',
                   'Created (UTC)',
@@ -411,6 +421,18 @@ export function BookingsRoute() {
                     </td>
                     <td>
                       <DemoBadge demo={b.demo} />
+                    </td>
+                    <td>
+                      {b.reservationStatus ? (
+                        <span className="flex flex-wrap gap-1">
+                          <Badge tone={RESERVATION_LABEL[b.reservationStatus].tone}>
+                            {RESERVATION_LABEL[b.reservationStatus].label}
+                          </Badge>
+                          {b.needsAttention ? <Badge tone="danger">Needs attention</Badge> : null}
+                        </span>
+                      ) : (
+                        <span className="text-ink-secondary">—</span>
+                      )}
                     </td>
                     <td className="whitespace-nowrap tabular-nums">
                       {b.total ? money(b.total) : 'Range price'}
@@ -462,7 +484,13 @@ export function BookingDetailRoute() {
                   ['Status', <StatusBadge status={b.status} />],
                   ['Category', humanize(b.serviceType)],
                   ['Provider', b.providerName || '—'],
-                  ['Supplier reference', b.supplierReference ?? 'None (no supplier was contacted)'],
+                  [
+                    'Supplier reference',
+                    b.supplierReference ??
+                      (b.demo
+                        ? 'None (no supplier was contacted)'
+                        : 'None yet (the supplier hasn’t confirmed it)'),
+                  ],
                   [
                     'Customer',
                     <Link to={ADMIN_PATHS.user(b.userId)} className={`${link} break-all`}>
@@ -498,6 +526,55 @@ export function BookingDetailRoute() {
                 </Note>
               </div>
             </Section>
+            {b.reservation ? (
+              <ReservationPanel reference={b.reference} reservation={b.reservation} />
+            ) : null}
+            {b.refunds.length > 0 ? (
+              <Section title="Refunds">
+                <Table
+                  label="Refunds"
+                  head={[
+                    'Payment',
+                    'Status',
+                    'Reason',
+                    'Mode',
+                    'Amount',
+                    'Attempts',
+                    'Requested (UTC)',
+                  ]}
+                >
+                  {b.refunds.map((r) => (
+                    <tr key={r.id}>
+                      <td>
+                        <Link to={ADMIN_PATHS.payment(r.paymentId)} className={`${link} ${mono}`}>
+                          {r.paymentId.slice(0, 8)}…
+                        </Link>
+                      </td>
+                      <td>
+                        <StatusBadge status={r.status} />
+                        {r.needsAttention ? (
+                          <Badge tone="danger" className="ml-1">
+                            Needs attention
+                          </Badge>
+                        ) : null}
+                        {r.failureCode ? (
+                          <span className="block text-caption text-ink-secondary">
+                            {r.failureCode}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td>{humanize(r.reason)}</td>
+                      <td>
+                        <DemoBadge demo={r.mode === 'demo'} />
+                      </td>
+                      <td className="whitespace-nowrap tabular-nums">{money(r.amount)}</td>
+                      <td className="tabular-nums">{formatCount(r.attempts)}</td>
+                      <td className="whitespace-nowrap">{formatUtc(r.createdAt)}</td>
+                    </tr>
+                  ))}
+                </Table>
+              </Section>
+            ) : null}
             <Section title="Status history">
               <ol className="flex flex-col gap-2">
                 {b.history.map((h, i) => (

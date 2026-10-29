@@ -232,19 +232,65 @@ this boundary. It is never registered by the application.
 
 ## Refunds
 
-There is no refund button and no refund endpoint. `PaymentsService.requestRefund`
-is the extension point: it refuses providers whose `capabilities.refund` is
-false (the demo provider) with `PAYMENT_NOT_ALLOWED`, and for others calls
-`provider.refund`, which may only report `refund.pending`; the payment becomes
-`refunded` **only** when the provider's own event (`refund.succeeded`) says
-so. Refund-required payments (late success, paid then cancelled) are flagged
-and shown as such, never as refunded.
+Since Phase 23, refunds have their own lifecycle in the `refunds` table, apart
+from the payment and the booking (`apps/api/src/modules/payments/refunds.ts`).
+There is still no refund button and no refund endpoint: refunds follow from
+what makes them owed.
+
+| Status      | Meaning                                                                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `REQUIRED`  | Owed, but the payment's provider can't refund through Wayora. The demo provider: no money was taken. Nothing is sent or claimed |
+| `REQUESTED` | To be sent to the provider (or being sent)                                                                                      |
+| `PENDING`   | The provider accepted it and is processing it (`refund.pending`)                                                                |
+| `SUCCEEDED` | The provider confirmed it (`refund.succeeded`). The only way a refund completes                                                 |
+| `FAILED`    | The provider refused it (a `rejected` call, or `refund.failed`); the payment stays owed back                                    |
+| `UNKNOWN`   | Sent, no definitive answer: checked with the provider before anything is sent again                                             |
+
+**When a refund is opened** (in the same transaction):
+
+- a paid booking is cancelled (`BOOKING_CANCELLED`);
+- a payment succeeds after its booking closed (`PAID_AFTER_CLOSE`,
+  [late success](#rules));
+- `PaymentsService.requestRefund` is called (`MANUAL`; not exposed over HTTP).
+
+**Rules**
+
+- **The payment's own amount and currency.** A trigger refuses any other
+  figure; nothing about a refund comes from a request.
+- **Once per payment.** A partial unique index allows one refund that isn't
+  `FAILED` per payment, so opening it twice changes nothing.
+- **Idempotent with the provider.**
+  - `PaymentProvider.refund(attempt, { refundId, amountMinor, currency })`
+    must de-duplicate by `refundId` (Wayora's refund id).
+  - Each send is claimed first (a conditional update counting `attempts`).
+  - An `UNKNOWN` refund is first checked with the provider (`retrieve`).
+  - It is sent again (same id) only if that check settled nothing, at most 5
+    attempts; then it needs attention.
+  - A `PENDING` refund is re-checked every 5 minutes.
+- **Completion only by the provider's word.**
+  - Refund events go through the event processor (dedupe, verified webhooks)
+    and update both the payment (`REFUND_PENDING`, `REFUNDED`) and the refund
+    row.
+  - A payment may now go `SUCCEEDED → REFUNDED` directly, for providers that
+    report a refund without a pending step.
+- **Shown separately.**
+  - `booking.refund` gives the state, the payment's amount, whether it was a
+    demo payment, and Wayora's explanation.
+  - Admin booking detail lists refunds (status, reason, mode, amount,
+    attempts, failure code).
+
+**What is real today**: no payment provider that can refund is configured.
+The demo provider can't refund (it took nothing), so its refunds are
+`REQUIRED` and labelled "no real money was charged". The full lifecycle is
+tested with the test-only signed gateway
+(`apps/api/test/integration/refunds.test.ts`).
 
 ## Background work
 
 `server.ts` runs every 30 seconds on each API instance (idempotent and
-row-locked): reconcile attempts still in progress (`retrieve` + events), then
-expire overdue bookings. Reads do the same for the rows they show, so this
+row-locked): reconcile attempts still in progress (`retrieve` + events),
+expire overdue bookings, then process due refunds (Phase 23: send
+`REQUESTED`, check `PENDING`/`UNKNOWN`). Reads do the same for the rows they show, so this
 only keeps records current when nobody is looking. The BullMQ worker has no
 database access and is not used for this.
 

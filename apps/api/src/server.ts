@@ -5,6 +5,8 @@ import { createPrismaClient } from '@wayora/database';
 import {
   createApp,
   createPaymentsService,
+  createProviderRegistry,
+  createReservationService,
   createSessionService,
   createTripsService,
 } from './app.js';
@@ -177,6 +179,9 @@ async function main(): Promise<void> {
     try {
       const reconciled = await payments.reconcileInProgress();
       const expired = await payments.expireOverdueBookings();
+      // Refunds (Phase 23, docs/payments.md#refunds): requested ones are
+      // sent; pending or unknown ones are checked with their provider.
+      await payments.processRefunds();
       if (expired > 0) logger.info({ expired, reconciled }, 'Expired unpaid bookings');
     } catch (err) {
       logger.warn({ err: unexpectedErrorForLog(err) }, 'Payment maintenance failed; will retry');
@@ -186,6 +191,35 @@ async function main(): Promise<void> {
   };
   const paymentTimer = setInterval(() => void paymentMaintenance(), 30 * 1000);
   paymentTimer.unref();
+
+  // Supplier reservations (Phase 23, docs/bookings.md#recovery): open
+  // reservations whose next check is due are looked up with the supplier (or
+  // handed to staff). Each row is leased with a conditional update, so every
+  // instance may run it. Nothing to do while no supplier implements reservations.
+  const reservations = createReservationService(
+    prisma,
+    env,
+    logger,
+    createProviderRegistry(env, process.env),
+  );
+  let reconcilingReservations = false;
+  const reservationRecovery = async () => {
+    if (reconcilingReservations) return;
+    reconcilingReservations = true;
+    try {
+      const handled = await reservations.reconcileDue();
+      if (handled > 0) logger.info({ handled }, 'Checked supplier reservations');
+    } catch (err) {
+      logger.warn(
+        { err: unexpectedErrorForLog(err) },
+        'Supplier reservation recovery failed; will retry',
+      );
+    } finally {
+      reconcilingReservations = false;
+    }
+  };
+  const reservationTimer = setInterval(() => void reservationRecovery(), 30 * 1000);
+  reservationTimer.unref();
 
   // Travel reminders (docs/notifications.md#events): the day before a
   // confirmed booking starts. Idempotent (one per booking), so every
@@ -251,6 +285,7 @@ async function main(): Promise<void> {
 
     clearInterval(purgeTimer);
     clearInterval(paymentTimer);
+    clearInterval(reservationTimer);
     clearInterval(reminderTimer);
     clearInterval(tripTimer);
     // Live-update streams never finish on their own: end them (browsers reconnect).

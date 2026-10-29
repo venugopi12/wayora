@@ -406,7 +406,8 @@ describe.skipIf(!TEST_DATABASE_URL)('payments (integration, real PostgreSQL)', (
       expect(PAYMENT_TRANSITIONS).toEqual({
         CREATED: ['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELLED'],
         PENDING: ['SUCCEEDED', 'FAILED', 'CANCELLED'],
-        SUCCEEDED: ['REFUND_PENDING'],
+        // Phase 23: some providers report a refund as done without a pending step.
+        SUCCEEDED: ['REFUND_PENDING', 'REFUNDED'],
         REFUND_PENDING: ['REFUNDED', 'SUCCEEDED'],
         FAILED: [],
         CANCELLED: [],

@@ -197,6 +197,18 @@ export const envSchema = z.object({
   SEARCH_BREAKER_FAILURE_THRESHOLD: z.coerce.number().int().min(1).max(100).default(5),
   /** How long an open breaker skips the provider before one trial call (half-open). */
   SEARCH_BREAKER_COOLDOWN_SECONDS: z.coerce.number().int().min(1).max(600).default(30),
+  // Supplier reservations (Phase 23, docs/bookings.md#supplier-reservations).
+  /**
+   * Book supplier (non-demo) offers through a provider that implements
+   * reservations. Off unless set to true; no real supplier implements
+   * reservations yet, so turning it on changes nothing until one does.
+   */
+  SUPPLIER_RESERVATIONS_ENABLED: z.preprocess(
+    emptyToUndefined,
+    z.enum(['true', 'false']).default('false'),
+  ),
+  /** Time limit for one reservation, lookup or cancellation call (the web client waits 15 s). */
+  SUPPLIER_RESERVATION_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(14_000).default(12_000),
 });
 
 /** Which search-session store this configuration selects. */
@@ -316,6 +328,10 @@ export function productionWarnings(env: Env): string[] {
   }
   if (paymentProvider(env) === 'demo') {
     warnings.push('PAYMENT_PROVIDER is demo: payments are simulated; no money moves.');
+    if (env.SUPPLIER_RESERVATIONS_ENABLED === 'true')
+      warnings.push(
+        'SUPPLIER_RESERVATIONS_ENABLED is on: supplier offers from providers that implement reservations can be booked for real.',
+      );
   }
   if (travelStatusProvider(env) === 'demo') {
     warnings.push(

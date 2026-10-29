@@ -6,6 +6,7 @@ import {
   transitionBooking,
 } from '../bookings/lifecycle.js';
 import { notifyPaymentChange } from '../notifications/events.js';
+import { applyRefundEvent, openRefunds } from './refunds.js';
 import { errorForLog } from '../search/errors.js';
 import {
   providerPaymentEventSchema,
@@ -37,7 +38,8 @@ import {
 export const PAYMENT_TRANSITIONS: Record<DbPaymentStatus, readonly DbPaymentStatus[]> = {
   CREATED: ['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELLED'],
   PENDING: ['SUCCEEDED', 'FAILED', 'CANCELLED'],
-  SUCCEEDED: ['REFUND_PENDING'],
+  // Some providers report a refund as done without a pending step first.
+  SUCCEEDED: ['REFUND_PENDING', 'REFUNDED'],
   REFUND_PENDING: ['REFUNDED', 'SUCCEEDED'],
   FAILED: [],
   CANCELLED: [],
@@ -213,6 +215,8 @@ export class PaymentEventProcessor {
       }
       // Payment outcomes and booking changes for one booking happen one at a time.
       await lockBooking(tx, payment.bookingId);
+      // The refund's own lifecycle (Phase 23), whatever the payment does.
+      await applyRefundEvent(tx, this.now(), payment.id, event.type, event.failureCode);
       const current = await tx.payment.findUniqueOrThrow({
         where: { id: payment.id },
         select: { status: true },
@@ -328,6 +332,15 @@ export class PaymentEventProcessor {
       }
     }
     await tx.payment.update({ where: { id: payment.id }, data: { refundRequired: true } });
+    // The refund itself (Phase 23): requested if the provider can refund
+    // (sent by maintenance), otherwise recorded as owed.
+    await openRefunds(
+      tx,
+      now,
+      { bookingId: payment.bookingId, paymentId: payment.id },
+      'PAID_AFTER_CLOSE',
+      () => provider.capabilities.refund && Boolean(provider.refund),
+    );
     await tx.auditLog.create({
       data: {
         actorType: 'SYSTEM',

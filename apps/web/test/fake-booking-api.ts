@@ -98,6 +98,209 @@ export function unpaidDemo(offer: SearchResult): BookingPayment {
   };
 }
 
+// The supplier side of a booking, as the API presents it (Phase 23).
+const DEMO_RESERVATION: Booking['reservation'] = {
+  kind: 'demo',
+  state: null,
+  supplierReference: null,
+  confirmedAt: null,
+  priceMismatch: false,
+  needsAttention: false,
+  explanation: 'Demo booking: no supplier reservation was made.',
+};
+const DEMO_DOCUMENTS: Booking['documents'] = {
+  state: 'not-applicable',
+  items: [],
+  explanation: 'Demo booking: no ticket, voucher or PNR exists.',
+};
+function demoCancellation(
+  status: Booking['status'],
+  cancellable: boolean,
+): Booking['cancellation'] {
+  return {
+    available: cancellable,
+    state: status === 'cancelled' ? 'cancelled' : 'not-requested',
+    explanation:
+      status === 'cancelled'
+        ? 'Cancelled. Only the booking’s status changed; no supplier was contacted.'
+        : cancellable
+          ? 'You can cancel this demo booking until the travel date. Only its status changes.'
+          : 'This booking can’t be cancelled now.',
+    policy: null,
+  };
+}
+function demoRefund(payment: BookingPayment): Booking['refund'] {
+  return payment.state === 'refund-required'
+    ? {
+        state: 'required',
+        amount: payment.amount,
+        demo: true,
+        explanation:
+          'A refund would be owed, but this was a demo payment: no real money was charged, and the demo provider can’t refund.',
+      }
+    : {
+        state: 'not-applicable',
+        amount: null,
+        demo: true,
+        explanation: 'Nothing was paid, so there is nothing to refund.',
+      };
+}
+
+const SUPPLIER = 'Fixture Air (test supplier)';
+const SUPPLIER_EXPLANATION: Record<NonNullable<Booking['reservation']['state']>, string> = {
+  requested: `Recorded by Wayora and being sent to ${SUPPLIER}.`,
+  'in-progress': `Sent to ${SUPPLIER}, waiting for its confirmation. Nothing is confirmed until ${SUPPLIER} confirms it.`,
+  unknown: `${SUPPLIER} didn’t give a clear answer, so Wayora is checking whether it reserved it. Wayora won’t send another request until it knows.`,
+  confirmed: `${SUPPLIER} confirmed this reservation.`,
+  failed: `${SUPPLIER} didn’t reserve it (the offer was no longer available), so nothing is booked. Wayora took no payment.`,
+  'cancellation-pending': `You asked ${SUPPLIER} to cancel it. It stays confirmed until ${SUPPLIER} confirms the cancellation.`,
+  cancelled: `${SUPPLIER} confirmed the cancellation.`,
+};
+
+/**
+ * A supplier booking (Phase 23) of a supplier `offer`, in a given
+ * reservation state: from the TEST-ONLY fixture supplier, never real.
+ */
+export function supplierBooking(
+  offer: SearchResult,
+  {
+    state = 'confirmed',
+    reference = nextSupplierReference(),
+    createdAt = '2026-10-22T09:00:00+00:00',
+    cancel = true,
+    needsAttention = false,
+    tickets = true,
+  }: {
+    state?: NonNullable<Booking['reservation']['state']>;
+    reference?: string;
+    createdAt?: string;
+    /** The supplier can cancel through Wayora. */
+    cancel?: boolean;
+    needsAttention?: boolean;
+    tickets?: boolean;
+  } = {},
+): Booking {
+  const requirements = bookingRequirementsFor(offer);
+  const dates = offerTravelDates(offer);
+  const status: Booking['status'] =
+    state === 'confirmed' || state === 'cancellation-pending'
+      ? 'confirmed'
+      : state === 'failed'
+        ? 'failed'
+        : state === 'cancelled'
+          ? 'cancelled'
+          : 'pending';
+  const confirmed = ['confirmed', 'cancellation-pending', 'cancelled'].includes(state);
+  const cancellable = state === 'confirmed' && cancel;
+  return bookingSchema.parse({
+    reference,
+    status,
+    demo: false,
+    serviceType: offer.serviceType,
+    offer,
+    providerName: SUPPLIER,
+    price: offer.price,
+    partySize: requirements.partySize,
+    startsOn: dates.startsOn,
+    endsOn: dates.endsOn,
+    createdAt,
+    cancellable,
+    payment: NO_PAYMENT,
+    reservation: {
+      kind: 'supplier',
+      state,
+      supplierReference: confirmed ? 'FXR00001' : null,
+      confirmedAt: confirmed ? createdAt : null,
+      priceMismatch: false,
+      needsAttention,
+      explanation: needsAttention
+        ? `${SUPPLIER_EXPLANATION[state]} Our team is confirming it with ${SUPPLIER} directly; nothing else is sent until then.`
+        : SUPPLIER_EXPLANATION[state],
+    },
+    documents:
+      confirmed && tickets
+        ? {
+            state: 'issued',
+            items: [
+              {
+                type: 'ticket',
+                reference: '098000010001',
+                travellerName: 'Asha Rao',
+                issuedAt: createdAt,
+              },
+            ],
+            explanation: `Issued by ${SUPPLIER}.`,
+          }
+        : {
+            state: 'none-issued',
+            items: [],
+            explanation: confirmed
+              ? `${SUPPLIER} hasn’t issued a ticket or voucher through Wayora. Use the supplier reference with ${SUPPLIER}.`
+              : `A ticket or voucher can exist only after ${SUPPLIER} confirms the reservation.`,
+          },
+    cancellation: {
+      available: cancellable,
+      state:
+        state === 'cancelled'
+          ? 'cancelled'
+          : state === 'cancellation-pending'
+            ? 'pending'
+            : 'not-requested',
+      explanation:
+        state === 'cancelled'
+          ? `Cancelled: ${SUPPLIER} confirmed it.`
+          : state === 'cancellation-pending'
+            ? `Waiting for ${SUPPLIER} to confirm the cancellation. The booking stays confirmed until it does.`
+            : cancellable
+              ? `Cancelling asks ${SUPPLIER} to cancel it; it is cancelled only when ${SUPPLIER} confirms. Any refund of what you paid ${SUPPLIER} follows its terms.`
+              : confirmed
+                ? 'Cancelling this booking isn’t available through Wayora. Contact the supplier with its reference, under its own terms.'
+                : 'The supplier hasn’t confirmed this booking yet, so it can’t be cancelled. If it doesn’t confirm it, nothing is reserved.',
+      policy: null,
+    },
+    refund: {
+      state: 'not-applicable',
+      amount: null,
+      demo: false,
+      explanation: `Wayora took no payment for this booking. Any refund of what you paid ${SUPPLIER} follows its terms.`,
+    },
+    travellers: requirements.namedTravellers.map((slot) => ({
+      firstName: 'Asha',
+      lastName: 'Rao',
+      type: slot.type ?? null,
+    })),
+    contactPhone: null,
+    priceCheck: 'session',
+    history: [
+      { status: 'pending', at: createdAt, by: 'you', note: null },
+      ...(status === 'pending'
+        ? []
+        : [
+            {
+              status: status === 'failed' ? 'failed' : 'confirmed',
+              at: createdAt,
+              by: 'supplier',
+              note: status === 'failed' ? null : `Confirmed by ${SUPPLIER}.`,
+            },
+          ]),
+      ...(status === 'cancelled'
+        ? [{ status: 'cancelled', at: createdAt, by: 'supplier', note: null }]
+        : []),
+    ],
+  });
+}
+
+let supplierCounter = 0;
+/** WY-SUP?-???? from the reference alphabet: unique per call. */
+function nextSupplierReference(): string {
+  supplierCounter += 1;
+  const chars = Array.from({ length: 5 }, (_, i) => {
+    const n = Math.floor(supplierCounter / BOOKING_REFERENCE_ALPHABET.length ** i);
+    return BOOKING_REFERENCE_ALPHABET[n % BOOKING_REFERENCE_ALPHABET.length];
+  }).join('');
+  return `WY-SUP${chars.slice(0, 1)}-${chars.slice(1)}`;
+}
+
 /** A confirmed demo booking of `offer`, shaped like the API's. */
 export function demoBooking(
   offer: SearchResult,
@@ -122,6 +325,7 @@ export function demoBooking(
     travellers ??
     requirements.namedTravellers.map((_, i) => ({ firstName: 'Asha', lastName: `Rao ${i + 1}` }));
   const dates = offerTravelDates(offer);
+  const cancellable = status === 'confirmed' || status === 'pending';
   return bookingSchema.parse({
     reference,
     status,
@@ -134,8 +338,12 @@ export function demoBooking(
     startsOn: dates.startsOn,
     endsOn: dates.endsOn,
     createdAt,
-    cancellable: status === 'confirmed' || status === 'pending',
+    cancellable,
     payment,
+    reservation: DEMO_RESERVATION,
+    documents: DEMO_DOCUMENTS,
+    cancellation: demoCancellation(status, cancellable),
+    refund: demoRefund(payment),
     travellers: names.map((t, i) => ({
       ...t,
       type: requirements.namedTravellers[i]?.type ?? null,
@@ -166,6 +374,9 @@ const summary = ({
   contactPhone: _p,
   priceCheck: _c,
   history: _h,
+  documents: _d,
+  cancellation: _x,
+  refund: _r,
   ...rest
 }: Booking) => rest;
 
@@ -176,6 +387,7 @@ export function installFakeBookingApi({
   signedIn = true,
   payments: paymentMode = 'none',
   notifications: initialNotifications = [],
+  supplier = {},
 }: {
   results: SearchResult[];
   travellers?: Traveller[];
@@ -185,11 +397,24 @@ export function installFakeBookingApi({
   payments?: 'none' | 'demo';
   /** The signed-in user's notifications, newest first (Phase 14). */
   notifications?: Notification[];
+  /**
+   * Supplier bookings (Phase 23, test-only fixture supplier): whether its
+   * offers can be booked, what a new reservation ends as, and what a
+   * cancellation request does.
+   */
+  supplier?: {
+    bookable?: boolean;
+    outcome?: 'confirmed' | 'unknown' | 'failed';
+    cancel?: 'cancelled' | 'pending' | 'refused';
+  };
 }) {
   const account = installFakeAccountApi({ signedIn, travellers });
   const accountFetch = globalThis.fetch;
   const response: SearchResponse = searchResponse(results);
-  const search = installFakeSearchApi({ kind: 'ok', response });
+  const search = installFakeSearchApi(
+    { kind: 'ok', response },
+    { supplierBookable: supplier.bookable ?? false },
+  );
   search.sessions.set(response.searchId, response);
   const searchFetch = globalThis.fetch;
 
@@ -522,6 +747,24 @@ export function installFakeBookingApi({
       if (JSON.stringify(offer.price) !== JSON.stringify(parsed.data.acceptedPrice)) {
         return fail(409, 'PRICE_CHANGED', 'The price has changed. Check the new price.');
       }
+      if (offer.source !== 'demo') {
+        if (!supplier.bookable) {
+          return fail(503, 'SERVICE_UNAVAILABLE', 'Booking this offer isn’t available yet.');
+        }
+        if (parsed.data.acceptSupplierTerms !== true) {
+          return fail(400, 'VALIDATION_FAILED', 'The request is invalid.', [
+            {
+              path: 'body.acceptSupplierTerms',
+              message: 'Confirm that you understand how this supplier booking works.',
+              code: 'required',
+            },
+          ]);
+        }
+        const booking = supplierBooking(offer, { state: supplier.outcome ?? 'confirmed' });
+        store.unshift(booking);
+        keys.set(key, { body: raw, reference: booking.reference });
+        return ok(booking, 201);
+      }
       const booking = demoBooking(offer, {
         travellers: parsed.data.travellers.map(({ firstName, lastName }) => ({
           firstName,
@@ -575,13 +818,34 @@ export function installFakeBookingApi({
     if (method === 'GET' && !one[2]) return ok(booking);
     if (method === 'POST' && one[2]) {
       if (!booking.cancellable) {
-        return fail(409, 'BOOKING_NOT_CANCELLABLE', 'This booking is already cancelled.');
+        return fail(
+          409,
+          'BOOKING_NOT_CANCELLABLE',
+          booking.demo ? 'This booking is already cancelled.' : booking.cancellation.explanation,
+        );
+      }
+      if (!booking.demo) {
+        if (supplier.cancel === 'refused') {
+          return fail(
+            409,
+            'BOOKING_NOT_CANCELLABLE',
+            `${SUPPLIER} refused to cancel this booking, so it stays confirmed.`,
+          );
+        }
+        const next = supplierBooking(booking.offer, {
+          reference: booking.reference,
+          createdAt: booking.createdAt,
+          state: supplier.cancel === 'pending' ? 'cancellation-pending' : 'cancelled',
+        });
+        store.splice(store.indexOf(booking), 1, next);
+        return ok(next);
       }
       const at = '2026-10-22T10:00:00+00:00';
       const updated: Booking = {
         ...booking,
         status: 'cancelled',
         cancellable: false,
+        cancellation: demoCancellation('cancelled', false),
         history: [...booking.history, { status: 'cancelled', at, by: 'you', note: null }],
       };
       store.splice(store.indexOf(booking), 1, updated);

@@ -1,5 +1,11 @@
 import type { BadgeTone } from '@wayora/ui';
-import type { BookingStatus, BookingSummary, PaymentStatus } from '@wayora/contracts';
+import type {
+  BookingStatus,
+  BookingSummary,
+  PaymentStatus,
+  RefundState,
+  ReservationState,
+} from '@wayora/contracts';
 import { bookingRequirementsFor } from '@wayora/contracts';
 
 const dayFormat = new Intl.DateTimeFormat('en-IN', {
@@ -44,11 +50,55 @@ export const STATUS_LABEL: Record<BookingStatus, { label: string; tone: BadgeTon
   failed: { label: 'Failed', tone: 'danger' },
 };
 
-/** A booking's badge: a pending booking that waits for its demo payment says so. */
-export function bookingStatusLabel(booking: Pick<BookingSummary, 'status' | 'payment'>): {
+/** A supplier reservation's state (Phase 23): never "confirmed" until the supplier says so. */
+export const RESERVATION_LABEL: Record<ReservationState, { label: string; tone: BadgeTone }> = {
+  requested: { label: 'Sending to the supplier', tone: 'warning' },
+  'in-progress': { label: 'Awaiting the supplier', tone: 'warning' },
+  confirmed: { label: 'Confirmed by the supplier', tone: 'success' },
+  failed: { label: 'Not reserved', tone: 'danger' },
+  unknown: { label: 'Checking with the supplier', tone: 'warning' },
+  'cancellation-pending': { label: 'Cancellation requested', tone: 'warning' },
+  cancelled: { label: 'Cancelled by the supplier', tone: 'neutral' },
+};
+
+export const REFUND_LABEL: Record<RefundState, { label: string; tone: BadgeTone }> = {
+  'not-applicable': { label: 'None', tone: 'neutral' },
+  required: { label: 'Owed', tone: 'warning' },
+  requested: { label: 'Requested', tone: 'warning' },
+  pending: { label: 'Processing', tone: 'warning' },
+  succeeded: { label: 'Refunded', tone: 'success' },
+  failed: { label: 'Refused', tone: 'danger' },
+  unknown: { label: 'Being checked', tone: 'warning' },
+};
+
+/** Supplier reservation states that are still changing (the page keeps checking). */
+export const OPEN_RESERVATION: readonly ReservationState[] = [
+  'requested',
+  'in-progress',
+  'unknown',
+  'cancellation-pending',
+];
+
+/**
+ * A booking's badge: a pending booking that waits for its demo payment says
+ * so; a supplier booking says where its reservation stands.
+ */
+export function bookingStatusLabel(
+  booking: Pick<BookingSummary, 'status' | 'payment'> &
+    Partial<Pick<BookingSummary, 'reservation'>>,
+): {
   label: string;
   tone: BadgeTone;
 } {
+  const reservation = booking.reservation;
+  if (reservation?.kind === 'supplier' && reservation.state) {
+    if (booking.status === 'pending' || reservation.state === 'cancellation-pending') {
+      return RESERVATION_LABEL[reservation.state];
+    }
+    if (booking.status === 'confirmed') return { label: 'Confirmed', tone: 'success' };
+    if (booking.status === 'failed') return { label: 'Not booked', tone: 'danger' };
+    return STATUS_LABEL[booking.status];
+  }
   if (booking.status === 'pending' && booking.payment.mode === 'demo') {
     return booking.payment.state === 'processing'
       ? { label: 'Demo payment processing', tone: 'warning' }

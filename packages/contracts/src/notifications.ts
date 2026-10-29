@@ -16,6 +16,8 @@ export const NOTIFICATION_TYPES = [
   'booking_confirmed',
   'booking_cancelled',
   'booking_expired',
+  /** A supplier reservation failed (Phase 23; never for demo bookings). */
+  'booking_failed',
   'payment_pending',
   'payment_succeeded',
   'payment_failed',

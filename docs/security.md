@@ -412,6 +412,55 @@ Details: [providers.md](providers.md). No live supplier is integrated.
 - Admin health shows provider ids, kinds and counts only: no settings or
   supplier text; a provider with no recent calls is "unknown".
 
+### Booking lifecycle and supplier reservations (Phase 23)
+
+Details: [bookings.md](bookings.md#supplier-reservations-phase-23),
+[payments.md](payments.md#refunds), [admin.md](admin.md#supplier-reservations-phase-23).
+No real supplier implements reservations.
+
+- **Ownership.** Every booking read, cancel and payment route resolves the
+  booking by `(reference, session user)`. Another user's booking is
+  "not found" (tested for supplier bookings too).
+- **Staff.**
+  - Staff reads need `admin.bookings.read`; the two reservation actions need
+    `admin.reservations.manage` (admins only), checked on the server and
+    audited.
+  - Support staff see supplier references masked to their last four
+    characters.
+- **Never from the client.** Price, currency, supplier status, supplier
+  reference, tickets and refund status or amount are never taken from a
+  request (strict schemas).
+- **From server records only.** A reservation request is built only from the
+  booking's immutable snapshot and records. A refund amount is always the
+  payment's (trigger).
+- **Supplier answers are untrusted input.**
+  - Validated by schema (references printable and bounded, document types
+    closed, integer money).
+  - Anything unusable makes the outcome unknown, never a success.
+  - Supplier text is never shown or stored; only normalized error categories
+    are.
+- **Database guards.**
+  - One reservation per booking; unique idempotency and cancellation keys.
+  - A supplier reference is unique per provider and set once.
+  - A supplier booking can't be confirmed, cancelled or failed unless its
+    reservation is.
+  - Documents only for confirmed reservations, and immutable.
+  - One open refund per payment; refund amount and currency equal the
+    payment's.
+  - Append-only history.
+- **Transactions and races.**
+  - Every status change is a conditional update in a transaction with its
+    history, notification and audit entry.
+  - Supplier calls happen outside transactions, after a committed claim.
+  - Recovery leases rows with conditional updates. No in-memory locks.
+- **Timeouts.** Each supplier call has `SUPPLIER_RESERVATION_TIMEOUT_MS`. A
+  timeout is an unknown outcome, never a failure, and never triggers a blind
+  resend.
+- **Logs.** They carry booking references, provider ids, operations, outcome
+  categories, durations and correlation ids. Never traveller names, phone
+  numbers, payloads or credentials. The staff-only resolution reason is kept
+  in the audit log only.
+
 ## Planned approach for later phases
 
 ### Authentication extensions

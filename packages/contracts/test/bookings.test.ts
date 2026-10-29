@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bookingDocumentsSchema,
+  bookingRefundSchema,
+  bookingReservationSchema,
+  reservationStateSchema,
   BOOKING_REFERENCE_ALPHABET,
   bookingListQuerySchema,
   bookingReferenceSchema,
@@ -181,10 +185,26 @@ describe('create booking request', () => {
     expect(phoneE164Schema.safeParse('98765 43210').success).toBe(false); // needs the country code
   });
 
-  it('requires the demo terms, and rejects unknown fields (no client totals, user ids or types)', () => {
+  it('takes the demo or the supplier terms (the server checks which applies), and rejects unknown fields (no client totals, user ids or types)', () => {
     expect(createBookingRequestSchema.safeParse({ ...valid, acceptDemoTerms: false }).success).toBe(
       false,
     );
+    const { acceptDemoTerms: _a, ...noTerms } = valid;
+    expect(createBookingRequestSchema.safeParse(noTerms).success).toBe(true);
+    expect(
+      createBookingRequestSchema.safeParse({ ...noTerms, acceptSupplierTerms: true }).success,
+    ).toBe(true);
+    expect(
+      createBookingRequestSchema.safeParse({ ...noTerms, acceptSupplierTerms: false }).success,
+    ).toBe(false);
+    // Never a client-sent supplier status, reference or refund.
+    for (const extra of [
+      { reservationStatus: 'confirmed' },
+      { supplierReference: 'ABC' },
+      { refund: { state: 'succeeded' } },
+    ]) {
+      expect(createBookingRequestSchema.safeParse({ ...valid, ...extra }).success).toBe(false);
+    }
     for (const extra of [{ total: '1' }, { userId: 'x' }, { price: {} }, { status: 'confirmed' }]) {
       expect(createBookingRequestSchema.safeParse({ ...valid, ...extra }).success).toBe(false);
     }
@@ -204,9 +224,17 @@ describe('create booking request', () => {
 });
 
 describe('references and list queries', () => {
-  it('accepts WYD- references from the unambiguous alphabet, case-insensitively', () => {
+  it('accepts WYD- (demo) and WY- (supplier, Phase 23) references from the unambiguous alphabet, case-insensitively', () => {
     expect(bookingReferenceSchema.parse(' wyd-7kq2-m9xd ')).toBe('WYD-7KQ2-M9XD');
-    for (const bad of ['WY-7KQ2-M9XD', 'WYD-7KQ2-M9X', 'WYD-0KQ2-M9XD', 'WYD-IKQ2-M9XD', 'x']) {
+    expect(bookingReferenceSchema.parse('wy-7kq2-m9xd')).toBe('WY-7KQ2-M9XD');
+    for (const bad of [
+      'WYS-7KQ2-M9XD',
+      'WYD-7KQ2-M9X',
+      'WYD-0KQ2-M9XD',
+      'WYD-IKQ2-M9XD',
+      'PNR-7KQ2-M9XD',
+      'x',
+    ]) {
       expect(bookingReferenceSchema.safeParse(bad).success, bad).toBe(false);
     }
     expect(BOOKING_REFERENCE_ALPHABET).not.toMatch(/[01IOL]/);
@@ -216,5 +244,55 @@ describe('references and list queries', () => {
     expect(bookingListQuerySchema.parse({})).toEqual({ view: 'upcoming', page: 1, pageSize: 10 });
     expect(bookingListQuerySchema.safeParse({ pageSize: '51' }).success).toBe(false);
     expect(bookingListQuerySchema.safeParse({ view: 'all' }).success).toBe(false);
+  });
+});
+
+describe('supplier side of a booking (Phase 23)', () => {
+  it('reservation, documents, cancellation and refund states are closed sets', () => {
+    expect(reservationStateSchema.options).toEqual([
+      'requested',
+      'in-progress',
+      'confirmed',
+      'failed',
+      'unknown',
+      'cancellation-pending',
+      'cancelled',
+    ]);
+    expect(
+      bookingReservationSchema.safeParse({
+        kind: 'demo',
+        state: null,
+        supplierReference: null,
+        confirmedAt: null,
+        priceMismatch: false,
+        needsAttention: false,
+        explanation: 'Demo booking: no supplier reservation was made.',
+      }).success,
+    ).toBe(true);
+    expect(
+      bookingDocumentsSchema.safeParse({
+        state: 'issued',
+        items: [
+          { type: 'pnr', reference: 'X', travellerName: null, issuedAt: '2026-11-01T10:00:00Z' },
+        ],
+        explanation: '',
+      }).success,
+    ).toBe(false);
+    expect(
+      bookingRefundSchema.safeParse({
+        state: 'refunded-maybe',
+        amount: null,
+        demo: true,
+        explanation: '',
+      }).success,
+    ).toBe(false);
+    expect(
+      bookingRefundSchema.safeParse({
+        state: 'pending',
+        amount: { amountMinor: '12.5', currency: 'INR' },
+        demo: false,
+        explanation: '',
+      }).success,
+    ).toBe(false);
   });
 });

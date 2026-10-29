@@ -10,6 +10,7 @@ import {
   type ProviderAttempt,
   type ProviderCallResult,
   type ProviderPaymentEvent,
+  type ProviderRefund,
 } from '../src/modules/payments/providers/types.js';
 
 /*
@@ -91,7 +92,7 @@ export class SignedTestGateway implements PaymentProvider {
   cancel(): Promise<ProviderCallResult> {
     return Promise.reject(new ProviderPaymentError('not_cancellable', 'no'));
   }
-  refund(attempt: ProviderAttempt): Promise<ProviderCallResult> {
+  refund(attempt: ProviderAttempt, _refund?: ProviderRefund): Promise<ProviderCallResult> {
     const ref = attempt.providerReference!;
     return Promise.resolve({
       providerReference: ref,

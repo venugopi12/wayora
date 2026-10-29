@@ -50,6 +50,10 @@ import type { TravelStatusProvider } from './modules/trips/providers/types.js';
 import { LocalTripEventHub, type TripEventHub } from './modules/trips/stream.js';
 import { TripsService } from './modules/trips/trips.service.js';
 import {
+  ReservationService,
+  type RecoveryPolicy,
+} from './modules/bookings/reservations.service.js';
+import {
   PAYMENT_EVENTS_PATH,
   type RequestWithRawBody,
 } from './modules/payments/payments.routes.js';
@@ -125,6 +129,48 @@ export interface AppDependencies {
    * replaces the pause between provider attempts.
    */
   assistant?: { provider?: AssistantProvider | null; sleep?: (ms: number) => Promise<void> };
+  /** Supplier reservation recovery tuning (tests shorten delays; jitter source). */
+  reservations?: { recovery?: Partial<RecoveryPolicy>; random?: () => number };
+}
+
+/**
+ * The search providers this configuration registers (exported so the
+ * server's background reservation recovery uses the same set).
+ */
+export function createProviderRegistry(
+  env: Env,
+  providerConfig: Readonly<Record<string, string | undefined>> = process.env,
+  searchProviders?: readonly SearchProvider[],
+): ProviderRegistry {
+  const registry = new ProviderRegistry({
+    demoEnabled: demoProvidersEnabled(env),
+    disabledIds: env.SEARCH_DISABLED_PROVIDERS,
+    // Blank counts as missing, as in readProviderConfig (providers/credentials.ts).
+    isConfigured: (name) => Boolean(providerConfig[name]?.trim()),
+  });
+  // Live suppliers first (none integrated yet: docs/providers.md), then demo fixtures.
+  const providers = searchProviders ?? [...createLiveProviders(providerConfig), ...DEMO_PROVIDERS];
+  for (const provider of providers) registry.register(provider);
+  return registry;
+}
+
+/** Supplier reservations (Phase 23), from env (exported for the server's recovery timer). */
+export function createReservationService(
+  prisma: PrismaClient,
+  env: Env,
+  logger: Logger,
+  registry: ProviderRegistry,
+  options: { now?: () => Date; recovery?: Partial<RecoveryPolicy>; random?: () => number } = {},
+): ReservationService {
+  return new ReservationService({
+    prisma,
+    registry,
+    logger,
+    timeoutMs: env.SUPPLIER_RESERVATION_TIMEOUT_MS,
+    ...(options.recovery ? { recovery: options.recovery } : {}),
+    ...(options.random ? { random: options.random } : {}),
+    ...(options.now ? { now: options.now } : {}),
+  });
 }
 
 /** Builds the trip service from env (exported for the server's background checks). */
@@ -253,6 +299,7 @@ export function createApp({
   plannerEvents,
   plannerStream,
   assistant,
+  reservations: reservationOptions,
 }: AppDependencies): Express {
   const app = express();
 
@@ -334,15 +381,7 @@ export function createApp({
     };
   }
 
-  const registry = new ProviderRegistry({
-    demoEnabled: demoProvidersEnabled(env),
-    disabledIds: env.SEARCH_DISABLED_PROVIDERS,
-    // Blank counts as missing, as in readProviderConfig (providers/credentials.ts).
-    isConfigured: (name) => Boolean(providerConfig[name]?.trim()),
-  });
-  // Live suppliers first (none integrated yet: docs/providers.md), then demo fixtures.
-  const providers = searchProviders ?? [...createLiveProviders(providerConfig), ...DEMO_PROVIDERS];
-  for (const provider of providers) registry.register(provider);
+  const registry = createProviderRegistry(env, providerConfig, searchProviders);
   // What search will use, in plain words: never configuration values.
   logger.info(
     {
@@ -355,6 +394,7 @@ export function createApp({
         book: p.operations.book,
       })),
       liveProviders: registry.describe().filter((p) => p.kind === 'live' && p.enabled).length,
+      supplierReservations: env.SUPPLIER_RESERVATIONS_ENABLED === 'true',
     },
     'Search providers registered',
   );
@@ -441,25 +481,50 @@ export function createApp({
           ...(assistant?.sleep ? { sleep: assistant.sleep } : {}),
         })
       : undefined;
+  const reservationService = prisma
+    ? createReservationService(prisma, env, logger, registry, {
+        ...(now ? { now } : {}),
+        ...reservationOptions,
+      })
+    : undefined;
+  const bookingsService =
+    prisma && payments
+      ? new BookingsService({
+          prisma,
+          search,
+          registry,
+          logger,
+          payments,
+          ...(reservationService ? { reservations: reservationService } : {}),
+          supplierReservationsEnabled: env.SUPPLIER_RESERVATIONS_ENABLED === 'true',
+          ...(now ? { now } : {}),
+        })
+      : undefined;
   const accountRoutes: AccountsRouterOptions | undefined =
-    accounts && prisma && payments && trips && plannerService && budgetService && assistantService
+    accounts &&
+    prisma &&
+    payments &&
+    bookingsService &&
+    trips &&
+    plannerService &&
+    budgetService &&
+    assistantService
       ? {
           ...accounts,
-          bookings: new BookingsService({
-            prisma,
-            search,
-            registry,
-            logger,
-            payments,
-            ...(now ? { now } : {}),
-          }),
+          bookings: bookingsService,
           payments,
           // No email provider exists yet: delivery is reported as not configured.
           notifications: new NotificationsService(prisma, { active: false }, now),
           admin: {
             prisma,
             logger,
-            service: new AdminService({ prisma, emailConfigured: false, ...(now ? { now } : {}) }),
+            service: new AdminService({
+              prisma,
+              emailConfigured: false,
+              reservations: reservationService ?? null,
+              ...(now ? { now } : {}),
+            }),
+            reservations: reservationService ?? null,
             health: new PlatformHealth({
               prisma,
               ...(redis ? { redis } : {}),
@@ -569,6 +634,12 @@ export function createApp({
       search: {
         service: search,
         registry,
+        ...(bookingsService
+          ? {
+              bookingAvailability: (result: { source: string; providerId: string }) =>
+                bookingsService.bookingAvailability(result),
+            }
+          : {}),
         limiter: searchRateLimiter({
           max: env.SEARCH_RATE_LIMIT_MAX,
           ...(searchStore ? { store: searchStore } : {}),

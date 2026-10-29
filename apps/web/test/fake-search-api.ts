@@ -105,6 +105,8 @@ export function searchResponse(
 
 export function installFakeSearchApi(
   defaultReply: Reply = { kind: 'ok', response: searchResponse([]) },
+  /** Phase 23: offer answers say supplier offers can be booked (like a server with reservations on). */
+  options: { supplierBookable?: boolean } = {},
 ) {
   const calls: SearchCall[] = [];
   const offerCalls: string[] = [];
@@ -150,6 +152,14 @@ export function installFakeSearchApi(
         generatedAt: session.generatedAt,
         expiresAt: session.expiresAt,
         validation: { status: 'session', checkedAt: null, previousPrice: null },
+        ...(options.supplierBookable
+          ? {
+              booking:
+                result.source === 'demo'
+                  ? { available: true, kind: 'demo', reason: null }
+                  : { available: true, kind: 'supplier', reason: null },
+            }
+          : {}),
       });
       const body =
         queued?.kind === 'transform' ? offerResponseSchema.parse(queued.transform(data)) : data;
