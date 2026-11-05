@@ -1,7 +1,7 @@
 import { ArrowLeftRight, ArrowUpDown, Minus, Plus, Search } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { findPlace, type SearchServiceType } from '@wayora/contracts';
-import { Alert, Button, Field, IconButton, Input, Select, cn } from '@wayora/ui';
+import { Alert, Button, Field, IconButton, Input, Radio, RadioGroup, Select, cn } from '@wayora/ui';
 import { SEARCH_CONFIG, placeOptions, type FieldConfig } from './config';
 import type { FormValues, ParamIssue } from './params';
 
@@ -113,7 +113,13 @@ export function SearchForm({
   autoFocusFirstField = false,
 }: SearchFormProps) {
   const config = SEARCH_CONFIG[serviceType];
+  // The optional date a "One way / Round trip" choice controls (flights).
+  const tripField = config.fields.find(
+    (f): f is Extract<FieldConfig, { kind: 'date' }> => f.kind === 'date' && !!f.tripType,
+  );
+  const hasTripDate = (v: FormValues) => !!tripField && (v[tripField.param] ?? '') !== '';
   const [values, setValues] = useState<FormValues>(initialValues);
+  const [withTripDate, setWithTripDate] = useState(() => hasTripDate(initialValues));
   const [shownIssues, setShownIssues] = useState<readonly ParamIssue[]>(issues);
 
   // When the URL describes a different search (Back/Forward, a shared link),
@@ -125,6 +131,7 @@ export function SearchForm({
     setSeenSource(sourceKey);
     setValues(initialValues);
     setShownIssues(issues);
+    setWithTripDate(hasTripDate(initialValues) || issues.some((i) => i.param === tripField?.param));
   }
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -147,7 +154,12 @@ export function SearchForm({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const problems = onSearch(values);
+    // Round trip chosen but no return date: say so here rather than search one way.
+    const missingTripDate =
+      tripField?.tripType && withTripDate && !hasTripDate(values)
+        ? [{ param: tripField.param, message: tripField.tripType.missing }]
+        : [];
+    const problems = missingTripDate.length > 0 ? missingTripDate : onSearch(values);
     setShownIssues(problems);
     if (problems.length > 0) {
       // Focus the first field with a problem.
@@ -246,7 +258,9 @@ export function SearchForm({
 
   const [fromParam, toParam] = config.swap ?? [null, null];
   const routeFields = config.fields.filter((f) => f.param === fromParam || f.param === toParam);
-  const otherFields = config.fields.filter((f) => !routeFields.includes(f));
+  const otherFields = config.fields.filter(
+    (f) => !routeFields.includes(f) && (f !== tripField || withTripDate),
+  );
   const counters = otherFields.filter((f) => f.kind === 'count');
   const rest = otherFields.filter((f) => f.kind !== 'count');
 
@@ -295,6 +309,26 @@ export function SearchForm({
           />
           {renderField(routeFields[1]!)}
         </div>
+      ) : null}
+
+      {tripField?.tripType ? (
+        <RadioGroup legend={tripField.tripType.legend} inline>
+          <Radio
+            label={tripField.tripType.without}
+            value="without"
+            checked={!withTripDate}
+            onChange={() => {
+              setWithTripDate(false);
+              set(tripField.param, '');
+            }}
+          />
+          <Radio
+            label={tripField.tripType.with}
+            value="with"
+            checked={withTripDate}
+            onChange={() => setWithTripDate(true)}
+          />
+        </RadioGroup>
       ) : null}
 
       {rest.length > 0 ? (

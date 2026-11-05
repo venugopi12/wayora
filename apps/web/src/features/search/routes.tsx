@@ -9,6 +9,8 @@ import { findDestination } from '../discover/search';
 import { serviceBySlug } from '../navigation/config';
 import { useDisplayCurrency } from '../preferences/currency';
 import { SEARCH_CONFIG } from './config';
+import { RecentSearches } from './RecentSearches';
+import { rememberSearch } from './recent';
 import { readSearchParams, searchParamsFor, validate, withParams, type FormValues } from './params';
 import type { ParamUpdate } from './results/FilterPanel';
 import { SearchResultsLayout, type ParamOptions } from './results/SearchResultsLayout';
@@ -82,6 +84,11 @@ export function ServiceSearchRoute({ slug }: { slug: TravelCategorySlug }) {
   const [editingFor, setEditingFor] = useState<string | null>(null);
   const [focusEdit, setFocusEdit] = useState(false);
   const formOpen = state.status !== 'ready' || editingFor === searchKey;
+
+  // Remember each valid search that runs, in this browser only (recent.ts).
+  useEffect(() => {
+    if (searchKey !== null) rememberSearch(slug, JSON.parse(searchKey) as FormValues);
+  }, [slug, searchKey]);
 
   // Invalid filters, sort or page in a link are ignored; tidy them out of the URL.
   const droppedKey = state.status === 'ready' ? state.dropped.join(',') : '';
@@ -210,9 +217,12 @@ export function ServiceSearchRoute({ slug }: { slug: TravelCategorySlug }) {
           headingRef={headingRef}
         />
       ) : (
-        <p className="text-body-sm text-ink-secondary">
-          {config.coverage} Fill in the form to see demo {service.name.toLowerCase()}.
-        </p>
+        <>
+          <p className="text-body-sm text-ink-secondary">
+            {config.coverage} Fill in the form to see demo {service.name.toLowerCase()}.
+          </p>
+          {state.status === 'idle' ? <RecentSearches key={slug} serviceType={slug} /> : null}
+        </>
       )}
     </Container>
   );

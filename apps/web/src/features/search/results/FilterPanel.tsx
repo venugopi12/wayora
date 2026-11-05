@@ -234,11 +234,15 @@ function NightsRangeFilter({ filter, params, facets, onChange }: ControlProps<'n
   );
 }
 
-function ToggleFilter({ filter, params, onChange }: ControlProps<'toggle'>) {
+function ToggleFilter({ filter, params, facets, onChange }: ControlProps<'toggle'>) {
+  // A feature only some suppliers report: offer it only if a result has it,
+  // unless it is already applied (so it can still be turned off).
+  const on = params.get(filter.param) === '1';
+  if (filter.facet && !on && !facets.options[filter.facet]?.length) return null;
   return (
     <Checkbox
       label={filter.label}
-      checked={params.get(filter.param) === '1'}
+      checked={on}
       onChange={(e) => onChange({ [filter.param]: e.target.checked ? '1' : null })}
     />
   );

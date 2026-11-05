@@ -133,6 +133,7 @@ describe('active filter chips', () => {
       'amenities',
       'areas',
       'breakfast',
+      'free-cancel',
       'maxPrice',
       'minPrice',
       'types',

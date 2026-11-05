@@ -70,6 +70,19 @@ export const flightStops = (r: SearchResultFor<'flights'>) =>
 /** Longest direction of a flight, in minutes. */
 export const flightDuration = (r: SearchResultFor<'flights'>) =>
   Math.max(...r.itineraries.map((i) => i.durationMinutes));
+/**
+ * Whether a flight's fare states included checked baggage (more than zero
+ * pieces, or a weight). Only suppliers that return fare conditions say so;
+ * a missing or null allowance is "not stated", never "included".
+ */
+export const hasCheckedBaggage = (r: SearchResultFor<'flights'>) => {
+  const bag = r.fare?.checkedBaggage;
+  if (!bag) return false;
+  return (bag.pieces ?? 0) > 0 || (bag.pieces === null && (bag.weightKg ?? 0) > 0);
+};
+/** Whether a stay's supplier states free cancellation. */
+export const hasFreeCancellation = (r: SearchResultFor<'hotels'>) =>
+  r.cancellationPolicy?.type === 'free-cancellation';
 /** Carrier codes appearing in any segment. */
 export const flightCarriers = (r: SearchResultFor<'flights'>) => [
   ...new Set(r.itineraries.flatMap((i) => i.segments.map((s) => s.carrier.code))),
@@ -94,7 +107,8 @@ function categoryPredicate(request: SearchRequest): (result: SearchResult) => bo
           inWindows(out.departAt, f.departureWindows) &&
           inWindows(out.arriveAt, f.arrivalWindows) &&
           (!f.carriers?.length || flightCarriers(r).some((c) => f.carriers!.includes(c))) &&
-          atMost(f.maxDurationMinutes, flightDuration(r))
+          atMost(f.maxDurationMinutes, flightDuration(r)) &&
+          (f.checkedBaggageIncluded !== true || hasCheckedBaggage(r))
         );
       });
     }
@@ -106,7 +120,8 @@ function categoryPredicate(request: SearchRequest): (result: SearchResult) => bo
           anyOf(f.propertyTypes, r.property.propertyType) &&
           allOf(f.amenities, r.amenities) &&
           (!f.areas?.length || (r.property.area !== null && f.areas.includes(r.property.area))) &&
-          (f.breakfastIncluded !== true || r.breakfastIncluded),
+          (f.breakfastIncluded !== true || r.breakfastIncluded) &&
+          (f.freeCancellation !== true || hasFreeCancellation(r)),
       );
     }
     case 'trains': {
@@ -190,6 +205,7 @@ function priceLimits(request: SearchRequest): PriceLimits | null {
       };
     }
     case 'flights':
+    case 'trains':
     case 'buses':
     case 'cabs':
     case 'holidays': {
@@ -356,6 +372,10 @@ export function applySort(
       break;
     case 'departure-asc':
       primary = byNumber(departure);
+      break;
+    case 'departure-desc':
+      // Latest departure first; results without a departure still go last.
+      primary = byNumber(departure, -1);
       break;
     case 'transfers-asc':
       primary = chain(byNumber(transfers), byNumber(duration));

@@ -12,6 +12,8 @@ import {
   flightCarriers,
   flightDuration,
   flightStops,
+  hasCheckedBaggage,
+  hasFreeCancellation,
   nightlyPrice,
   priceAmount,
   type ComparablePrice,
@@ -94,7 +96,9 @@ export function computeFacets(
       const flights = of(results, 'flights');
       const stops = new Tally();
       const carriers = new Tally();
+      const baggage = new Tally();
       for (const r of flights) {
+        if (hasCheckedBaggage(r)) baggage.add('included', 'Checked bag included');
         const n = flightStops(r);
         stops.add(String(n), n === 0 ? 'Nonstop' : `${n} stop${n === 1 ? '' : 's'}`);
         const names = new Map(
@@ -108,6 +112,7 @@ export function computeFacets(
         options: compact({
           stops: stops.options('value-number'),
           carriers: carriers.options(),
+          checkedBaggage: baggage.options(),
         }),
       };
     }
@@ -116,7 +121,9 @@ export function computeFacets(
       const types = new Tally();
       const amenities = new Tally();
       const areas = new Tally();
+      const cancellation = new Tally();
       for (const r of hotels) {
+        if (hasFreeCancellation(r)) cancellation.add('free-cancellation', 'Free cancellation');
         types.add(r.property.propertyType, titleCase(r.property.propertyType));
         for (const a of r.amenities) amenities.add(a, a === 'wifi' ? 'Wi-Fi' : titleCase(a));
         if (r.property.area) areas.add(r.property.area);
@@ -128,6 +135,7 @@ export function computeFacets(
           propertyTypes: types.options(),
           amenities: amenities.options(),
           areas: areas.options(),
+          cancellation: cancellation.options(),
         }),
       };
     }

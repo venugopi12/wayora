@@ -333,3 +333,106 @@ describe('facets', () => {
     expect(facets).toEqual({ price: null, durationMinutes: null, options: {} });
   });
 });
+
+describe('Phase 24 filters and sorts', () => {
+  it('trains: a fare range over the whole party fare', async () => {
+    const all = await demoResults(VALID_INPUTS.trains);
+    const fares = all.map(rupees).sort((a, b) => a - b);
+    const limit = fares[Math.floor(fares.length / 2)]!;
+    for (const r of filtered(
+      { ...VALID_INPUTS.trains, filters: { maxPriceMinor: String(limit * 100) } },
+      all,
+    )) {
+      expect(rupees(r)).toBeLessThanOrEqual(limit);
+    }
+    expect(() =>
+      parse({
+        ...VALID_INPUTS.trains,
+        filters: { minPriceMinor: '500000', maxPriceMinor: '100000' },
+      }),
+    ).toThrow(/at least the minimum/);
+  });
+
+  it('"departure-desc": latest departure first for flights, trains and buses', async () => {
+    for (const type of ['trains', 'buses'] as const) {
+      const all = await demoResults(VALID_INPUTS[type]);
+      const times = applySort(parse({ ...VALID_INPUTS[type], sortBy: 'departure-desc' }), all).map(
+        (r) => Date.parse((r as SearchResultFor<'trains' | 'buses'>).departAt),
+      );
+      expect(times.length, type).toBeGreaterThan(1);
+      expect(times, type).toEqual([...times].sort((a, b) => b - a));
+    }
+    const flights = await demoResults(VALID_INPUTS.flights);
+    const departs = applySort(
+      parse({ ...VALID_INPUTS.flights, sortBy: 'departure-desc' }),
+      flights,
+    ).map((r) => Date.parse((r as SearchResultFor<'flights'>).itineraries[0]!.departAt));
+    expect(departs).toEqual([...departs].sort((a, b) => b - a));
+    // Deterministic: the same order whatever the input order.
+    const request = parse({ ...VALID_INPUTS.flights, sortBy: 'departure-desc' });
+    expect(applySort(request, [...flights].reverse()).map((r) => r.id)).toEqual(
+      applySort(request, flights).map((r) => r.id),
+    );
+  });
+
+  it('flights: checked bag included matches only fares that state an allowance', async () => {
+    const [base] = await demoResults(VALID_INPUTS.flights);
+    const withFare = (id: string, checkedBaggage: unknown) =>
+      ({
+        ...base!,
+        id,
+        fare: {
+          name: null,
+          refundable: null,
+          changeable: null,
+          checkedBaggage,
+          cabinBaggage: null,
+        },
+      }) as SearchResultFor<'flights'>;
+    const results: SearchResult[] = [
+      { ...base!, id: 'no-fare' },
+      withFare('unknown', null),
+      withFare('none', { pieces: 0, weightKg: null }),
+      withFare('one-piece', { pieces: 1, weightKg: 23 }),
+      withFare('weight', { pieces: null, weightKg: 15 }),
+    ];
+    const kept = applyFilters(
+      parse({ ...VALID_INPUTS.flights, filters: { checkedBaggageIncluded: true } }),
+      results,
+    ).results.map((r) => r.id);
+    expect(kept).toEqual(['one-piece', 'weight']);
+    const facets = computeFacets(parse(VALID_INPUTS.flights), results);
+    expect(facets.options.checkedBaggage).toEqual([
+      { value: 'included', label: 'Checked bag included', count: 2 },
+    ]);
+  });
+
+  it('hotels: free cancellation matches only stays whose supplier states it', () => {
+    const results = [
+      hotelResult('p', 'unstated', 3000),
+      hotelResult('p', 'free', 4000, {
+        cancellationPolicy: { type: 'free-cancellation', until: '2026-11-30T12:00:00+05:30' },
+      }),
+      hotelResult('p', 'strict', 2000, { cancellationPolicy: { type: 'non-refundable' } }),
+    ].map(({ dedupeKey: _key, ...r }) => r as SearchResult);
+    const kept = applyFilters(
+      parse({ ...VALID_INPUTS.hotels, filters: { freeCancellation: true } }),
+      results,
+    ).results.map((r) => r.offerRef);
+    expect(kept).toEqual(['free']);
+    expect(computeFacets(parse(VALID_INPUTS.hotels), results).options.cancellation).toEqual([
+      { value: 'free-cancellation', label: 'Free cancellation', count: 1 },
+    ]);
+  });
+
+  it('demo data states no baggage or cancellation terms, so those facets are absent', async () => {
+    const flights = await demoResults(VALID_INPUTS.flights);
+    expect(computeFacets(parse(VALID_INPUTS.flights), flights).options).not.toHaveProperty(
+      'checkedBaggage',
+    );
+    const hotels = await demoResults(VALID_INPUTS.hotels);
+    expect(computeFacets(parse(VALID_INPUTS.hotels), hotels).options).not.toHaveProperty(
+      'cancellation',
+    );
+  });
+});

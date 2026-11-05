@@ -1,4 +1,4 @@
-# Travel search, results and offers (Phases 9–11)
+# Travel search, results and offers (Phases 9–11, 24)
 
 One search engine for all seven categories (flights, hotels, trains, buses,
 metro, cabs, holiday packages), fed by **provider adapters** that translate
@@ -117,15 +117,15 @@ the whole stored provider round (before paging), so they never cause new
 provider calls during a search's lifetime. Price limits are integer minor
 units in the request currency.
 
-| Category | Filters (request `filters` keys)                                                                                                                                                        |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| flights  | `maxStops`, `departureWindows`, `arrivalWindows` (outbound, local time), `carriers` (any segment), `maxDurationMinutes` (each direction), `minPriceMinor`/`maxPriceMinor` (whole party) |
-| hotels   | `propertyTypes`, `amenities` (all required), `areas`, `breakfastIncluded`, `minNightlyPriceMinor`/`maxNightlyPriceMinor` (per night, all rooms)                                         |
-| trains   | `classes`, `trains` (train numbers), `departureWindows`, `arrivalWindows`, `maxDurationMinutes`                                                                                         |
-| buses    | `busTypes`, `operators`, `amenities` (all required), `departureWindows`, `arrivalWindows`, `maxDurationMinutes`, `minPriceMinor`/`maxPriceMinor`                                        |
-| metro    | `maxTransfers`, `lines` (line ids; any leg), `maxDurationMinutes`                                                                                                                       |
-| cabs     | `vehicleTypes`, `minCapacity`, `minPriceMinor`/`maxPriceMinor` (an estimate range matches if it overlaps)                                                                               |
-| holidays | `minNights`, `maxNights`, `interests` (any), `minPriceMinor`/`maxPriceMinor` (whole party)                                                                                              |
+| Category | Filters (request `filters` keys)                                                                                                                                                                                             |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| flights  | `maxStops`, `departureWindows`, `arrivalWindows` (outbound, local time), `carriers` (any segment), `maxDurationMinutes` (each direction), `minPriceMinor`/`maxPriceMinor` (whole party), `checkedBaggageIncluded` (Phase 24) |
+| hotels   | `propertyTypes`, `amenities` (all required), `areas`, `breakfastIncluded`, `minNightlyPriceMinor`/`maxNightlyPriceMinor` (per night, all rooms), `freeCancellation` (Phase 24)                                               |
+| trains   | `classes`, `trains` (train numbers), `departureWindows`, `arrivalWindows`, `maxDurationMinutes`, `minPriceMinor`/`maxPriceMinor` (all passengers, Phase 24)                                                                  |
+| buses    | `busTypes`, `operators`, `amenities` (all required), `departureWindows`, `arrivalWindows`, `maxDurationMinutes`, `minPriceMinor`/`maxPriceMinor`                                                                             |
+| metro    | `maxTransfers`, `lines` (line ids; any leg), `maxDurationMinutes`                                                                                                                                                            |
+| cabs     | `vehicleTypes`, `minCapacity`, `minPriceMinor`/`maxPriceMinor` (an estimate range matches if it overlaps)                                                                                                                    |
+| holidays | `minNights`, `maxNights`, `interests` (any), `minPriceMinor`/`maxPriceMinor` (whole party)                                                                                                                                   |
 
 Lists match **any** selected value, except amenities, which must **all** be
 present. Different filters combine with AND. A result without a price never
@@ -134,17 +134,31 @@ counted (`PRICE_FILTER_CURRENCY`), never converted. Inverted ranges
 (`min > max`) are rejected with `400`. Holidays have no destination filter
 because a holiday search is already for one destination.
 
+**Supplier-only terms (Phase 24).** `checkedBaggageIncluded` matches a flight
+only when its `fare.checkedBaggage` states more than zero pieces (or, with no
+piece count, a weight); `freeCancellation` matches a stay only when its
+`cancellationPolicy.type` is `free-cancellation`. A result without those
+fields ("not stated") never matches — it is not assumed to include a bag or
+to be cancellable. Demo fixtures carry neither field, so on demo searches the
+matching facets are absent and the web app doesn't offer these filters.
+
+**Not offered, because no result carries the data:** star rating, guest
+rating or reviews, meal plans beyond `breakfastIncluded`, cab cancellation
+terms or included distance (`distanceKm` is the estimated trip length, not an
+allowance), holiday package types beyond `interests`, and holiday inclusions
+(free text that differs per package, so not a meaningful filter).
+
 ### Sorting
 
-| Category | Options (default first)                                                   |
-| -------- | ------------------------------------------------------------------------- |
-| flights  | `recommended`, `price-asc`, `price-desc`, `duration-asc`, `departure-asc` |
-| hotels   | `price-asc`, `price-desc`                                                 |
-| trains   | `departure-asc`, `duration-asc`, `price-asc`, `price-desc`                |
-| buses    | `departure-asc`, `duration-asc`, `price-asc`, `price-desc`                |
-| metro    | `transfers-asc` (then shortest), `duration-asc`                           |
-| cabs     | `price-asc`, `price-desc`, `capacity-desc`                                |
-| holidays | `price-asc`, `price-desc`, `duration-asc`, `duration-desc` (nights)       |
+| Category | Options (default first)                                                                     |
+| -------- | ------------------------------------------------------------------------------------------- |
+| flights  | `recommended`, `price-asc`, `price-desc`, `duration-asc`, `departure-asc`, `departure-desc` |
+| hotels   | `price-asc`, `price-desc`                                                                   |
+| trains   | `departure-asc`, `departure-desc`, `duration-asc`, `price-asc`, `price-desc`                |
+| buses    | `departure-asc`, `departure-desc`, `duration-asc`, `price-asc`, `price-desc`                |
+| metro    | `transfers-asc` (then shortest), `duration-asc`                                             |
+| cabs     | `price-asc`, `price-desc`, `capacity-desc`                                                  |
+| holidays | `price-asc`, `price-desc`, `duration-asc`, `duration-desc` (nights)                         |
 
 - **Flights `recommended`** is the only ranking: fewest stops, then lowest
   price, then shortest journey (longest direction). It uses only fields every
@@ -159,6 +173,10 @@ because a holiday search is already for one destination.
   price directions.
 - `DEFAULT_SORT` in `@wayora/contracts` is the single source of these
   defaults; the web marks the default option "(default)".
+- `departure-desc` ("Latest departure", Phase 24) is the reverse of
+  `departure-asc`; results without a departure time still go last.
+- There is no "best rated" sort: no result has a rating, and Wayora doesn't
+  invent one. Nothing in sorting is AI- or analytics-driven.
 
 ### Facets
 
@@ -173,8 +191,10 @@ choices don't vanish as filters are applied (counts are of that set):
 - `options`: values found in the results, with labels and counts:
   `stops`, `carriers`; `propertyTypes`, `amenities`, `areas`; `classes`,
   `trains`; `operators`, `busTypes`, `busAmenities`; `lines`, `transfers`;
-  `vehicleTypes`, `capacities`; `interests`, `nights`. Keys with no values are
-  omitted.
+  `vehicleTypes`, `capacities`; `interests`, `nights`; and (Phase 24)
+  `checkedBaggage` (value `included`) and `cancellation` (value
+  `free-cancellation`), present only when some result states them. Keys with
+  no values are omitted.
 
 ## API
 
@@ -577,7 +597,8 @@ results rather than invented ones.
 
 | Piece                                     | Role                                                                                           |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `SearchForm` + `config.ts`                | Category fields, validated with the request contract; swap, counters                           |
+| `SearchForm` + `config.ts`                | Category fields, validated with the request contract; swap, counters, flight trip type         |
+| `RecentSearches` + `recent.ts`            | Recent searches in this browser (Phase 24), shown before a search; Clear                       |
 | `results/SearchSummary`                   | One-line summary once a search runs, with **Edit search** (form reopens, Cancel returns focus) |
 | `results/SearchResultsLayout`             | Data (via `useSearchResults`), layout and every state                                          |
 | `results/FilterPanel`                     | Filter controls from config + facets; desktop sidebar and mobile sheet                         |
@@ -602,7 +623,15 @@ also served from the client cache.
 /flights?from=airport:BLR&to=airport:DEL&depart=2026-11-10&adults=2
         &airlines=KDA&stops=0&depart-times=morning&minPrice=5000&maxPrice=8000
         &maxDuration=180&sort=price-desc&page=2
+/hotels?to=city:goa&checkin=2026-11-10&checkout=2026-11-13&breakfast=1&free-cancel=1
+/trains?from=station:SBC&to=station:MAS&date=2026-11-10&maxPrice=1500&sort=departure-desc
 ```
+
+Phase 24 parameters: `bags=1` (flights, checked bag included), `free-cancel=1`
+(hotels), `minPrice`/`maxPrice` on trains, and `sort=departure-desc` on
+flights, trains and buses. The search-session id is never in the URL (the
+results page always searches from its parameters; offer pages carry their
+own `searchId`), so the two can't conflict.
 
 - Search fields must be valid or nothing is searched (the problems are shown).
   Filters, sort and page are refinements: invalid values are dropped, the URL
@@ -620,6 +649,70 @@ also served from the client cache.
   "Updating results…"; a new search shows the skeleton.
 - After submitting, focus moves to the Results heading; result counts and
   loading changes are announced through a polite live region.
+
+### Search fields per category
+
+| Category | Fields (URL parameter)                                                                                                           |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| flights  | From `from`, To `to`, Departure `depart`, trip type (One way / Round trip) → Return `return`, adults, children, infants, `cabin` |
+| hotels   | Destination `to`, `checkin`, `checkout`, `rooms`, adults, children                                                               |
+| trains   | From station `from`, To station `to`, Travel date `date`, adults, children                                                       |
+| buses    | From `from`, To `to`, Travel date `date`, adults, children                                                                       |
+| metro    | From station `from`, To station `to`, `passengers` (no date: there is no timetable)                                              |
+| cabs     | Pick-up `from`, Drop-off `to`, Pick-up time `at` (local time at the pick-up), `passengers`                                       |
+| holidays | Destination `to`, Start date `depart`, adults, children                                                                          |
+
+- **Trip type (flights, Phase 24)** is a form control, not a request field or
+  URL parameter: a round trip is a search with `return`. One way hides and
+  clears the return date; Round trip without a date is rejected in the form
+  ("Choose a return date, or switch to one way.") before any request. A link
+  with `return` opens as Round trip.
+- Not offered because the contracts and providers don't support them: a cab
+  trip type (one-way/round/hourly), a holiday length or end date in the
+  search (length is a results filter instead), and free-text place search.
+- Nothing is requested while typing: a search runs only on submit, and each
+  filter change is one request.
+
+### Recent searches
+
+`features/search/recent.ts`, shown by `RecentSearches` on a category page
+before a search:
+
+- Stored in this browser's `localStorage` (`wayora:recent-searches:v1`) and
+  nowhere else: not sent to the API, not tied to the account, not shared
+  between devices. Wayora has no server-side preference store for this.
+- An entry is only the form's fields (place ids, dates, party counts, cabin)
+  — the same values already in the search URL — plus when it was saved. No
+  filters, sort, prices, results, traveller names or contact details. Unknown
+  keys are dropped on write and read.
+- At most five per category, newest first, without duplicates. Entries that
+  no longer make a valid search (a date now in the past) are not shown.
+- **Clear recent searches** removes the category's entries. Corrupt,
+  missing or blocked storage (private windows, disabled site data) is
+  tolerated: the list is simply empty.
+- Popular destinations, recently viewed offers and personalised suggestions
+  are **not** implemented: there is no popularity data (search analytics
+  record no destinations, [admin.md](admin.md)) and no preference data.
+  Destination discovery stays on the curated, labelled Discover pages
+  ([discover.md](discover.md)); the travel assistant
+  ([assistant.md](assistant.md)) is linked from navigation, not duplicated.
+
+### Map view
+
+**Not implemented.** No map provider or API key exists in the repository,
+and neither results nor the place directory carry coordinates (`ResultPoint`
+has a place id, code, name and city only). Rather than a map that looks
+functional but isn't, the list stays the complete experience. The
+integration point when a provider is chosen:
+
+1. Add coordinates to the contracts (`pointSchema` and hotel `property`,
+   optional, from supplier data or a geocoder run on the server).
+2. A web `MapView` adapter behind a feature flag, fed the current page of
+   `results` (so it follows filters, sort and paging), keyed by result id
+   for marker ↔ card highlighting; results without coordinates stay in the
+   list only.
+3. Any map API key is a browser key restricted by referrer, or tiles proxied
+   through the API; supplier credentials stay on the backend.
 
 ### Offer details
 
@@ -766,6 +859,18 @@ npm run test --workspace @wayora/web         # results, filters, URL state, offe
   timeout and deadline, no backoff past the deadline, abort during backoff,
   breaker closed → open → half-open → closed/open with a fake clock, trial
   slot release, provider isolation, retries logged with the request id.
+- Phase 24 (`search-refine.test.ts` "Phase 24 filters and sorts"; web
+  `search-discovery.test.tsx`): train fare range and inverted-range
+  rejection; `departure-desc` for flights, trains and buses, independent of
+  input order; checked-bag and free-cancellation filters match only stated
+  terms, their facets, and their absence on demo data; trip type (one way
+  hides and clears the return, round trip requires it, links with `return`
+  open as round trip); recent searches (recorded with form fields only,
+  re-run from a link without old filters, clear per category, cap and
+  de-duplication, past dates hidden, corrupt/blocked/missing storage,
+  unknown keys dropped); Latest departure sort in the URL and request;
+  supplier-only toggles shown only with a facet, kept visible while applied;
+  train price filter in the URL and request.
 - Web (`search.test.tsx`, `search-filters.test.ts`, `offers.test.tsx`): every
   service page; validation, submission, summary, edit/cancel focus;
   restoration of search, filters and sort; invalid links and tidied
@@ -800,7 +905,12 @@ npm run test --workspace @wayora/web         # results, filters, URL state, offe
 - Facets and filters cover the fields the contracts have; there are no
   ratings, images or accessibility data. Fare, baggage and cancellation
   terms exist only for supplier results (Phase 22, none integrated), so the
-  demo shows them as "not provided" and there are no filters for them.
+  demo shows them as "not provided", and the Phase 24 baggage and
+  free-cancellation filters only appear when a supplier states them (never
+  on demo searches; verified with unit tests, not with a live supplier).
+- No map view (no provider, no coordinates); see [Map view](#map-view).
+- Recent searches are per browser only; no popularity, recently viewed or
+  personalised suggestions.
 - No side-by-side comparison view or result-density toggle; the cards are
   designed to be compared in the list.
 - Pagination is numbered pages (no infinite scroll); no virtualization, which

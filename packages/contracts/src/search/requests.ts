@@ -153,6 +153,7 @@ export const flightSortSchema = z.enum([
   'price-desc',
   'duration-asc',
   'departure-asc',
+  'departure-desc',
 ]);
 
 export const MAX_FLIGHT_PASSENGERS = 9;
@@ -180,6 +181,12 @@ export const flightSearchRequestSchema = z
         maxDurationMinutes: maxDurationSchema.optional(),
         minPriceMinor: maxPriceMinorSchema.optional(),
         maxPriceMinor: maxPriceMinorSchema.optional(),
+        /**
+         * Only fares whose supplier states a checked-baggage allowance above
+         * zero (`fare.checkedBaggage`, Phase 22). Results without fare
+         * conditions (all demo fixtures) never match.
+         */
+        checkedBaggageIncluded: z.boolean().optional(),
       })
       .strict()
       .default({}),
@@ -238,6 +245,12 @@ export const hotelSearchRequestSchema = z
         /** Per night for all rooms (the result's `perUnit` night price). */
         minNightlyPriceMinor: maxPriceMinorSchema.optional(),
         maxNightlyPriceMinor: maxPriceMinorSchema.optional(),
+        /**
+         * Only stays whose supplier states free cancellation
+         * (`cancellationPolicy.type`, Phase 22). Results without a policy
+         * (all demo fixtures) never match.
+         */
+        freeCancellation: z.boolean().optional(),
       })
       .strict()
       .default({}),
@@ -290,7 +303,13 @@ export const TRAIN_CLASS_NAMES: Record<TrainClass, string> = {
   CC: 'AC Chair Car',
   EC: 'Executive Chair Car',
 };
-export const trainSortSchema = z.enum(['departure-asc', 'duration-asc', 'price-asc', 'price-desc']);
+export const trainSortSchema = z.enum([
+  'departure-asc',
+  'departure-desc',
+  'duration-asc',
+  'price-asc',
+  'price-desc',
+]);
 export const busSortSchema = trainSortSchema;
 export const MAX_RAIL_PASSENGERS = 6;
 
@@ -310,6 +329,9 @@ export const trainSearchRequestSchema = z
         /** Train numbers, as in `trainNumber`. */
         trains: valueList().optional(),
         maxDurationMinutes: maxDurationSchema.optional(),
+        /** Range for the fare of all passengers (Phase 24). */
+        minPriceMinor: maxPriceMinorSchema.optional(),
+        maxPriceMinor: maxPriceMinorSchema.optional(),
       })
       .strict()
       .default({}),
@@ -319,6 +341,7 @@ export const trainSearchRequestSchema = z
   .strict()
   .superRefine((v, ctx) => {
     checkRoute(ctx, ['origin', 'destination'], v.origin, v.destination, ['rail-station']);
+    priceRange(v.filters, ctx);
     if (v.adults + v.children > MAX_RAIL_PASSENGERS) {
       ctx.addIssue({
         code: 'custom',

@@ -2,7 +2,15 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, configure } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  // Recent searches live in localStorage; each test starts without any.
+  try {
+    window.localStorage.clear();
+  } catch {
+    // Storage unavailable in this environment.
+  }
+});
 
 // Routes load lazily (React Router `lazy`); under a parallel test run the first
 // import of a chunk can take longer than the 1 s default for findBy*/waitFor.

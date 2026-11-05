@@ -30,6 +30,12 @@ export type FieldConfig =
       label: string;
       required: boolean;
       hint?: string;
+      /**
+       * An optional date that a "One way / Round trip" choice shows or hides
+       * (the flight return date). The choice itself isn't a request field or
+       * URL parameter: a round trip is a search with a return date.
+       */
+      tripType?: { legend: string; without: string; with: string; missing: string };
     }
   /** Local date and time; converted to an offset date-time in the time zone of `zoneFrom`'s place. */
   | {
@@ -116,8 +122,12 @@ export type FilterConfig =
       requestKeys: readonly [string, string];
       label: string;
     }
-  /** A yes/no feature (breakfast included). */
-  | { kind: 'toggle'; param: string; requestKey: string; label: string };
+  /**
+   * A yes/no feature (breakfast included). With `facet`, shown only when
+   * some result in the search has the feature (fields only some suppliers
+   * return, such as baggage or cancellation terms).
+   */
+  | { kind: 'toggle'; param: string; requestKey: string; label: string; facet?: FacetKey };
 
 export interface CategorySearchConfig {
   serviceType: SearchServiceType;
@@ -222,6 +232,7 @@ const SORT_LABELS: Record<string, string> = {
   'duration-asc': 'Shortest first',
   'duration-desc': 'Longest first',
   'departure-asc': 'Earliest departure',
+  'departure-desc': 'Latest departure',
   'transfers-asc': 'Fewest changes',
   'capacity-desc': 'Most seats',
 };
@@ -243,7 +254,19 @@ export const SEARCH_CONFIG: Record<SearchServiceType, CategorySearchConfig> = {
       place('from', 'origin', 'From', ['airport']),
       place('to', 'destination', 'To', ['airport']),
       date('depart', 'departureDate', 'Departure'),
-      date('return', 'returnDate', 'Return', false, 'Optional. Leave empty for one way.'),
+      {
+        kind: 'date',
+        param: 'return',
+        requestKey: 'returnDate',
+        label: 'Return',
+        required: false,
+        tripType: {
+          legend: 'Trip type',
+          without: 'One way',
+          with: 'Round trip',
+          missing: 'Choose a return date, or switch to one way.',
+        },
+      },
       count('adults', 'Adults', 1, 9, 1, '12 years and over'),
       count('children', 'Children', 0, 8, 0, '2 to 11 years'),
       count('infants', 'Infants', 0, 9, 0, 'Under 2, on a lap'),
@@ -281,6 +304,13 @@ export const SEARCH_CONFIG: Record<SearchServiceType, CategorySearchConfig> = {
         facet: 'carriers',
       },
       maxDuration('Journey time (each way)'),
+      {
+        kind: 'toggle',
+        param: 'bags',
+        requestKey: 'checkedBaggageIncluded',
+        label: 'Checked bag included',
+        facet: 'checkedBaggage',
+      },
     ],
     sorts: sorts('flights', [
       'recommended',
@@ -288,6 +318,7 @@ export const SEARCH_CONFIG: Record<SearchServiceType, CategorySearchConfig> = {
       'price-desc',
       'duration-asc',
       'departure-asc',
+      'departure-desc',
     ]),
     submitLabel: 'Search flights',
     coverage: 'Demo flights cover Bengaluru, Delhi, Mumbai, Hyderabad and Goa.',
@@ -333,6 +364,13 @@ export const SEARCH_CONFIG: Record<SearchServiceType, CategorySearchConfig> = {
         requestKey: 'breakfastIncluded',
         label: 'Breakfast included',
       },
+      {
+        kind: 'toggle',
+        param: 'free-cancel',
+        requestKey: 'freeCancellation',
+        label: 'Free cancellation',
+        facet: 'cancellation',
+      },
     ],
     sorts: sorts('hotels', ['price-asc', 'price-desc']),
     submitLabel: 'Search hotels',
@@ -357,12 +395,19 @@ export const SEARCH_CONFIG: Record<SearchServiceType, CategorySearchConfig> = {
         label: 'Class',
         facet: 'classes',
       },
+      price('Fare (all passengers)'),
       departure,
       arrival,
       { kind: 'options', param: 'trains', requestKey: 'trains', label: 'Train', facet: 'trains' },
       maxDuration(),
     ],
-    sorts: sorts('trains', ['departure-asc', 'duration-asc', 'price-asc', 'price-desc']),
+    sorts: sorts('trains', [
+      'departure-asc',
+      'departure-desc',
+      'duration-asc',
+      'price-asc',
+      'price-desc',
+    ]),
     submitLabel: 'Search trains',
     coverage:
       'Demo trains run between Bengaluru, Chennai, Delhi, Mumbai, Hyderabad (Secunderabad), Pune and Jaipur.',
@@ -406,7 +451,13 @@ export const SEARCH_CONFIG: Record<SearchServiceType, CategorySearchConfig> = {
       },
       maxDuration(),
     ],
-    sorts: sorts('buses', ['departure-asc', 'duration-asc', 'price-asc', 'price-desc']),
+    sorts: sorts('buses', [
+      'departure-asc',
+      'departure-desc',
+      'duration-asc',
+      'price-asc',
+      'price-desc',
+    ]),
     submitLabel: 'Search buses',
     coverage: 'Demo buses run between Bengaluru, Hyderabad, Chennai and Pune.',
     noun: ['bus', 'buses'],

@@ -317,6 +317,10 @@ export const facetKeySchema = z.enum([
   'capacities',
   'interests',
   'nights',
+  /** Flights whose fare states included checked baggage (value `included`). */
+  'checkedBaggage',
+  /** Stays whose supplier states free cancellation (value `free-cancellation`). */
+  'cancellation',
 ]);
 export type FacetKey = z.infer<typeof facetKeySchema>;
 
