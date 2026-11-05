@@ -311,8 +311,13 @@ export type BookingPaymentState = z.infer<typeof bookingPaymentStateSchema>;
 export const bookingPaymentSchema = z.object({
   mode: bookingPaymentModeSchema,
   state: bookingPaymentStateSchema,
-  /** What is due, from the booking's own record (null when nothing is paid on Wayora). */
+  /**
+   * What is due, from the booking's own record (null when nothing is paid on
+   * Wayora): the total less any rewards applied at checkout (Phase 25).
+   */
   amount: moneySchema.nullable(),
+  /** Points and travel credit set against the total (Phase 25), or null. */
+  rewards: z.object({ points: z.number().int(), amount: moneySchema }).nullable().optional(),
   /** Pay before this or the booking expires (null when nothing is due). */
   dueAt: offsetDateTimeSchema.nullable(),
   /** Whether a new payment attempt can be started now. */

@@ -109,6 +109,7 @@ Docker Compose out of the box. `.env` files are git-ignored.
 | `SEARCH_BREAKER_FAILURE_THRESHOLD`                         | no               | `5`                           | Consecutive failures that open a provider's circuit breaker                                                                                  |
 | `SEARCH_BREAKER_COOLDOWN_SECONDS`                          | no               | `30`                          | Open time before one trial call                                                                                                              |
 | `SUPPLIER_RESERVATIONS_ENABLED`                            | no               | `false`                       | Book supplier offers through adapters that implement reservations (none real yet; [bookings.md](bookings.md#supplier-reservations-phase-23)) |
+| `LOYALTY_LIVE_REWARDS_ENABLED`                             | no               | `false`                       | Live loyalty rewards from real payments (off; all rewards are demo rewards, [rewards.md](rewards.md#demo-and-live))                          |
 | `SUPPLIER_RESERVATION_TIMEOUT_MS`                          | no               | `12000`                       | Time limit per reservation, lookup or cancellation call; ran out = outcome unknown                                                           |
 
 **Redis and search.** Search sessions live in Redis whenever `REDIS_URL` is

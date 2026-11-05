@@ -63,9 +63,11 @@ const planner = () => import('../features/planner/routes');
 const assistant = () => import('../features/assistant/routes');
 /** Notifications page (Phase 14). */
 const notifications = () => import('../features/notifications/routes');
+const rewards = () => import('../features/rewards/routes');
 /** Admin dashboard (Phase 15): its layout and pages are one chunk, never loaded by customers. */
 const admin = () => import('../features/admin/routes');
 const adminLayout = () => import('../features/admin/AdminLayout');
+const adminRewards = () => import('../features/admin/RewardsAdmin');
 
 /** /sign-in (the pre-Phase 8 link) → /login, keeping any query string. */
 function LegacySignInRedirect() {
@@ -208,6 +210,10 @@ export function createRoutes({
                       lazy: async () => ({ Component: (await notifications()).NotificationsRoute }),
                     },
                     {
+                      path: ACCOUNT_PATHS.rewards.slice(1),
+                      lazy: async () => ({ Component: (await rewards()).RewardsRoute }),
+                    },
+                    {
                       path: ACCOUNT_PATHS.plans.slice(1),
                       lazy: async () => ({ Component: (await planner()).PlansRoute }),
                     },
@@ -330,6 +336,18 @@ export function createRoutes({
                 {
                   path: 'notifications',
                   lazy: async () => ({ Component: (await admin()).NotificationHealthRoute }),
+                },
+                {
+                  path: 'rewards',
+                  lazy: async () => ({ Component: (await adminRewards()).RewardsRoute }),
+                },
+                {
+                  path: 'rewards/rules',
+                  lazy: async () => ({ Component: (await adminRewards()).RewardRulesRoute }),
+                },
+                {
+                  path: 'rewards/users/:userId',
+                  lazy: async () => ({ Component: (await adminRewards()).UserRewardsRoute }),
                 },
                 { path: 'audit', lazy: async () => ({ Component: (await admin()).AuditLogRoute }) },
                 { path: 'health', lazy: async () => ({ Component: (await admin()).HealthRoute }) },

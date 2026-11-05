@@ -250,6 +250,7 @@ export function UsersRoute() {
 
 export function UserDetailRoute() {
   const { userId = '' } = useParams();
+  const canReadRewards = useCan('admin.rewards.read');
   const query = useQuery({
     queryKey: adminKeys.view('user', userId),
     queryFn: ({ signal }) => adminApi.user(userId, signal),
@@ -289,6 +290,13 @@ export function UserDetailRoute() {
                   Viewing this page is recorded in the audit log.
                 </Note>
               </div>
+              {canReadRewards ? (
+                <p className="mt-4">
+                  <Link to={ADMIN_PATHS.rewardsUser(u.id)} className={link}>
+                    Points and travel credit
+                  </Link>
+                </p>
+              ) : null}
             </Section>
             <div className="grid gap-4 lg:grid-cols-2">
               <Section title="Bookings by status">

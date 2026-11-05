@@ -39,6 +39,8 @@ describe('admin access (presentation follows the server)', JOURNEY, () => {
       'Users',
       'Bookings',
       'Payments',
+      // Read-only loyalty views (Phase 25); changes need an administrator.
+      'Rewards',
       'Search activity',
       'Notifications',
       'Platform health',

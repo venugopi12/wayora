@@ -57,6 +57,8 @@ The mapping lives in one place, `packages/contracts/src/admin.ts`
 | `admin.health.read`         | –    | ✓       | ✓     |
 | `admin.audit.read`          | –    | –       | ✓     |
 | `admin.reservations.manage` | –    | –       | ✓     |
+| `admin.rewards.read`        | –    | ✓       | ✓     |
+| `admin.rewards.manage`      | –    | –       | ✓     |
 
 Enforcement (`apps/api/src/modules/admin/access.ts`):
 

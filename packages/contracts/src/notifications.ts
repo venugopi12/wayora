@@ -36,6 +36,8 @@ export const NOTIFICATION_TYPES = [
   'plan_member_changed',
   /** A plan's dates or destination changed. */
   'plan_updated',
+  /** Loyalty points or travel credit changed, or points are about to expire (Phase 25, docs/rewards.md#notifications). */
+  'rewards',
 ] as const;
 export const notificationTypeSchema = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof notificationTypeSchema>;
@@ -47,6 +49,7 @@ export const notificationCategorySchema = z.enum([
   'reminder',
   'trip',
   'plan',
+  'rewards',
 ]);
 export type NotificationCategory = z.infer<typeof notificationCategorySchema>;
 
@@ -54,6 +57,7 @@ export function notificationCategory(type: NotificationType): NotificationCatego
   if (type === 'travel_reminder') return 'reminder';
   if (type === 'trip_disruption') return 'trip';
   if (type.startsWith('plan_')) return 'plan';
+  if (type === 'rewards') return 'rewards';
   return type.startsWith('payment_') ? 'payment' : 'booking';
 }
 

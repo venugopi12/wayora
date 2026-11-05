@@ -89,6 +89,13 @@ const isUniqueViolation = (error: unknown) =>
 const STALE_PROCESSING_MS = 60_000;
 
 export class PaymentEventProcessor {
+  /**
+   * Called after an event's transaction committed a change, with the
+   * booking it concerns (Phase 25: rewards settle then, outside the payment's
+   * transaction, so a rewards failure can't undo a payment or booking change).
+   */
+  afterApplied: ((bookingId: string) => Promise<void>) | null = null;
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly logger: Logger,
@@ -128,6 +135,9 @@ export class PaymentEventProcessor {
       });
       if (outcome.kind !== 'applied')
         log.warn({ reason: outcome.reason }, 'Payment event not applied');
+      if (outcome.kind === 'applied' && outcome.bookingId && this.afterApplied) {
+        await this.afterApplied(outcome.bookingId);
+      }
       return outcome.kind;
     } catch (error) {
       const safe = errorForLog(error);
@@ -195,7 +205,11 @@ export class PaymentEventProcessor {
   private async apply(
     provider: PaymentProvider,
     event: ProviderPaymentEvent,
-  ): Promise<{ kind: 'applied' | 'ignored' | 'unknown-payment'; reason?: string }> {
+  ): Promise<{
+    kind: 'applied' | 'ignored' | 'unknown-payment';
+    reason?: string;
+    bookingId?: string;
+  }> {
     const target = TARGET[event.type];
     return this.prisma.$transaction(async (tx) => {
       const payment = await tx.payment.findUnique({
@@ -221,7 +235,9 @@ export class PaymentEventProcessor {
         where: { id: payment.id },
         select: { status: true },
       });
-      if (current.status === target) return { kind: 'applied' as const }; // already there
+      if (current.status === target) {
+        return { kind: 'applied' as const, bookingId: payment.bookingId }; // already there
+      }
       if (!PAYMENT_TRANSITIONS[current.status].includes(target)) {
         return {
           kind: 'ignored' as const,
@@ -289,7 +305,7 @@ export class PaymentEventProcessor {
           closedBookingStatus: closedBooking,
         });
       }
-      return { kind: 'applied' as const };
+      return { kind: 'applied' as const, bookingId: payment.bookingId };
     });
   }
 

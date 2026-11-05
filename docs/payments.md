@@ -15,6 +15,13 @@ notification in the same transaction (Phase 14, [notifications.md](notifications
 
 ## Booking and payment
 
+> **Rewards (Phase 25).** Points and travel credit applied at checkout reduce
+> what is due: a payment must be for the booking's total **minus** applied
+> rewards, and is recorded for that amount (`booking.payment.amount` shows it,
+> `booking.payment.rewards` what was applied). Rewards are settled after a
+> payment or booking change commits, never inside it. See
+> [rewards.md](rewards.md#booking-and-payment).
+
 ### Booking payment mode
 
 Every booking records how it is paid, fixed when it is made (`bookings.payment_mode`):

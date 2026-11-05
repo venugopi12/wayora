@@ -19,6 +19,8 @@ import { notificationsRouter } from '../modules/notifications/notifications.rout
 import type { NotificationsService } from '../modules/notifications/notifications.service.js';
 import { plannerRouter, type PlannerRouterOptions } from '../modules/planner/planner.routes.js';
 import { providersRouter } from '../modules/providers/providers.routes.js';
+import { bookingRewardsRouter, rewardsRouter } from '../modules/rewards/rewards.routes.js';
+import type { RewardsService } from '../modules/rewards/rewards.service.js';
 import type { ProviderRegistry } from '../modules/providers/registry.js';
 import { searchRouter, type BookingAvailability } from '../modules/search/search.routes.js';
 import type { SearchService } from '../modules/search/search.service.js';
@@ -51,6 +53,10 @@ export interface AccountsRouterOptions {
   planner: PlannerRouterOptions;
   /** Travel assistant (Phase 21), docs/assistant.md. */
   assistant: AssistantRouterOptions;
+  /** Loyalty points and travel credits (Phase 25), docs/rewards.md. */
+  rewards: RewardsService;
+  /** Per-user limit on rewards writes (apply, remove). */
+  rewardsLimiter?: RequestHandler;
   logger: Logger;
 }
 
@@ -99,6 +105,8 @@ export function v1Router(options: V1RouterOptions): Router {
       trips,
       planner,
       assistant,
+      rewards,
+      rewardsLimiter,
       logger,
     } = options.accounts;
     router.use('/auth', loadSession, authRouter(auth));
@@ -107,6 +115,11 @@ export function v1Router(options: V1RouterOptions): Router {
       '/bookings/:reference/payments',
       loadSession,
       bookingPaymentsRouter(payments, paymentLimiter),
+    );
+    router.use(
+      '/bookings/:reference/rewards',
+      loadSession,
+      bookingRewardsRouter(rewards, rewardsLimiter),
     );
     // One session lookup for both (trip tracking routes are /bookings/:reference/…).
     router.use(
@@ -123,6 +136,7 @@ export function v1Router(options: V1RouterOptions): Router {
     );
     router.use('/planner', loadSession, plannerRouter(planner));
     router.use('/assistant', loadSession, assistantRouter(assistant));
+    router.use('/rewards', loadSession, rewardsRouter(rewards));
     router.use('/admin', loadSession, adminRouter(admin));
     // Signed provider webhooks: no session; only providers that verify signatures.
     router.use('/payment-events', paymentEventsRouter(payments, logger));

@@ -168,6 +168,8 @@ describe.skipIf(!TEST_DATABASE_URL)('payments (integration, real PostgreSQL)', (
         mode: 'demo',
         state: 'unpaid',
         amount: (hotel.price as { total: { amountMinor: string; currency: string } }).total,
+        // No rewards applied (Phase 25).
+        rewards: null,
         dueAt: new Date(clock.now().getTime() + 30 * MINUTE).toISOString(),
         canPay: true,
         activePaymentId: null,

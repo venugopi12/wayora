@@ -209,6 +209,16 @@ export const envSchema = z.object({
   ),
   /** Time limit for one reservation, lookup or cancellation call (the web client waits 15 s). */
   SUPPLIER_RESERVATION_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(14_000).default(12_000),
+  // Loyalty (Phase 25, docs/rewards.md#demo-and-live).
+  /**
+   * Live rewards: points from real (LIVE-mode) payments and live credits that
+   * pay for real bookings. Off by default; no live payment provider exists, so
+   * every reward today is a demo reward (no cash value).
+   */
+  LOYALTY_LIVE_REWARDS_ENABLED: z.preprocess(
+    emptyToUndefined,
+    z.enum(['true', 'false']).default('false'),
+  ),
 });
 
 /** Which search-session store this configuration selects. */

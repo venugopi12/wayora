@@ -2,6 +2,7 @@ import {
   Activity,
   BellRing,
   CreditCard,
+  Gift,
   LayoutDashboard,
   Luggage,
   ScrollText,
@@ -49,6 +50,13 @@ export const ADMIN_NAV: readonly AdminNavItem[] = [
     label: 'Payments',
     icon: CreditCard,
     permission: 'admin.payments.read',
+    end: false,
+  },
+  {
+    to: ADMIN_PATHS.rewards,
+    label: 'Rewards',
+    icon: Gift,
+    permission: 'admin.rewards.read',
     end: false,
   },
   {

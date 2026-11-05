@@ -5,6 +5,7 @@ import { createPrismaClient } from '@wayora/database';
 import {
   createApp,
   createPaymentsService,
+  createRewardsService,
   createProviderRegistry,
   createReservationService,
   createSessionService,
@@ -191,6 +192,27 @@ async function main(): Promise<void> {
   };
   const paymentTimer = setInterval(() => void paymentMaintenance(), 30 * 1000);
   paymentTimer.unref();
+
+  // Loyalty (Phase 25, docs/rewards.md#maintenance): rewards of changed
+  // bookings are settled (earning after travel, giving back, reversals),
+  // points and credit expire, expiry notices go out, and tier holds are
+  // reviewed. Idempotent and row-locked, so every instance may run it.
+  const rewards = createRewardsService(prisma, env, logger, { payments });
+  let rewardsRunning = false;
+  const rewardsMaintenance = async () => {
+    if (rewardsRunning) return;
+    rewardsRunning = true;
+    try {
+      const done = await rewards.sweep();
+      if (done.bookings > 0 || done.accounts > 0) logger.info(done, 'Settled rewards');
+    } catch (err) {
+      logger.warn({ err: unexpectedErrorForLog(err) }, 'Rewards maintenance failed; will retry');
+    } finally {
+      rewardsRunning = false;
+    }
+  };
+  const rewardsTimer = setInterval(() => void rewardsMaintenance(), 60 * 1000);
+  rewardsTimer.unref();
 
   // Supplier reservations (Phase 23, docs/bookings.md#recovery): open
   // reservations whose next check is due are looked up with the supplier (or

@@ -58,6 +58,7 @@ import {
   type RequestWithRawBody,
 } from './modules/payments/payments.routes.js';
 import { DemoPaymentProvider } from './modules/payments/providers/demo.js';
+import { RewardsService } from './modules/rewards/rewards.service.js';
 import type { PaymentProvider } from './modules/payments/providers/types.js';
 import { v1Router, type AccountsRouterOptions } from './routes/v1.js';
 import type { StreamTimings } from './services/signal-stream.js';
@@ -263,6 +264,25 @@ const HOUR_MS = 60 * 60 * 1000;
 const SESSION_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Builds the account services from env (exported for the server's cleanup job). */
+/** Loyalty points and travel credits (Phase 25, docs/rewards.md). */
+export function createRewardsService(
+  prisma: PrismaClient,
+  env: Env,
+  logger: Logger,
+  options: { now?: () => Date; payments?: PaymentsService } = {},
+): RewardsService {
+  const payments = options.payments;
+  return new RewardsService({
+    prisma,
+    logger: logger.child({ component: 'rewards' }),
+    liveEnabled: env.LOYALTY_LIVE_REWARDS_ENABLED === 'true',
+    ...(options.now ? { now: options.now } : {}),
+    ...(payments
+      ? { expireOverdue: (filter: { userId: string }) => payments.expireOverdueBookings(filter) }
+      : {}),
+  });
+}
+
 export function createSessionService(prisma: PrismaClient, env: Env, now?: () => Date) {
   return new SessionService(
     prisma,
@@ -358,6 +378,8 @@ export function createApp({
         | 'trips'
         | 'planner'
         | 'assistant'
+        | 'rewards'
+        | 'rewardsLimiter'
       >
     | undefined;
   let sessionValid: (token: string | undefined) => Promise<boolean> = () => Promise.resolve(false);
@@ -434,13 +456,20 @@ export function createApp({
   const plannerInviteStore = createRateLimitStore?.('planner-invites');
   const assistantStore = createRateLimitStore?.('assistant');
   const assistantWriteStore = createRateLimitStore?.('assistant-writes');
+  const rewardsStore = createRateLimitStore?.('rewards');
   const payments = prisma
     ? createPaymentsService(prisma, env, logger, {
         ...(now ? { now } : {}),
         ...(paymentProviders ? { providers: paymentProviders } : {}),
       })
     : undefined;
+  const rewardsService =
+    prisma && payments
+      ? createRewardsService(prisma, env, logger, { ...(now ? { now } : {}), payments })
+      : undefined;
   // Bookings need the database and the search sessions their offers come from.
+  // Rewards are settled after booking and payment changes commit (never inside them).
+  payments?.onSettled((bookingId) => rewardsService?.reconcileBooking(bookingId));
   const trips = prisma
     ? createTripsService(prisma, env, logger, {
         ...(now ? { now } : {}),
@@ -508,7 +537,8 @@ export function createApp({
     trips &&
     plannerService &&
     budgetService &&
-    assistantService
+    assistantService &&
+    rewardsService
       ? {
           ...accounts,
           bookings: bookingsService,
@@ -525,6 +555,7 @@ export function createApp({
               ...(now ? { now } : {}),
             }),
             reservations: reservationService ?? null,
+            rewards: rewardsService,
             health: new PlatformHealth({
               prisma,
               ...(redis ? { redis } : {}),
@@ -602,6 +633,13 @@ export function createApp({
               ...(assistantWriteStore ? { store: assistantWriteStore } : {}),
             }),
           },
+          rewards: rewardsService,
+          rewardsLimiter: bookingWriteRateLimiter({
+            max: env.PAYMENT_RATE_LIMIT_MAX,
+            subject: 'reward changes',
+            userIdOf: (res) => currentUser(res).id,
+            ...(rewardsStore ? { store: rewardsStore } : {}),
+          }),
           logger,
           notificationLimiter: bookingWriteRateLimiter({
             max: env.NOTIFICATION_RATE_LIMIT_MAX,

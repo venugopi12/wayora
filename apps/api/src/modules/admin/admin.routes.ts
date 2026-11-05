@@ -22,14 +22,18 @@ import { adminOf, auditView, requirePermission } from './access.js';
 import type { AdminService } from './admin.service.js';
 import type { PlatformHealth } from './platform-health.js';
 import type { ReservationService } from '../bookings/reservations.service.js';
+import { adminRewardsRouter } from '../rewards/rewards.routes.js';
+import type { RewardsService } from '../rewards/rewards.service.js';
 
 export interface AdminRouterOptions {
   prisma: PrismaClient;
   service: AdminService;
   health: PlatformHealth;
   logger: Logger;
-  /** Supplier reservations (Phase 23): the only admin writes. */
+  /** Supplier reservations (Phase 23). */
   reservations?: ReservationService | null;
+  /** Loyalty (Phase 25): read views and the audited rewards writes. */
+  rewards?: RewardsService | null;
 }
 
 const noQuery = z.object({}).strict();
@@ -64,6 +68,7 @@ export function adminRouter({
   health,
   logger,
   reservations,
+  rewards,
 }: AdminRouterOptions): Router {
   const router = Router();
   router.use(noStore);
@@ -179,6 +184,9 @@ export function adminRouter({
     validateRequest(req, { query: noQuery });
     sendData(res, await health.report());
   });
+
+  // Loyalty (Phase 25, docs/rewards.md#admin): its own permissions per route.
+  if (rewards) router.use('/rewards', adminRewardsRouter({ prisma, logger, rewards }));
 
   return router;
 }

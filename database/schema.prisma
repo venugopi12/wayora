@@ -142,6 +142,8 @@ enum NotificationType {
   PLAN_INVITATION_DECLINED
   PLAN_MEMBER_CHANGED
   PLAN_UPDATED
+  /// Loyalty points and travel credits (Phase 25, docs/rewards.md#notifications). In-app only.
+  REWARDS
 
   @@map("notification_type")
 }
@@ -330,6 +332,12 @@ model User {
   refunds                Refund[]
   assistantActions       AssistantAction[]
 
+  /// Loyalty (Phase 25, docs/rewards.md).
+  loyaltyAccounts    LoyaltyAccount[]
+  rewardTransactions RewardTransaction[]
+  travelCredits      TravelCredit[]
+  rewardRedemptions  RewardRedemption[]
+
   @@index([status])
   @@index([role])
   @@index([createdAt])
@@ -466,6 +474,10 @@ model Booking {
   reservation   SupplierReservation?
   documents     TravelDocument[]
   refunds       Refund[]
+  /// Loyalty (Phase 25): rewards earned on it, credits linked to it, rewards spent on it.
+  rewardTransactions RewardTransaction[]
+  travelCredits      TravelCredit[]
+  rewardRedemptions  RewardRedemption[]
 
   @@unique([provider, providerReference])
   @@index([orderId])
@@ -1518,4 +1530,251 @@ model Refund {
   @@index([paymentId])
   @@index([status, nextAttemptAt])
   @@map("refunds")
+}
+
+// ─── Loyalty, rewards and travel credits (Phase 25, docs/rewards.md) ──────
+
+/// Every change to a points balance or a travel credit (docs/rewards.md#ledger).
+enum RewardTransactionType {
+  POINTS_EARNED
+  POINTS_REDEEMED
+  /// Points spent on a booking given back (removed before paying, or the booking closed).
+  POINTS_RESTORED
+  /// Points earned on a booking taken back (it no longer qualifies).
+  POINTS_REVERSED
+  POINTS_EXPIRED
+  /// A manual adjustment by an admin (positive or negative), with a reason.
+  POINTS_ADJUSTED
+  CREDIT_ISSUED
+  CREDIT_REDEEMED
+  /// Credit spent on a booking given back.
+  CREDIT_RESTORED
+  CREDIT_EXPIRED
+  /// Withdrawn by an admin, with a reason.
+  CREDIT_REVOKED
+
+  @@map("reward_transaction_type")
+}
+
+/// Automated (rules, bookings, expiry) or manual (an admin, with a reason).
+enum RewardOrigin {
+  AUTOMATED
+  MANUAL
+
+  @@map("reward_origin")
+}
+
+enum TravelCreditStatus {
+  ACTIVE
+  /// Fully spent (it can become ACTIVE again if a spend is given back).
+  USED
+  EXPIRED
+  REVOKED
+
+  @@map("travel_credit_status")
+}
+
+/// Why a credit exists. There is no "refund" reason: refunds are money and
+/// never become credit (docs/rewards.md#travel-credits).
+enum TravelCreditReason {
+  PROMOTION
+  SUPPORT_COMPENSATION
+  BOOKING_ADJUSTMENT
+
+  @@map("travel_credit_reason")
+}
+
+enum RewardRedemptionStatus {
+  /// Points and credit set aside for an unpaid booking; the payment is the rest.
+  APPLIED
+  /// The booking was paid and confirmed with it.
+  CONSUMED
+  /// Given back before payment (removed, or the booking expired or failed unpaid).
+  RELEASED
+  /// Given back after the paid booking was cancelled.
+  RESTORED
+
+  @@map("reward_redemption_status")
+}
+
+/// One points balance per user and mode. DEMO points come only from demo
+/// bookings and can be spent only on demo bookings; LIVE is reserved for real
+/// payments (docs/rewards.md#demo-and-live). The balance is a cache of the
+/// ledger, changed only together with a ledger row, under this row's lock.
+model LoyaltyAccount {
+  id              String      @id @default(uuid(7)) @db.Uuid
+  userId          String      @map("user_id") @db.Uuid
+  mode            PaymentMode
+  /// Spendable points (sum of this account's ledger points). Never negative.
+  pointsBalance   BigInt      @default(0) @map("points_balance")
+  /// Tier id from the rules (docs/rewards.md#tiers).
+  tier            String      @default("explorer") @db.VarChar(32)
+  /// When the current tier was last reached or re-qualified (it is kept for a qualification period from then).
+  tierQualifiedAt DateTime?   @map("tier_qualified_at") @db.Timestamptz(3)
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  transactions RewardTransaction[]
+  lots         LoyaltyPointLot[]
+
+  @@unique([userId, mode])
+  @@map("loyalty_accounts")
+}
+
+/// Versioned rules (earning, redemption, tiers, expiry). The version used is
+/// stored with each transaction and redemption, so old results stay explainable.
+model LoyaltyRuleVersion {
+  version       Int      @id
+  /// Validated with loyaltyRulesSchema (@wayora/contracts).
+  config        Json
+  reason        String   @db.VarChar(500)
+  /// The admin who created it; null for the version shipped with the migration.
+  createdById   String?  @map("created_by_id") @db.Uuid
+  effectiveFrom DateTime @map("effective_from") @db.Timestamptz(3)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  transactions RewardTransaction[]
+  redemptions  RewardRedemption[]
+
+  @@index([effectiveFrom])
+  @@map("loyalty_rule_versions")
+}
+
+/// The ledger: append-only (a trigger forbids UPDATE and DELETE).
+model RewardTransaction {
+  id               String                @id @default(uuid(7)) @db.Uuid
+  /// Null for credit-only rows of a user without a points account.
+  accountId        String?               @map("account_id") @db.Uuid
+  userId           String                @map("user_id") @db.Uuid
+  mode             PaymentMode
+  type             RewardTransactionType
+  origin           RewardOrigin
+  /// Signed points change (0 for credit rows).
+  points           BigInt                @default(0)
+  /// Points counted towards tiers (earned base points; negative when reversed).
+  qualifyingPoints BigInt                @default(0) @map("qualifying_points")
+  /// Points balance after this row (points rows only).
+  balanceAfter     BigInt?               @map("balance_after")
+  /// Signed credit change in minor units (0 for points rows).
+  amountMinor      BigInt                @default(0) @map("amount_minor")
+  currency         String?               @db.Char(3)
+  creditId         String?               @map("credit_id") @db.Uuid
+  bookingId        String?               @map("booking_id") @db.Uuid
+  redemptionId     String?               @map("redemption_id") @db.Uuid
+  ruleVersion      Int?                  @map("rule_version")
+  /// Shown to the user.
+  description      String                @db.VarChar(255)
+  /// Required for manual rows: why the admin made it.
+  reason           String?               @db.VarChar(500)
+  actorType        AuditActorType        @map("actor_type")
+  actorId          String?               @map("actor_id") @db.Uuid
+  /// Makes each automated step happen at most once (e.g. earn:<bookingId>).
+  idempotencyKey   String                @unique @map("idempotency_key") @db.VarChar(160)
+  /// The calculation (amounts, multipliers) for earned points; never personal data.
+  metadata         Json?
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account     LoyaltyAccount?     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  user        User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  credit      TravelCredit?       @relation(fields: [creditId], references: [id], onDelete: Restrict)
+  booking     Booking?            @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  redemption  RewardRedemption?   @relation(fields: [redemptionId], references: [id], onDelete: Restrict)
+  rule        LoyaltyRuleVersion? @relation(fields: [ruleVersion], references: [version], onDelete: Restrict)
+  lot         LoyaltyPointLot?
+
+  @@index([userId, mode, createdAt(sort: Desc)])
+  @@index([bookingId])
+  @@index([creditId])
+  @@index([type, createdAt])
+  @@index([origin, createdAt])
+  @@index([createdAt(sort: Desc)])
+  @@map("reward_transactions")
+}
+
+/// Points added by one ledger row (earned or a positive adjustment), with
+/// what is left and when it expires. Spending takes from the soonest-expiring
+/// lots first (docs/rewards.md#expiry).
+model LoyaltyPointLot {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  accountId     String   @map("account_id") @db.Uuid
+  transactionId String   @unique @map("transaction_id") @db.Uuid
+  points        BigInt
+  remaining     BigInt
+  expiresAt     DateTime @map("expires_at") @db.Timestamptz(3)
+  /// Set when an "expiring soon" notification was created for it.
+  expiryNoticeAt DateTime? @map("expiry_notice_at") @db.Timestamptz(3)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account     LoyaltyAccount    @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  transaction RewardTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, expiresAt])
+  @@map("loyalty_point_lots")
+}
+
+/// A travel credit: Wayora-issued value for future bookings, separate from
+/// points and never a cash refund (docs/rewards.md#travel-credits).
+model TravelCredit {
+  id                   String             @id @default(uuid(7)) @db.Uuid
+  /// Customer-visible, e.g. WYC-7KQ2-M9XD.
+  reference            String             @unique @db.VarChar(32)
+  userId               String             @map("user_id") @db.Uuid
+  mode                 PaymentMode
+  currency             String             @db.Char(3)
+  originalAmountMinor  BigInt             @map("original_amount_minor")
+  remainingAmountMinor BigInt             @map("remaining_amount_minor")
+  reason               TravelCreditReason
+  /// Shown to the user (e.g. the campaign or the support case summary).
+  note                 String             @db.VarChar(255)
+  status               TravelCreditStatus @default(ACTIVE)
+  issuedAt             DateTime           @map("issued_at") @db.Timestamptz(3)
+  expiresAt            DateTime?          @map("expires_at") @db.Timestamptz(3)
+  bookingId            String?            @map("booking_id") @db.Uuid
+  campaign             String?            @db.VarChar(80)
+  /// The admin who issued it.
+  issuedById           String?            @map("issued_by_id") @db.Uuid
+  /// Prevents issuing the same credit twice.
+  idempotencyKey       String             @unique @map("idempotency_key") @db.VarChar(160)
+  expiryNoticeAt       DateTime?          @map("expiry_notice_at") @db.Timestamptz(3)
+  updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  booking      Booking?            @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  transactions RewardTransaction[]
+
+  @@index([userId, mode, status, expiresAt])
+  @@index([status, expiresAt])
+  @@map("travel_credits")
+}
+
+/// Points and credit set against one booking at checkout (docs/rewards.md#checkout).
+/// At most one APPLIED or CONSUMED per booking (partial unique index).
+model RewardRedemption {
+  id                String                 @id @default(uuid(7)) @db.Uuid
+  bookingId         String                 @map("booking_id") @db.Uuid
+  userId            String                 @map("user_id") @db.Uuid
+  mode              PaymentMode
+  status            RewardRedemptionStatus @default(APPLIED)
+  currency          String                 @db.Char(3)
+  points            BigInt
+  pointsAmountMinor BigInt                 @map("points_amount_minor")
+  creditAmountMinor BigInt                 @map("credit_amount_minor")
+  /// pointsAmountMinor + creditAmountMinor (a CHECK enforces it).
+  totalAmountMinor  BigInt                 @map("total_amount_minor")
+  /// Which lots and credits it took from, to give back exactly: { lots: [{id, points}], credits: [{id, amountMinor}] }.
+  allocations       Json
+  ruleVersion       Int                    @map("rule_version")
+  createdAt         DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+  closedAt          DateTime?              @map("closed_at") @db.Timestamptz(3)
+
+  booking      Booking             @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  rule         LoyaltyRuleVersion  @relation(fields: [ruleVersion], references: [version], onDelete: Restrict)
+  transactions RewardTransaction[]
+
+  @@index([bookingId])
+  @@index([status, updatedAt])
+  @@map("reward_redemptions")
 }

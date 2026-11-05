@@ -83,7 +83,7 @@ export function requirePermission(
 export async function auditView(
   prisma: PrismaClient,
   res: Response,
-  entity: 'user' | 'booking' | 'payment',
+  entity: 'user' | 'booking' | 'payment' | 'loyalty_user',
   entityId: string,
 ): Promise<void> {
   const { user, role } = adminOf(res);

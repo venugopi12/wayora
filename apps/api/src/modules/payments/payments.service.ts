@@ -19,6 +19,7 @@ import type { CallContext } from '../search/search.service.js';
 import { withTimeout } from '../search/concurrency.js';
 import { IN_PROGRESS, PaymentEventProcessor } from './events.js';
 import { openRefunds } from './refunds.js';
+import { RewardsService } from '../rewards/rewards.service.js';
 import {
   ProviderPaymentError,
   type PaymentProvider,
@@ -99,6 +100,33 @@ export class PaymentsService {
 
   get policy(): PaymentPolicy {
     return this.options.policy;
+  }
+
+  private readonly settledHooks: ((bookingId: string) => Promise<void> | undefined)[] = [];
+
+  /**
+   * Registers work to run after a booking's payment or status change has
+   * committed (Phase 25: rewards). Hooks run outside the change's
+   * transaction; their failures are logged and never affect the booking or
+   * payment (the rewards sweep retries).
+   */
+  onSettled(hook: (bookingId: string) => Promise<void> | undefined): void {
+    this.settledHooks.push(hook);
+    this.events.afterApplied = (bookingId) => this.settled(bookingId);
+  }
+
+  /** Runs the settled hooks for a booking (never throws). */
+  async settled(bookingId: string): Promise<void> {
+    for (const hook of this.settledHooks) {
+      try {
+        await hook(bookingId);
+      } catch (error) {
+        this.options.logger.warn(
+          { err: errorForLog(error), bookingId },
+          'Post-change work failed; maintenance will retry',
+        );
+      }
+    }
   }
 
   providerFor(id: string): PaymentProvider | null {
@@ -235,10 +263,12 @@ export class PaymentsService {
             'This booking can’t be paid in its current state.',
           );
         }
-        // The amount is the booking's; the visitor's figure is only compared.
+        // The amount is the booking's, less rewards applied to it (Phase 25);
+        // the visitor's figure is only compared.
+        const payable = await RewardsService.payableMinor(tx, found.id, booking.totalAmountMinor);
         if (
           input.amount.currency !== booking.currency ||
-          BigInt(input.amount.amountMinor) !== booking.totalAmountMinor
+          BigInt(input.amount.amountMinor) !== payable
         ) {
           throw new AppError(
             'PAYMENT_AMOUNT_MISMATCH',
@@ -255,7 +285,7 @@ export class PaymentsService {
             mode: provider.mode,
             provider: provider.id,
             currency: booking.currency,
-            amountMinor: booking.totalAmountMinor,
+            amountMinor: payable,
             demoScenario: provider.mode === 'DEMO' ? (input.demoScenario ?? 'succeed') : null,
             idempotencyKeyHash: sha256(key),
             createdAt: now,
@@ -758,8 +788,10 @@ export class PaymentsService {
     });
     let expired = 0;
     for (const b of due) {
-      if (await this.prisma.$transaction((tx) => expireIfOverdue(tx, this.now(), b.id)))
+      if (await this.prisma.$transaction((tx) => expireIfOverdue(tx, this.now(), b.id))) {
         expired += 1;
+        await this.settled(b.id);
+      }
     }
     return expired;
   }

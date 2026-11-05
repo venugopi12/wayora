@@ -107,6 +107,11 @@ const paymentsSelect = {
     select: { id: true, status: true, refundRequired: true },
     orderBy: { attempt: 'desc' },
   },
+  // Rewards set against it at checkout (Phase 25): the amount due is the total minus these.
+  rewardRedemptions: {
+    where: { status: { in: ['APPLIED', 'CONSUMED'] } },
+    select: { status: true, points: true, totalAmountMinor: true, currency: true },
+  },
   reservation: {
     select: {
       id: true,
@@ -741,6 +746,8 @@ export class BookingsService {
     });
     this.log(context).info({ booking: { reference } }, 'Demo booking cancelled');
     for (const id of refundsToSend) await this.options.payments?.sendRefund(id, context);
+    // Rewards used on it go back; earned points are taken back (Phase 25).
+    await this.options.payments?.settled(found.id);
     return this.get(userId, reference);
   }
 
@@ -973,6 +980,7 @@ export class BookingsService {
       due !== null &&
       due.getTime() > this.now().getTime() &&
       Boolean(policy?.provider);
+    const rewards = row.rewardRedemptions[0] ?? null;
     const state: BookingPayment['state'] = row.payments.some((p) => p.refundRequired)
       ? 'refund-required'
       : paid
@@ -985,7 +993,19 @@ export class BookingsService {
     return {
       mode: 'demo',
       state,
-      amount: { amountMinor: row.totalAmountMinor.toString(), currency: row.currency },
+      amount: {
+        amountMinor: (row.totalAmountMinor - (rewards?.totalAmountMinor ?? 0n)).toString(),
+        currency: row.currency,
+      },
+      rewards: rewards
+        ? {
+            points: Number(rewards.points),
+            amount: {
+              amountMinor: rewards.totalAmountMinor.toString(),
+              currency: rewards.currency,
+            },
+          }
+        : null,
       dueAt: due?.toISOString() ?? null,
       canPay: payable,
       activePaymentId: active?.id ?? null,

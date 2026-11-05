@@ -256,3 +256,9 @@ Then deploy the Phase 13 code (and stop workers running Phase 14 code).
 - Notifications can't be deleted or archived; there is no retention policy yet.
 - `NOT_CONFIGURED` deliveries are final and won't be sent later.
 - Delivery is at-least-once once a provider exists (see Recovery).
+
+## Rewards (Phase 25)
+
+Loyalty events use one type, `REWARDS` (`rewards`), and are **in-app only**:
+no email is queued for them. Events and dedupe keys are listed in
+[rewards.md](rewards.md#notifications).

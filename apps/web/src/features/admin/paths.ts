@@ -13,4 +13,8 @@ export const ADMIN_PATHS = {
   notifications: '/admin/notifications',
   audit: '/admin/audit',
   health: '/admin/health',
+  /** Loyalty (Phase 25). */
+  rewards: '/admin/rewards',
+  rewardsRules: '/admin/rewards/rules',
+  rewardsUser: (id: string) => `/admin/rewards/users/${encodeURIComponent(id)}`,
 } as const;
