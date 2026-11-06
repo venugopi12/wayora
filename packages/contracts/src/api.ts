@@ -74,6 +74,18 @@ export const apiErrorCodeSchema = z.enum([
   'ASSISTANT_BUSY',
   /** Too many conversations, or the conversation is full: delete one or start a new one. */
   'ASSISTANT_LIMIT_REACHED',
+  // Coupons and promotions (docs/promotions.md#eligibility).
+  'COUPON_NOT_FOUND',
+  'COUPON_EXPIRED',
+  'COUPON_NOT_STARTED',
+  'COUPON_INACTIVE',
+  'MINIMUM_AMOUNT_NOT_MET',
+  'CATEGORY_NOT_ELIGIBLE',
+  'USAGE_LIMIT_REACHED',
+  'USER_USAGE_LIMIT_REACHED',
+  'USER_NOT_ELIGIBLE',
+  'CURRENCY_NOT_SUPPORTED',
+  'PROMOTION_NOT_STACKABLE',
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

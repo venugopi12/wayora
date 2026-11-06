@@ -338,6 +338,10 @@ model User {
   travelCredits      TravelCredit[]
   rewardRedemptions  RewardRedemption[]
 
+  /// Promotions (Phase 26, docs/promotions.md): personal offers, and uses.
+  personalPromotions   Promotion[]           @relation("PromotionForUser")
+  promotionRedemptions PromotionRedemption[]
+
   @@index([status])
   @@index([role])
   @@index([createdAt])
@@ -478,6 +482,8 @@ model Booking {
   rewardTransactions RewardTransaction[]
   travelCredits      TravelCredit[]
   rewardRedemptions  RewardRedemption[]
+  /// Promotions applied to it (Phase 26).
+  promotionRedemptions PromotionRedemption[]
 
   @@unique([provider, providerReference])
   @@index([orderId])
@@ -1777,4 +1783,117 @@ model RewardRedemption {
   @@index([bookingId])
   @@index([status, updatedAt])
   @@map("reward_redemptions")
+}
+
+// ─── Coupons and promotions (Phase 26, docs/promotions.md) ────────────────
+
+enum PromotionKind {
+  /// Applied when the customer enters its code.
+  COUPON
+  /// Applied by Wayora to eligible bookings without a code.
+  AUTOMATIC
+
+  @@map("promotion_kind")
+}
+
+enum PromotionDiscountType {
+  PERCENTAGE
+  FIXED
+
+  @@map("promotion_discount_type")
+}
+
+/// The life of one use of a promotion on one booking (docs/promotions.md#lifecycle).
+enum PromotionRedemptionStatus {
+  /// Applied at checkout and holding one use until the booking is paid or the hold ends.
+  RESERVED
+  /// The booking was paid and confirmed with it.
+  REDEEMED
+  /// Given up before payment (removed, replaced, no longer valid, abandoned, or the booking closed unpaid).
+  RELEASED
+  /// The paid booking was cancelled: the use is given back.
+  REVERSED
+
+  @@map("promotion_redemption_status")
+}
+
+/// A coupon or automatic promotion. Money is integer minor units in `currency`.
+model Promotion {
+  id               String                @id @default(uuid(7)) @db.Uuid
+  kind             PromotionKind
+  /// Coupons only: normalized (upper-case, no spaces), unique for ever.
+  code             String?               @unique @db.VarChar(24)
+  name             String                @db.VarChar(80)
+  description      String                @db.VarChar(255)
+  terms            String                @db.VarChar(2000)
+  discountType     PromotionDiscountType @map("discount_type")
+  /// PERCENTAGE: basis points (1000 = 10%).
+  percentBps       Int?                  @map("percent_bps")
+  /// FIXED: the amount off.
+  amountMinor      BigInt?               @map("amount_minor")
+  /// PERCENTAGE: the most it takes off.
+  maxDiscountMinor BigInt?               @map("max_discount_minor")
+  minAmountMinor   BigInt                @default(0) @map("min_amount_minor")
+  currency         String                @db.Char(3)
+  /// Empty = every category.
+  categories       TravelCategory[]      @default([])
+  startsAt         DateTime              @map("starts_at") @db.Timestamptz(3)
+  endsAt           DateTime              @map("ends_at") @db.Timestamptz(3)
+  usageLimit       Int?                  @map("usage_limit")
+  perUserLimit     Int?                  @map("per_user_limit")
+  firstBookingOnly Boolean               @default(false) @map("first_booking_only")
+  /// A personal offer for one customer.
+  userId           String?               @map("user_id") @db.Uuid
+  /// Coupons: may combine with an automatic promotion.
+  stackable        Boolean               @default(false)
+  listed           Boolean               @default(true)
+  active           Boolean               @default(true)
+  /// +1 on every change; redemptions keep the version they used.
+  version          Int                   @default(1)
+  createdById      String?               @map("created_by_id") @db.Uuid
+  updatedById      String?               @map("updated_by_id") @db.Uuid
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user        User?                 @relation("PromotionForUser", fields: [userId], references: [id], onDelete: Restrict)
+  redemptions PromotionRedemption[]
+
+  @@index([kind, active, startsAt, endsAt])
+  @@index([userId])
+  @@map("promotions")
+}
+
+/// One use of a promotion on one booking. Never deleted (usage history).
+model PromotionRedemption {
+  id                  String                    @id @default(uuid(7)) @db.Uuid
+  promotionId         String                    @map("promotion_id") @db.Uuid
+  bookingId           String                    @map("booking_id") @db.Uuid
+  userId              String                    @map("user_id") @db.Uuid
+  kind                PromotionKind
+  status              PromotionRedemptionStatus @default(RESERVED)
+  /// The code as entered (normalized), for history.
+  code                String?                   @db.VarChar(24)
+  /// What it was calculated on (the booking total, or the total after an automatic promotion).
+  eligibleAmountMinor BigInt                    @map("eligible_amount_minor")
+  discountMinor       BigInt                    @map("discount_minor")
+  currency            String                    @db.Char(3)
+  promotionVersion    Int                       @map("promotion_version")
+  /// The hold ends then unless the booking is being paid (its payment window).
+  reservedUntil       DateTime                  @map("reserved_until") @db.Timestamptz(3)
+  redeemedAt          DateTime?                 @map("redeemed_at") @db.Timestamptz(3)
+  closedAt            DateTime?                 @map("closed_at") @db.Timestamptz(3)
+  /// Why it was released or reversed (REMOVED, REPLACED, COUPON_EXPIRED, COUPON_INACTIVE, RESERVATION_EXPIRED, BOOKING_CLOSED, BOOKING_CANCELLED).
+  closeReason         String?                   @map("close_reason") @db.VarChar(64)
+  createdAt           DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  promotion Promotion @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([promotionId, status])
+  @@index([promotionId, userId, status])
+  @@index([bookingId])
+  @@index([status, reservedUntil])
+  @@map("promotion_redemptions")
 }

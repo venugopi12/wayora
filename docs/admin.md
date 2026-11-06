@@ -59,6 +59,8 @@ The mapping lives in one place, `packages/contracts/src/admin.ts`
 | `admin.reservations.manage` | –    | –       | ✓     |
 | `admin.rewards.read`        | –    | ✓       | ✓     |
 | `admin.rewards.manage`      | –    | –       | ✓     |
+| `admin.promotions.read`     | –    | ✓       | ✓     |
+| `admin.promotions.manage`   | –    | –       | ✓     |
 
 Enforcement (`apps/api/src/modules/admin/access.ts`):
 

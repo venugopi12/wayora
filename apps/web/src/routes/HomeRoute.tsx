@@ -4,6 +4,7 @@ import { ExperienceSection } from '../features/home/ExperienceSection';
 import { Hero } from '../features/home/Hero';
 import { MoodSection } from '../features/home/MoodSection';
 import { TravelSelector } from '../features/home/TravelSelector';
+import { HomeOffers } from '../features/promotions/routes';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 /**
@@ -19,6 +20,8 @@ export function HomeRoute() {
       <TravelSelector />
       <MoodSection />
       <DestinationsSection />
+      {/* Only when real offers are running (Phase 26); renders nothing otherwise. */}
+      <HomeOffers />
       <ExperienceSection />
       <ClosingCta />
     </>

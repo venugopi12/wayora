@@ -215,6 +215,8 @@ export const envSchema = z.object({
    * pay for real bookings. Off by default; no live payment provider exists, so
    * every reward today is a demo reward (no cash value).
    */
+  /** Coupon applications and removals per customer per 15 minutes (Phase 26; slows code guessing). */
+  COUPON_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
   LOYALTY_LIVE_REWARDS_ENABLED: z.preprocess(
     emptyToUndefined,
     z.enum(['true', 'false']).default('false'),

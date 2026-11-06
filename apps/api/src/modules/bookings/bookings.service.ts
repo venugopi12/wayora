@@ -112,6 +112,11 @@ const paymentsSelect = {
     where: { status: { in: ['APPLIED', 'CONSUMED'] } },
     select: { status: true, points: true, totalAmountMinor: true, currency: true },
   },
+  // Promotions applied to it (Phase 26): also taken off the amount due.
+  promotionRedemptions: {
+    where: { status: { in: ['RESERVED', 'REDEEMED'] } },
+    select: { discountMinor: true },
+  },
   reservation: {
     select: {
       id: true,
@@ -151,6 +156,8 @@ export interface BookingsServiceOptions {
   payments?: PaymentsService;
   /** Supplier reservations (Phase 23). Without it, supplier offers can't be booked. */
   reservations?: ReservationService;
+  /** Promotions (Phase 26): the best automatic promotion is applied to a new booking that takes a payment. */
+  promotions?: { applyAutomatic(bookingId: string): Promise<void> };
   /** SUPPLIER_RESERVATIONS_ENABLED. */
   supplierReservationsEnabled?: boolean;
 }
@@ -395,6 +402,7 @@ export class BookingsService {
     for (let attempt = 1; ; attempt += 1) {
       const reference = supplier ? newBookingReference('supplier') : this.newReference();
       let reservationId: string | null = null;
+      let createdId: string | null = null;
       try {
         await this.prisma.$transaction(async (tx) => {
           const now = this.now();
@@ -445,6 +453,7 @@ export class BookingsService {
               },
             },
           });
+          createdId = booking.id;
           if (supplier) {
             // Recorded with the booking; sent only after this commits.
             reservationId = await this.options.reservations!.record(
@@ -516,6 +525,10 @@ export class BookingsService {
           },
           supplier ? 'Supplier booking recorded' : 'Demo booking created',
         );
+        if (createdId && paymentMode === 'DEMO') {
+          // After the booking commits; never fails the request (checkout tries again).
+          await this.options.promotions?.applyAutomatic(createdId);
+        }
         if (reservationId) {
           // Never fails the request: the booking exists and shows its state.
           await this.options
@@ -994,7 +1007,12 @@ export class BookingsService {
       mode: 'demo',
       state,
       amount: {
-        amountMinor: (row.totalAmountMinor - (rewards?.totalAmountMinor ?? 0n)).toString(),
+        // Same order as pricing/breakdown.ts: total − promotions − points and credit.
+        amountMinor: (
+          row.totalAmountMinor -
+          row.promotionRedemptions.reduce((sum, p) => sum + p.discountMinor, 0n) -
+          (rewards?.totalAmountMinor ?? 0n)
+        ).toString(),
         currency: row.currency,
       },
       rewards: rewards

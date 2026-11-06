@@ -7,6 +7,7 @@ import {
   Luggage,
   ScrollText,
   Search,
+  Tag,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -57,6 +58,13 @@ export const ADMIN_NAV: readonly AdminNavItem[] = [
     label: 'Rewards',
     icon: Gift,
     permission: 'admin.rewards.read',
+    end: false,
+  },
+  {
+    to: ADMIN_PATHS.promotions,
+    label: 'Promotions',
+    icon: Tag,
+    permission: 'admin.promotions.read',
     end: false,
   },
   {

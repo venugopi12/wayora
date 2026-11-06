@@ -13,6 +13,7 @@ export * from './payments.js';
 export * from './planner.js';
 export * from './planner-budget.js';
 export * from './planner-collaboration.js';
+export * from './promotions.js';
 export * from './rewards.js';
 export * from './search/index.js';
 export * from './trips.js';

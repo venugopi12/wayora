@@ -14,6 +14,7 @@ import { Panel } from '../account/AccountShell';
 import { bookingKeys } from '../bookings/keys';
 import { ACCOUNT_PATHS } from '../navigation/config';
 import { money, points } from './format';
+import { promotionKeys } from '../promotions/keys';
 import { rewardKeys } from './keys';
 
 /*
@@ -86,6 +87,8 @@ function RewardsForm({ reference, quote }: { reference: string; quote: BookingRe
     queryClient.setQueryData(rewardKeys.booking(reference), data);
     void queryClient.invalidateQueries({ queryKey: bookingKeys.detail(reference) });
     void queryClient.invalidateQueries({ queryKey: rewardKeys.summary });
+    // The price breakdown shows points and credit too (Phase 26).
+    void queryClient.invalidateQueries({ queryKey: promotionKeys.pricing(reference) });
   };
   const apply = useMutation({
     mutationFn: (body: { points: number; creditAmountMinor: string }) =>

@@ -30,6 +30,10 @@ export const ADMIN_PERMISSIONS = [
   'admin.rewards.read',
   /** Manual points adjustments, issuing or revoking travel credit, new rule versions (Phase 25). Admins only. */
   'admin.rewards.manage',
+  /** Promotions and coupons, their usage and performance (Phase 26). Read-only. */
+  'admin.promotions.read',
+  /** Create, edit, activate or deactivate promotions (Phase 26). Admins only. */
+  'admin.promotions.manage',
 ] as const;
 export const adminPermissionSchema = z.enum(ADMIN_PERMISSIONS);
 export type AdminPermission = z.infer<typeof adminPermissionSchema>;
@@ -46,6 +50,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly AdminPermission[]> = {
     'admin.notifications.read',
     'admin.health.read',
     'admin.rewards.read',
+    'admin.promotions.read',
   ],
   admin: ADMIN_PERMISSIONS,
 };

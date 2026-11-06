@@ -6,6 +6,7 @@ import {
   createApp,
   createPaymentsService,
   createRewardsService,
+  createPromotionsService,
   createProviderRegistry,
   createReservationService,
   createSessionService,
@@ -213,6 +214,26 @@ async function main(): Promise<void> {
   };
   const rewardsTimer = setInterval(() => void rewardsMaintenance(), 60 * 1000);
   rewardsTimer.unref();
+
+  // Promotions (Phase 26, docs/promotions.md#lifecycle): holds of abandoned
+  // checkouts are released, uses of paid bookings confirmed, and uses of
+  // cancelled paid bookings reversed. Idempotent and row-locked.
+  const promotions = createPromotionsService(prisma, logger, { payments, rewards });
+  let promotionsRunning = false;
+  const promotionsMaintenance = async () => {
+    if (promotionsRunning) return;
+    promotionsRunning = true;
+    try {
+      const settled = await promotions.sweep();
+      if (settled > 0) logger.info({ settled }, 'Settled promotion uses');
+    } catch (err) {
+      logger.warn({ err: unexpectedErrorForLog(err) }, 'Promotion maintenance failed; will retry');
+    } finally {
+      promotionsRunning = false;
+    }
+  };
+  const promotionsTimer = setInterval(() => void promotionsMaintenance(), 60 * 1000);
+  promotionsTimer.unref();
 
   // Supplier reservations (Phase 23, docs/bookings.md#recovery): open
   // reservations whose next check is due are looked up with the supplier (or

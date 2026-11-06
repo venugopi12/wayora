@@ -59,6 +59,7 @@ import {
 } from './modules/payments/payments.routes.js';
 import { DemoPaymentProvider } from './modules/payments/providers/demo.js';
 import { RewardsService } from './modules/rewards/rewards.service.js';
+import { PromotionsService } from './modules/promotions/promotions.service.js';
 import type { PaymentProvider } from './modules/payments/providers/types.js';
 import { v1Router, type AccountsRouterOptions } from './routes/v1.js';
 import type { StreamTimings } from './services/signal-stream.js';
@@ -283,6 +284,26 @@ export function createRewardsService(
   });
 }
 
+/** Coupons and promotions (Phase 26, docs/promotions.md). */
+export function createPromotionsService(
+  prisma: PrismaClient,
+  logger: Logger,
+  options: { now?: () => Date; payments?: PaymentsService; rewards?: RewardsService } = {},
+): PromotionsService {
+  const { payments, rewards } = options;
+  return new PromotionsService({
+    prisma,
+    logger: logger.child({ component: 'promotions' }),
+    ...(options.now ? { now: options.now } : {}),
+    ...(payments
+      ? { expireOverdue: (filter: { userId: string }) => payments.expireOverdueBookings(filter) }
+      : {}),
+    ...(rewards
+      ? { releaseRewards: (tx, bookingId, actor) => rewards.releaseApplied(tx, bookingId, actor) }
+      : {}),
+  });
+}
+
 export function createSessionService(prisma: PrismaClient, env: Env, now?: () => Date) {
   return new SessionService(
     prisma,
@@ -380,6 +401,8 @@ export function createApp({
         | 'assistant'
         | 'rewards'
         | 'rewardsLimiter'
+        | 'promotions'
+        | 'couponLimiter'
       >
     | undefined;
   let sessionValid: (token: string | undefined) => Promise<boolean> = () => Promise.resolve(false);
@@ -457,6 +480,7 @@ export function createApp({
   const assistantStore = createRateLimitStore?.('assistant');
   const assistantWriteStore = createRateLimitStore?.('assistant-writes');
   const rewardsStore = createRateLimitStore?.('rewards');
+  const couponStore = createRateLimitStore?.('coupons');
   const payments = prisma
     ? createPaymentsService(prisma, env, logger, {
         ...(now ? { now } : {}),
@@ -469,7 +493,21 @@ export function createApp({
       : undefined;
   // Bookings need the database and the search sessions their offers come from.
   // Rewards are settled after booking and payment changes commit (never inside them).
+  const promotionsService =
+    prisma && payments
+      ? createPromotionsService(prisma, logger, {
+          ...(now ? { now } : {}),
+          payments,
+          ...(rewardsService ? { rewards: rewardsService } : {}),
+        })
+      : undefined;
+  // Promotion uses and rewards are settled after booking and payment changes
+  // commit (never inside them); promotions are checked again before a payment.
+  payments?.onSettled((bookingId) => promotionsService?.reconcileBooking(bookingId));
   payments?.onSettled((bookingId) => rewardsService?.reconcileBooking(bookingId));
+  if (promotionsService) {
+    payments?.onBeforePayment((bookingId) => promotionsService.revalidateBeforePayment(bookingId));
+  }
   const trips = prisma
     ? createTripsService(prisma, env, logger, {
         ...(now ? { now } : {}),
@@ -525,6 +563,7 @@ export function createApp({
           logger,
           payments,
           ...(reservationService ? { reservations: reservationService } : {}),
+          ...(promotionsService ? { promotions: promotionsService } : {}),
           supplierReservationsEnabled: env.SUPPLIER_RESERVATIONS_ENABLED === 'true',
           ...(now ? { now } : {}),
         })
@@ -538,7 +577,8 @@ export function createApp({
     plannerService &&
     budgetService &&
     assistantService &&
-    rewardsService
+    rewardsService &&
+    promotionsService
       ? {
           ...accounts,
           bookings: bookingsService,
@@ -556,6 +596,7 @@ export function createApp({
             }),
             reservations: reservationService ?? null,
             rewards: rewardsService,
+            promotions: promotionsService,
             health: new PlatformHealth({
               prisma,
               ...(redis ? { redis } : {}),
@@ -634,6 +675,14 @@ export function createApp({
             }),
           },
           rewards: rewardsService,
+          promotions: promotionsService,
+          couponLimiter: bookingWriteRateLimiter({
+            max: env.COUPON_RATE_LIMIT_MAX,
+            windowMs: 15 * 60 * 1000,
+            subject: 'coupon attempts',
+            userIdOf: (res) => currentUser(res).id,
+            ...(couponStore ? { store: couponStore } : {}),
+          }),
           rewardsLimiter: bookingWriteRateLimiter({
             max: env.PAYMENT_RATE_LIMIT_MAX,
             subject: 'reward changes',

@@ -23,6 +23,8 @@ import type { AdminService } from './admin.service.js';
 import type { PlatformHealth } from './platform-health.js';
 import type { ReservationService } from '../bookings/reservations.service.js';
 import { adminRewardsRouter } from '../rewards/rewards.routes.js';
+import { adminPromotionsRouter } from '../promotions/promotions.routes.js';
+import type { PromotionsService } from '../promotions/promotions.service.js';
 import type { RewardsService } from '../rewards/rewards.service.js';
 
 export interface AdminRouterOptions {
@@ -34,6 +36,8 @@ export interface AdminRouterOptions {
   reservations?: ReservationService | null;
   /** Loyalty (Phase 25): read views and the audited rewards writes. */
   rewards?: RewardsService | null;
+  /** Promotions (Phase 26): read views and audited changes. */
+  promotions?: PromotionsService | null;
 }
 
 const noQuery = z.object({}).strict();
@@ -69,6 +73,7 @@ export function adminRouter({
   logger,
   reservations,
   rewards,
+  promotions,
 }: AdminRouterOptions): Router {
   const router = Router();
   router.use(noStore);
@@ -187,6 +192,8 @@ export function adminRouter({
 
   // Loyalty (Phase 25, docs/rewards.md#admin): its own permissions per route.
   if (rewards) router.use('/rewards', adminRewardsRouter({ prisma, logger, rewards }));
+  // Promotions (Phase 26, docs/promotions.md#admin).
+  if (promotions) router.use('/promotions', adminPromotionsRouter({ prisma, logger, promotions }));
 
   return router;
 }

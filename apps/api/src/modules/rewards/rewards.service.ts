@@ -34,6 +34,7 @@ import { SERVICE_TYPE } from '../../utils/categories.js';
 import { AppError } from '../../utils/errors.js';
 import type { Logger } from '../../utils/logger.js';
 import { lockBooking } from '../bookings/lifecycle.js';
+import { payableMinor, promotionDiscountMinor } from '../pricing/breakdown.js';
 import { formatAmount, notify } from '../notifications/notify.js';
 import { errorForLog } from '../search/errors.js';
 import type { CallContext } from '../search/search.service.js';
@@ -572,7 +573,11 @@ export class RewardsService {
     const rv = await this.rulesAt(now, tx);
     const mode = bookingMode(b);
     const open = b.rewardRedemptions[0] ?? null;
-    const total = b.totalAmountMinor;
+    // Points and credit apply to the price after promotions (Phase 26, docs/promotions.md#calculation).
+    const total =
+      b.totalAmountMinor === null
+        ? null
+        : b.totalAmountMinor - (await promotionDiscountMinor(tx, b.id));
     const account = await tx.loyaltyAccount.findUnique({
       where: { userId_mode: { userId: b.userId, mode } },
     });
@@ -629,7 +634,8 @@ export class RewardsService {
       available,
       reason,
       mode: toMode(mode),
-      total: total === null ? null : money(total, b.currency),
+      total: b.totalAmountMinor === null ? null : money(b.totalAmountMinor, b.currency),
+      afterPromotions: total === null ? null : money(total, b.currency),
       points: {
         balance: num(balance + heldPoints),
         min: num(limits.minPoints),
@@ -695,7 +701,8 @@ export class RewardsService {
       await expireDueLots(tx, account, now);
       await expireDueCredits(tx, account, now);
       const rv = await this.rulesAt(now, tx);
-      const total = b.totalAmountMinor!;
+      // Measured against the price after promotions (Phase 26).
+      const total = b.totalAmountMinor! - (await promotionDiscountMinor(tx, b.id));
       const limits = redemptionLimits(rv.rules, {
         category: SERVICE_TYPE[b.category],
         currency: b.currency,
@@ -837,15 +844,43 @@ export class RewardsService {
 
   /**
    * The amount a payment must be for (payments.service): the booking's total
-   * minus rewards applied to it. Call inside the payment's transaction, after
-   * the booking is locked.
+   * minus promotions and rewards applied to it (pricing/breakdown.ts). Call
+   * inside the payment's transaction, after the booking is locked.
    */
   static async payableMinor(tx: Tx, bookingId: string, totalMinor: bigint): Promise<bigint> {
-    const open = await tx.rewardRedemption.findFirst({
-      where: { bookingId, status: 'APPLIED' },
-      select: { totalAmountMinor: true },
+    return payableMinor(tx, bookingId, totalMinor);
+  }
+
+  /**
+   * Gives back points and credit applied to an unpaid booking because its
+   * price changed (Phase 26: a promotion was applied, replaced or removed).
+   * Call inside a transaction that has locked the booking. Returns whether
+   * anything was given back.
+   */
+  async releaseApplied(
+    tx: Tx,
+    bookingId: string,
+    actor: { type: 'USER' | 'SYSTEM'; id: string | null },
+  ): Promise<boolean> {
+    const b = await tx.booking.findUniqueOrThrow({
+      where: { id: bookingId },
+      select: RewardsService.bookingSelect,
     });
-    return totalMinor - (open?.totalAmountMinor ?? 0n);
+    const open = b.rewardRedemptions.find((r) => r.status === 'APPLIED');
+    if (!open) return false;
+    const account = await lockAccount(tx, b.userId, bookingMode(b));
+    await this.giveBack(tx, account, b, open, 'RELEASED', this.now(), actor.type, actor.id);
+    await tx.auditLog.create({
+      data: {
+        actorType: actor.type,
+        actorId: actor.id,
+        action: 'rewards.redemption.released_for_repricing',
+        entityType: 'booking',
+        entityId: b.id,
+        metadata: { reference: b.reference, points: open.points.toString() },
+      },
+    });
+    return true;
   }
 
   /** Gives a redemption's points and credit back (to the lots and credits they came from). */

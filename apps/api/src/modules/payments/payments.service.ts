@@ -19,7 +19,7 @@ import type { CallContext } from '../search/search.service.js';
 import { withTimeout } from '../search/concurrency.js';
 import { IN_PROGRESS, PaymentEventProcessor } from './events.js';
 import { openRefunds } from './refunds.js';
-import { RewardsService } from '../rewards/rewards.service.js';
+import { payableMinor } from '../pricing/breakdown.js';
 import {
   ProviderPaymentError,
   type PaymentProvider,
@@ -103,6 +103,12 @@ export class PaymentsService {
   }
 
   private readonly settledHooks: ((bookingId: string) => Promise<void> | undefined)[] = [];
+  private readonly beforePaymentHooks: ((bookingId: string) => Promise<void>)[] = [];
+
+  /** Registers a check that runs before a payment attempt is recorded (Phase 26: promotions). */
+  onBeforePayment(hook: (bookingId: string) => Promise<void>): void {
+    this.beforePaymentHooks.push(hook);
+  }
 
   /**
    * Registers work to run after a booking's payment or status change has
@@ -211,6 +217,16 @@ export class PaymentsService {
     if (!found) throw new AppError('NOT_FOUND', BOOKING_NOT_FOUND_MESSAGE);
     // A booking past its due time expires first, so it is refused below.
     await this.prisma.$transaction((tx) => expireIfOverdue(tx, this.now(), found.id));
+    // Promotions are checked again first (Phase 26): one that stopped being
+    // valid is released, so the amount below no longer matches and the
+    // customer sees the new amount before paying.
+    for (const hook of this.beforePaymentHooks) {
+      try {
+        await hook(found.id);
+      } catch (error) {
+        this.options.logger.warn({ err: errorForLog(error) }, 'Pre-payment check failed');
+      }
+    }
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -263,16 +279,17 @@ export class PaymentsService {
             'This booking can’t be paid in its current state.',
           );
         }
-        // The amount is the booking's, less rewards applied to it (Phase 25);
-        // the visitor's figure is only compared.
-        const payable = await RewardsService.payableMinor(tx, found.id, booking.totalAmountMinor);
+        // The amount is the booking's, less promotions (Phase 26) and rewards
+        // (Phase 25) applied to it (pricing/breakdown.ts); the visitor's figure
+        // is only compared.
+        const payable = await payableMinor(tx, found.id, booking.totalAmountMinor);
         if (
           input.amount.currency !== booking.currency ||
           BigInt(input.amount.amountMinor) !== payable
         ) {
           throw new AppError(
             'PAYMENT_AMOUNT_MISMATCH',
-            'The amount doesn’t match this booking. Review the booking and pay again.',
+            'The amount to pay has changed (for example, a coupon stopped being valid). Review the new amount and pay again.',
           );
         }
 

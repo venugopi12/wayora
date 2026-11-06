@@ -33,6 +33,7 @@ import { offerHeading } from '../offers/OfferDetails';
 import { money } from '../search/cards/shared';
 import { BookingPriceSummary } from './BookingPriceSummary';
 import { CheckoutRewards } from '../rewards/CheckoutRewards';
+import { CheckoutPromotions, PriceBreakdown } from '../promotions/CheckoutPromotions';
 import { formatMoment, partyText, paymentStatusLabel, travelDates } from './format';
 import { notificationKeys } from '../notifications/keys';
 import { bookingKeys, paymentKeys } from './keys';
@@ -282,6 +283,7 @@ function PayReview({ booking }: { booking: Booking }) {
               <dd>{partyText(booking)}</dd>
             </dl>
           </Panel>
+          <CheckoutPromotions booking={booking} />
           <CheckoutRewards booking={booking} />
           <Panel title="Payment method">
             <div className="flex flex-col gap-4">
@@ -326,23 +328,28 @@ function PayReview({ booking }: { booking: Booking }) {
             demo={booking.demo}
             title="Amount to pay"
           />
-          {booking.payment.rewards ? (
-            <dl
-              aria-label="Rewards and amount to pay"
-              className="flex flex-col gap-2 rounded-xl border border-line bg-card p-5 text-body-sm shadow-xs"
-            >
-              <div className="flex items-baseline justify-between gap-4">
-                <dt className="text-ink-secondary">Rewards applied</dt>
-                <dd className="numeric text-success-ink">
-                  −{money(booking.payment.rewards.amount)}
-                </dd>
-              </div>
-              <div className="flex items-baseline justify-between gap-4 border-t border-line pt-2">
-                <dt className="font-semibold">To pay</dt>
-                <dd className="numeric text-heading-3">{money(amount)}</dd>
-              </div>
-            </dl>
-          ) : null}
+          <PriceBreakdown
+            reference={booking.reference}
+            fallback={
+              booking.payment.rewards ? (
+                <dl
+                  aria-label="Rewards and amount to pay"
+                  className="flex flex-col gap-2 rounded-xl border border-line bg-card p-5 text-body-sm shadow-xs"
+                >
+                  <div className="flex items-baseline justify-between gap-4">
+                    <dt className="text-ink-secondary">Rewards applied</dt>
+                    <dd className="numeric text-success-ink">
+                      −{money(booking.payment.rewards.amount)}
+                    </dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4 border-t border-line pt-2">
+                    <dt className="font-semibold">To pay</dt>
+                    <dd className="numeric text-heading-3">{money(amount)}</dd>
+                  </div>
+                </dl>
+              ) : null
+            }
+          />
           {booking.payment.dueAt ? (
             <p className="text-body-sm text-ink-secondary">
               Pay by{' '}

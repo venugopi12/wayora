@@ -89,6 +89,8 @@ export const INFO_PATHS = {
   status: '/status',
   privacy: '/legal/privacy',
   terms: '/legal/terms',
+  /** Current offers and coupons (Phase 26). */
+  offers: '/promotions',
 } as const satisfies Record<string, AppPath>;
 
 /**

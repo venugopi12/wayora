@@ -47,6 +47,7 @@ export const FOOTER_GROUPS: readonly FooterGroup[] = [
       service('cabs'),
       service('holidays'),
       { label: 'Travel inspiration', to: `${DISCOVER.path}#inspiration` },
+      { label: 'Offers and coupons', to: INFO_PATHS.offers },
     ],
   },
   {

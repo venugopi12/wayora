@@ -39,9 +39,15 @@ describe('roles and permissions (one map, enforced by the API)', () => {
     for (const p of ADMIN_PERMISSIONS) expect(hasPermission('admin', p)).toBe(true);
   });
 
-  it('defines read permissions plus admin-only writes: supplier reservations (Phase 23) and rewards (Phase 25)', () => {
+  it('defines read permissions plus admin-only writes: supplier reservations (Phase 23), rewards (Phase 25) and promotions (Phase 26)', () => {
     const writes = ADMIN_PERMISSIONS.filter((p) => !p.endsWith('.read'));
-    expect(writes).toEqual(['admin.reservations.manage', 'admin.rewards.manage']);
+    expect(writes).toEqual([
+      'admin.reservations.manage',
+      'admin.rewards.manage',
+      'admin.promotions.manage',
+    ]);
+    expect(ROLE_PERMISSIONS.support).not.toContain('admin.promotions.manage');
+    expect(ROLE_PERMISSIONS.support).toContain('admin.promotions.read');
     expect(ROLE_PERMISSIONS.support).not.toContain('admin.reservations.manage');
     expect(ROLE_PERMISSIONS.support).not.toContain('admin.rewards.manage');
     expect(ROLE_PERMISSIONS.support).toContain('admin.rewards.read');

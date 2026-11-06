@@ -164,6 +164,13 @@ maxCredit(p) = min(active credit in c, T − m − p × v)
   credit only in the booking's currency.
 - The server recomputes all of this on every request; a client-sent amount
   is never trusted (the request carries only points and a credit amount).
+- **After promotions (Phase 26):** `T` is the total **after** coupons and
+  automatic offers (the quote's `afterPromotions`), so points and credit never
+  pay for a discount that was already given. When a booking's promotions
+  change, applied points and credit are given back through the ledger
+  (`releaseApplied`, audited `rewards.redemption.released_for_repricing`) and
+  the customer applies them to the new price. See
+  [promotions.md](promotions.md#loyalty-and-travel-credit).
 
 ### Tiers
 

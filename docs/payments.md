@@ -22,6 +22,16 @@ notification in the same transaction (Phase 14, [notifications.md](notifications
 > payment or booking change commits, never inside it. See
 > [rewards.md](rewards.md#booking-and-payment).
 
+> **Promotions (Phase 26).** Coupons and automatic offers come off before
+> rewards: a payment must be for the total **minus** reserved promotions
+> **minus** applied rewards (`pricing/breakdown.ts` `payableMinor`, read under
+> the booking lock). Before an attempt is created, coupons that were switched
+> off or have ended are released, and the attempt is refused with
+> `409 PAYMENT_AMOUNT_MISMATCH` ("The amount to pay has changed…") so the
+> customer confirms the new amount. A promotion use becomes redeemed only once
+> the payment succeeded and the booking is confirmed. See
+> [promotions.md](promotions.md#before-payment).
+
 ### Booking payment mode
 
 Every booking records how it is paid, fixed when it is made (`bookings.payment_mode`):

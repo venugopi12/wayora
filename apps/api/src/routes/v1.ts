@@ -20,6 +20,8 @@ import type { NotificationsService } from '../modules/notifications/notification
 import { plannerRouter, type PlannerRouterOptions } from '../modules/planner/planner.routes.js';
 import { providersRouter } from '../modules/providers/providers.routes.js';
 import { bookingRewardsRouter, rewardsRouter } from '../modules/rewards/rewards.routes.js';
+import { bookingPricingRouter, promotionsRouter } from '../modules/promotions/promotions.routes.js';
+import type { PromotionsService } from '../modules/promotions/promotions.service.js';
 import type { RewardsService } from '../modules/rewards/rewards.service.js';
 import type { ProviderRegistry } from '../modules/providers/registry.js';
 import { searchRouter, type BookingAvailability } from '../modules/search/search.routes.js';
@@ -57,6 +59,10 @@ export interface AccountsRouterOptions {
   rewards: RewardsService;
   /** Per-user limit on rewards writes (apply, remove). */
   rewardsLimiter?: RequestHandler;
+  /** Coupons and promotions (Phase 26), docs/promotions.md. */
+  promotions: PromotionsService;
+  /** Per-user limit on coupon applications and removals. */
+  couponLimiter?: RequestHandler;
   logger: Logger;
 }
 
@@ -107,6 +113,8 @@ export function v1Router(options: V1RouterOptions): Router {
       assistant,
       rewards,
       rewardsLimiter,
+      promotions,
+      couponLimiter,
       logger,
     } = options.accounts;
     router.use('/auth', loadSession, authRouter(auth));
@@ -120,6 +128,11 @@ export function v1Router(options: V1RouterOptions): Router {
       '/bookings/:reference/rewards',
       loadSession,
       bookingRewardsRouter(rewards, rewardsLimiter),
+    );
+    router.use(
+      '/bookings/:reference/pricing',
+      loadSession,
+      bookingPricingRouter(promotions, couponLimiter),
     );
     // One session lookup for both (trip tracking routes are /bookings/:reference/…).
     router.use(
@@ -137,6 +150,8 @@ export function v1Router(options: V1RouterOptions): Router {
     router.use('/planner', loadSession, plannerRouter(planner));
     router.use('/assistant', loadSession, assistantRouter(assistant));
     router.use('/rewards', loadSession, rewardsRouter(rewards));
+    // Public; a session only adds the customer's personal offers.
+    router.use('/promotions', loadSession, promotionsRouter(promotions));
     router.use('/admin', loadSession, adminRouter(admin));
     // Signed provider webhooks: no session; only providers that verify signatures.
     router.use('/payment-events', paymentEventsRouter(payments, logger));

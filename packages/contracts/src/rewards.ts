@@ -328,6 +328,8 @@ export const bookingRewardsSchema = z.object({
   mode: rewardModeSchema,
   /** The booking's total, as booked (never changed by rewards). */
   total: moneySchema.nullable(),
+  /** The total after promotions (Phase 26): what the limits below are measured against. */
+  afterPromotions: moneySchema.nullable().optional(),
   points: z.object({
     balance: z.number().int(),
     min: z.number().int(),
