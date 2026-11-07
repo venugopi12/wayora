@@ -43,6 +43,8 @@ describe('admin access (presentation follows the server)', JOURNEY, () => {
       'Rewards',
       // The support workspace (Phase 27): support staff work tickets.
       'Support',
+      // Review moderation (Phase 28): support staff publish, reject and flag.
+      'Reviews',
       // Read-only promotion views (Phase 26); changes need an administrator.
       'Promotions',
       'Search activity',

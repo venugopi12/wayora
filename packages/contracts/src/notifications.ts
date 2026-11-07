@@ -42,6 +42,8 @@ export const NOTIFICATION_TYPES = [
   'support_ticket',
   /** Support staff: a ticket assigned to you, new in the queue, a customer reply, or an escalation (Phase 27). */
   'support_queue',
+  /** Your review was published, not published, or removed (Phase 28, docs/reviews.md#notifications). */
+  'review',
 ] as const;
 export const notificationTypeSchema = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof notificationTypeSchema>;
@@ -55,6 +57,7 @@ export const notificationCategorySchema = z.enum([
   'plan',
   'rewards',
   'support',
+  'reviews',
 ]);
 export type NotificationCategory = z.infer<typeof notificationCategorySchema>;
 
@@ -64,6 +67,7 @@ export function notificationCategory(type: NotificationType): NotificationCatego
   if (type.startsWith('plan_')) return 'plan';
   if (type === 'rewards') return 'rewards';
   if (type.startsWith('support_')) return 'support';
+  if (type === 'review') return 'reviews';
   return type.startsWith('payment_') ? 'payment' : 'booking';
 }
 
@@ -91,6 +95,8 @@ export const notificationLinkSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('support-ticket'), reference: z.string() }),
   /** A ticket in the admin support workspace, for staff who can still open it (Phase 27). */
   z.object({ kind: z.literal('admin-support-ticket'), reference: z.string() }),
+  /** The recipient's own reviews (Phase 28). */
+  z.object({ kind: z.literal('my-reviews') }),
 ]);
 export type NotificationLink = z.infer<typeof notificationLinkSchema>;
 

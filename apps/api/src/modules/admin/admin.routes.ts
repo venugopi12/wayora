@@ -26,6 +26,8 @@ import { adminRewardsRouter } from '../rewards/rewards.routes.js';
 import { adminPromotionsRouter } from '../promotions/promotions.routes.js';
 import type { PromotionsService } from '../promotions/promotions.service.js';
 import { adminSupportRouter, type SupportRouterOptions } from '../support/support.routes.js';
+import { adminReviewsRouter } from '../reviews/reviews.routes.js';
+import type { ReviewsService } from '../reviews/reviews.service.js';
 import type { RewardsService } from '../rewards/rewards.service.js';
 
 export interface AdminRouterOptions {
@@ -41,6 +43,8 @@ export interface AdminRouterOptions {
   promotions?: PromotionsService | null;
   /** Customer support workspace (Phase 27). */
   support?: SupportRouterOptions | null;
+  /** Review moderation and analytics (Phase 28). */
+  reviews?: ReviewsService | null;
 }
 
 const noQuery = z.object({}).strict();
@@ -78,6 +82,7 @@ export function adminRouter({
   rewards,
   promotions,
   support,
+  reviews,
 }: AdminRouterOptions): Router {
   const router = Router();
   router.use(noStore);
@@ -200,6 +205,8 @@ export function adminRouter({
   if (promotions) router.use('/promotions', adminPromotionsRouter({ prisma, logger, promotions }));
   // Customer support (Phase 27, docs/support.md#agent-workspace).
   if (support) router.use('/support', adminSupportRouter(support));
+  // Reviews (Phase 28, docs/reviews.md#moderation).
+  if (reviews) router.use('/reviews', adminReviewsRouter(reviews, prisma, logger));
 
   return router;
 }

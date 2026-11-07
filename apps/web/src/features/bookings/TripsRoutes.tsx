@@ -67,6 +67,7 @@ import { notificationKeys } from '../notifications/keys';
 import { bookingKeys, paymentKeys } from './keys';
 import { payPath, paymentPath, tripPath } from './paths';
 import { BookingSupportPanel } from '../support/BookingSupportPanel';
+import { BookingReviewPanel } from '../reviews/BookingReviewPanel';
 
 /*
  * /trips, /trips/:reference and /trips/:reference/confirmation
@@ -701,6 +702,9 @@ function TripDetail({ booking }: { booking: Booking }) {
           />
           <PaymentPanel booking={booking} />
           <CancelPanel booking={booking} onCancelled={() => setCancelledNow(true)} />
+          {booking.serviceType === 'hotels' || booking.serviceType === 'holidays' ? (
+            <BookingReviewPanel reference={booking.reference} />
+          ) : null}
           <BookingSupportPanel reference={booking.reference} />
         </aside>
       </div>

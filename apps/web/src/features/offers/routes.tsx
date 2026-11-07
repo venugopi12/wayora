@@ -24,6 +24,7 @@ import { readSearchParams } from '../search/params';
 import { PriceBlock, SourceBadge, money } from '../search/cards/shared';
 import { OfferDetails, offerHeading } from './OfferDetails';
 import { bookPath } from '../bookings/paths';
+import { OfferReviews } from '../reviews/sections';
 import { offerPath, readOfferParams, resultsPathFor } from './paths';
 
 /*
@@ -347,6 +348,7 @@ function OfferPage({
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="flex min-w-0 flex-col gap-4">
             <OfferDetails result={result} />
+            <OfferReviews result={result} />
           </div>
           <aside
             aria-label="Price"

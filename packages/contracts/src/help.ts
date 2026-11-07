@@ -190,7 +190,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
     category: 'booking',
     title: 'Are the prices, results and destinations real?',
     summary:
-      'Search results are Wayora’s sample data: illustrative prices, no availability checks, no ratings.',
+      'Search results are Wayora’s sample data: illustrative prices, no availability checks, no provider ratings.',
     body: [
       {
         type: 'list',
@@ -198,14 +198,53 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
           'Search results come from Wayora’s own sample fixtures, not from travel providers. Prices and times are illustrative, not live fares.',
           'Availability isn’t checked.',
           'Discover uses a small, curated set of sample destinations with editorial descriptions.',
-          'Wayora shows no ratings or reviews anywhere.',
+          'Results carry no star ratings or scores from providers. Reviews on hotel, package and destination pages are written by Wayora customers; see “Reviews and ratings”.',
         ],
       },
     ],
-    related: ['what-is-a-demo-booking', 'currency-selector'],
+    related: ['what-is-a-demo-booking', 'reviews-and-ratings', 'currency-selector'],
     keywords: ['price', 'fare', 'real', 'live', 'rating', 'review', 'availability', 'sample'],
     supportCategory: 'booking',
     reviewed: R,
+  },
+  {
+    slug: 'reviews-and-ratings',
+    category: 'booking',
+    title: 'Reviews and ratings',
+    summary:
+      'Who can review what, what “demo booking” and “not verified” mean, and how the star rating is worked out.',
+    body: [
+      {
+        type: 'list',
+        items: [
+          'Hotels and holiday packages can be reviewed from one of your own bookings of them, from the day after the stay or trip ends, if the booking is still confirmed. One review per booking.',
+          'Destinations take feedback from any signed-in customer, one per destination. It is marked “Not verified”: no booking shows you went.',
+          'Flights, trains, buses, metro and cabs can’t be reviewed.',
+          'Every review is checked by Wayora’s team before it appears. Reviews are never edited by Wayora, and low ratings are published like any other.',
+          'The average counts published reviews only, and appears once there are at least 3. Below that you see the number of reviews and each one.',
+          'You can edit your review for 30 days after writing it; an edited review is checked again before it reappears.',
+          'Wayora doesn’t reward reviews with points, credit or coupons.',
+        ],
+      },
+      {
+        type: 'demo',
+        text: 'Every booking on Wayora today is a demo, so booking reviews are labelled “Demo booking”, not “Verified”. Photos can’t be added yet.',
+      },
+    ],
+    actions: [{ label: 'Your reviews', path: '/reviews' }],
+    related: ['prices-and-results', 'booking-statuses', 'contacting-support'],
+    keywords: [
+      'review',
+      'rating',
+      'stars',
+      'feedback',
+      'verified',
+      'report',
+      'helpful',
+      'moderation',
+    ],
+    supportCategory: 'general',
+    reviewed: '2026-11-07',
   },
   // ── Payments ──────────────────────────────────────────────────────────
   {

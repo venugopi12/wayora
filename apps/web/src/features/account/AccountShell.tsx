@@ -4,6 +4,7 @@ import {
   Gift,
   LifeBuoy,
   Luggage,
+  MessageSquareText,
   Sparkles,
   UserRound,
   Users,
@@ -15,7 +16,7 @@ import { ACCOUNT_PATHS } from '../navigation/config';
 
 /*
  * The signed-in area's frame: side navigation (Profile, Saved travellers,
- * My trips, Trip planner, Travel assistant, Rewards, Notifications, Support) and a
+ * My trips, Trip planner, Travel assistant, Rewards, Notifications, Support, Reviews) and a
  * page heading. Used by /profile, /profile/travellers, /trips, /plans,
  * /assistant, /rewards and /notifications.
  */
@@ -33,6 +34,8 @@ const ACCOUNT_NAV = [
   { to: ACCOUNT_PATHS.notifications, label: 'Notifications', icon: Bell, end: true },
   // Requests live under /support/:reference (Phase 27).
   { to: ACCOUNT_PATHS.support, label: 'Support', icon: LifeBuoy, end: false },
+  // Writing and editing live under /reviews/… (Phase 28).
+  { to: ACCOUNT_PATHS.reviews, label: 'Reviews', icon: MessageSquareText, end: false },
 ] as const;
 
 export function AccountShell({

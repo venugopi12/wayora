@@ -21,6 +21,7 @@ import { newPlanPath } from '../planner/paths';
 import { PAIRINGS, moodBySlug } from './data';
 import { placeLine } from './format';
 import { destinationPath, discoverPath, serviceForPlace, servicePathFor } from './paths';
+import { DestinationReviews } from '../reviews/sections';
 import { findDestination, relatedDestinations } from './search';
 
 /**
@@ -359,6 +360,11 @@ export function DestinationDetail({ destination, preferredService }: Destination
       <Hero destination={destination} />
       <About destination={destination} />
       <TravelOptions destination={destination} preferred={preferredService} />
+      <div className="border-t border-line py-section-sm">
+        <Container>
+          <DestinationReviews slug={destination.slug} name={destination.name} />
+        </Container>
+      </div>
       <Related destination={destination} />
     </>
   );

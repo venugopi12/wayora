@@ -228,6 +228,13 @@ export const envSchema = z.object({
   SUPPORT_MESSAGE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
   /** A resolved ticket closes by itself after this many days without a reply. */
   SUPPORT_AUTO_CLOSE_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+  // Reviews (Phase 28, docs/reviews.md#configuration).
+  /** Reviews written or edited per customer per hour. */
+  REVIEW_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+  /** Review reports per customer per hour. */
+  REVIEW_REPORT_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+  /** Helpful votes (and taking them back) per customer per minute. */
+  REVIEW_VOTE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
 });
 
 /** Which search-session store this configuration selects. */

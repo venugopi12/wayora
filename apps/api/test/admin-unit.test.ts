@@ -39,7 +39,7 @@ describe('roles and permissions (one map, enforced by the API)', () => {
     for (const p of ADMIN_PERMISSIONS) expect(hasPermission('admin', p)).toBe(true);
   });
 
-  it('defines read permissions plus writes: supplier reservations (Phase 23), rewards (Phase 25), promotions (Phase 26) and support (Phase 27)', () => {
+  it('defines read permissions plus writes: supplier reservations (Phase 23), rewards (Phase 25), promotions (Phase 26), support (Phase 27) and reviews (Phase 28)', () => {
     const writes = ADMIN_PERMISSIONS.filter((p) => !p.endsWith('.read'));
     expect(writes).toEqual([
       'admin.reservations.manage',
@@ -47,11 +47,15 @@ describe('roles and permissions (one map, enforced by the API)', () => {
       'admin.promotions.manage',
       'admin.support.manage',
       'admin.support.supervise',
+      'admin.reviews.moderate',
+      'admin.reviews.remove',
     ]);
-    // The only write support staff hold is working support tickets (Phase 27).
+    // Support staff's writes: working support tickets (Phase 27) and moderating reviews (Phase 28).
     expect(ROLE_PERMISSIONS.support.filter((p) => !p.endsWith('.read'))).toEqual([
       'admin.support.manage',
+      'admin.reviews.moderate',
     ]);
+    expect(ROLE_PERMISSIONS.support).not.toContain('admin.reviews.remove');
     expect(ROLE_PERMISSIONS.support).not.toContain('admin.support.supervise');
     expect(ROLE_PERMISSIONS.support).not.toContain('admin.promotions.manage');
     expect(ROLE_PERMISSIONS.support).toContain('admin.promotions.read');

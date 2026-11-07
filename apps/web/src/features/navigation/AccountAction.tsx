@@ -5,6 +5,7 @@ import {
   ChevronDown,
   LogOut,
   Luggage,
+  MessageSquareText,
   ShieldCheck,
   Sparkles,
   UserRound,
@@ -94,6 +95,12 @@ function AccountMenu({ tone }: { tone: HeaderTone }) {
         </DropdownMenuItem>
         <DropdownMenuItem icon={<LifeBuoy />} onSelect={() => void navigate(ACCOUNT_PATHS.support)}>
           Support
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          icon={<MessageSquareText />}
+          onSelect={() => void navigate(ACCOUNT_PATHS.reviews)}
+        >
+          Reviews
         </DropdownMenuItem>
         <DropdownMenuItem
           icon={<UserRound />}

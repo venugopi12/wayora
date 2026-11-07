@@ -72,6 +72,8 @@ const adminRewards = () => import('../features/admin/RewardsAdmin');
 const adminPromotions = () => import('../features/admin/PromotionsAdmin');
 const adminSupport = () => import('../features/admin/SupportAdmin');
 const support = () => import('../features/support/routes');
+const reviews = () => import('../features/reviews/routes');
+const adminReviews = () => import('../features/admin/ReviewsAdmin');
 const help = () => import('../features/help/routes');
 
 /** /sign-in (the pre-Phase 8 link) → /login, keeping any query string. */
@@ -234,6 +236,19 @@ export function createRoutes({
                       path: `${ACCOUNT_PATHS.support.slice(1)}/:reference`,
                       lazy: async () => ({ Component: (await support()).TicketRoute }),
                     },
+                    // Reviews (Phase 28): yours, writing and editing.
+                    {
+                      path: ACCOUNT_PATHS.reviews.slice(1),
+                      lazy: async () => ({ Component: (await reviews()).MyReviewsRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.reviews.slice(1)}/write`,
+                      lazy: async () => ({ Component: (await reviews()).WriteReviewRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.reviews.slice(1)}/:id/edit`,
+                      lazy: async () => ({ Component: (await reviews()).EditReviewRoute }),
+                    },
                     {
                       path: ACCOUNT_PATHS.plans.slice(1),
                       lazy: async () => ({ Component: (await planner()).PlansRoute }),
@@ -389,6 +404,18 @@ export function createRoutes({
                 {
                   path: 'support/tickets/:reference',
                   lazy: async () => ({ Component: (await adminSupport()).SupportWorkspaceRoute }),
+                },
+                {
+                  path: 'reviews',
+                  lazy: async () => ({ Component: (await adminReviews()).ReviewsDashboardRoute }),
+                },
+                {
+                  path: 'reviews/queue',
+                  lazy: async () => ({ Component: (await adminReviews()).ReviewQueueRoute }),
+                },
+                {
+                  path: 'reviews/:id',
+                  lazy: async () => ({ Component: (await adminReviews()).AdminReviewRoute }),
                 },
                 {
                   path: 'promotions',

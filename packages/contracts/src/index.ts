@@ -14,6 +14,7 @@ export * from './planner.js';
 export * from './planner-budget.js';
 export * from './planner-collaboration.js';
 export * from './promotions.js';
+export * from './reviews.js';
 export * from './rewards.js';
 export * from './search/index.js';
 export * from './support.js';

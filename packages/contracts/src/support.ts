@@ -176,6 +176,10 @@ const text = (min: number, max: number, what: string) =>
 const oneLine = (min: number, max: number, what: string) =>
   text(min, max, what).refine((v) => !v.includes('\n'), `${what} must be one line.`);
 
+/** Shared with reviews (Phase 28): normalized, printable plain text. */
+export const plainText = text;
+export const plainLine = oneLine;
+
 export const SUPPORT_MESSAGE_MAX = 5000;
 const clientKey = z.uuid({ error: 'Send a request key.' });
 

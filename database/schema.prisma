@@ -147,6 +147,8 @@ enum NotificationType {
   /// Support (Phase 27, docs/support.md#notifications). In-app only.
   SUPPORT_TICKET
   SUPPORT_QUEUE
+  /// A moderation decision on your review (Phase 28, docs/reviews.md#notifications). In-app only.
+  REVIEW
 
   @@map("notification_type")
 }
@@ -349,6 +351,12 @@ model User {
   assignedSupport      SupportTicket[]       @relation("SupportTicketAssignee")
   supportMessages      SupportMessage[]
   supportTicketEvents  SupportTicketEvent[]
+  /// Reviews (Phase 28, docs/reviews.md): written, moderated, reported, voted helpful.
+  reviews              Review[]
+  reviewEvents         ReviewEvent[]
+  reviewReports        ReviewReport[]        @relation("ReviewReporter")
+  resolvedReviewReports ReviewReport[]       @relation("ReviewReportResolver")
+  reviewVotes          ReviewVote[]
 
   @@index([status])
   @@index([role])
@@ -494,6 +502,8 @@ model Booking {
   promotionRedemptions PromotionRedemption[]
   /// Support tickets linked to it (Phase 27).
   supportTickets       SupportTicket[]
+  /// Its review, once the stay or trip is over (Phase 28).
+  review               Review?
 
   @@unique([provider, providerReference])
   @@index([orderId])
@@ -2085,4 +2095,197 @@ model SupportTicketEvent {
   @@unique([ticketId, seq])
   @@index([type, createdAt])
   @@map("support_ticket_events")
+}
+
+// ─── Reviews (Phase 28, docs/reviews.md) ──────────────────────────────────
+
+enum ReviewSubjectType {
+  HOTEL
+  HOLIDAY_PACKAGE
+  DESTINATION
+
+  @@map("review_subject_type")
+}
+
+enum ReviewStatus {
+  PENDING
+  PUBLISHED
+  REJECTED
+  /// Hidden while staff check it.
+  FLAGGED
+  /// Final.
+  REMOVED
+
+  @@map("review_status")
+}
+
+enum ReviewVerification {
+  /// A completed, supplier-confirmed real booking (none can exist yet).
+  VERIFIED_BOOKING
+  /// A completed demo booking: not a verified real stay.
+  DEMO_BOOKING
+  /// Destination feedback: no booking behind it.
+  UNVERIFIED
+
+  @@map("review_verification")
+}
+
+enum ReviewEventKind {
+  SUBMITTED
+  EDITED
+  MODERATED
+  REPORTS_DISMISSED
+
+  @@map("review_event_kind")
+}
+
+enum ReviewActorKind {
+  AUTHOR
+  STAFF
+  SYSTEM
+
+  @@map("review_actor_kind")
+}
+
+enum ReviewReportReason {
+  SPAM
+  FAKE_EXPERIENCE
+  OFFENSIVE
+  PERSONAL_INFORMATION
+  HARASSMENT
+  IRRELEVANT
+  CONFLICT_OF_INTEREST
+  OTHER
+
+  @@map("review_report_reason")
+}
+
+enum ReviewReportStatus {
+  OPEN
+  ACTIONED
+  DISMISSED
+
+  @@map("review_report_status")
+}
+
+/// A review or destination feedback. Never deleted; see the trigger rules in the migration.
+model Review {
+  id           String             @id @default(uuid(7)) @db.Uuid
+  userId       String             @map("user_id") @db.Uuid
+  subjectType  ReviewSubjectType  @map("subject_type")
+  /// `<providerId>:<ref>` for hotels and packages; a destination slug.
+  subjectKey   String             @map("subject_key") @db.VarChar(160)
+  subjectName  String             @map("subject_name") @db.VarChar(200)
+  bookingId    String?            @unique @map("booking_id") @db.Uuid
+  verification ReviewVerification
+  status       ReviewStatus       @default(PENDING)
+  rating       Int                @db.SmallInt
+  cleanliness  Int?               @db.SmallInt
+  location     Int?               @db.SmallInt
+  service      Int?               @db.SmallInt
+  comfort      Int?               @db.SmallInt
+  value        Int?               @db.SmallInt
+  experience   Int?               @db.SmallInt
+  organisation Int?               @db.SmallInt
+  title        String             @db.VarChar(100)
+  body         String
+  travelFrom   DateTime?          @map("travel_from") @db.Date
+  travelTo     DateTime?          @map("travel_to") @db.Date
+  visitedMonth DateTime?          @map("visited_month") @db.Date
+  /// Bumped by every edit and moderation decision.
+  revision     Int                @default(1)
+  /// Bumped by the author's edits only.
+  version      Int                @default(1)
+  moderationNote  String?         @map("moderation_note") @db.VarChar(300)
+  publishedAt     DateTime?       @map("published_at") @db.Timestamptz(3)
+  editedAt        DateTime?       @map("edited_at") @db.Timestamptz(3)
+  statusChangedAt DateTime        @default(now()) @map("status_changed_at") @db.Timestamptz(3)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  booking   Booking?         @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  revisions ReviewRevision[]
+  events    ReviewEvent[]
+  reports   ReviewReport[]
+  votes     ReviewVote[]
+
+  @@index([subjectType, subjectKey, status])
+  @@index([status, createdAt])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([createdAt])
+  @@map("reviews")
+}
+
+/// Every version the author wrote (append-only).
+model ReviewRevision {
+  reviewId  String   @map("review_id") @db.Uuid
+  version   Int
+  rating    Int      @db.SmallInt
+  aspects   Json
+  title     String   @db.VarChar(100)
+  body      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Restrict)
+
+  @@id([reviewId, version])
+  @@map("review_revisions")
+}
+
+/// Submissions, edits and moderation decisions (append-only).
+model ReviewEvent {
+  id         String           @id @default(uuid(7)) @db.Uuid
+  reviewId   String           @map("review_id") @db.Uuid
+  kind       ReviewEventKind
+  actorKind  ReviewActorKind  @map("actor_kind")
+  actorId    String?          @map("actor_id") @db.Uuid
+  fromStatus ReviewStatus?    @map("from_status")
+  toStatus   ReviewStatus?    @map("to_status")
+  reason     String?          @db.VarChar(300)
+  revision   Int
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Restrict)
+  actor  User?  @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([reviewId, createdAt])
+  @@index([kind, createdAt])
+  @@map("review_events")
+}
+
+/// A customer's report of a review. The reporter is never shown to anyone.
+model ReviewReport {
+  id         String             @id @default(uuid(7)) @db.Uuid
+  reviewId   String             @map("review_id") @db.Uuid
+  reporterId String             @map("reporter_id") @db.Uuid
+  reason     ReviewReportReason
+  details    String?            @db.VarChar(500)
+  status     ReviewReportStatus @default(OPEN)
+  resolvedAt DateTime?          @map("resolved_at") @db.Timestamptz(3)
+  resolvedBy String?            @map("resolved_by") @db.Uuid
+  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  review   Review @relation(fields: [reviewId], references: [id], onDelete: Restrict)
+  reporter User   @relation("ReviewReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  resolver User?  @relation("ReviewReportResolver", fields: [resolvedBy], references: [id], onDelete: Restrict)
+
+  @@unique([reviewId, reporterId])
+  @@index([status, createdAt])
+  @@index([reporterId, createdAt])
+  @@map("review_reports")
+}
+
+/// "Helpful" votes: one per customer per review.
+model ReviewVote {
+  reviewId  String   @map("review_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([reviewId, userId])
+  @@index([userId, createdAt])
+  @@map("review_votes")
 }

@@ -62,6 +62,8 @@ import { RewardsService } from './modules/rewards/rewards.service.js';
 import { PromotionsService } from './modules/promotions/promotions.service.js';
 import { SupportService, type SupportServiceOptions } from './modules/support/support.service.js';
 import type { SupportRouterOptions } from './modules/support/support.routes.js';
+import { ReviewsService } from './modules/reviews/reviews.service.js';
+import type { ReviewsRouterOptions } from './modules/reviews/reviews.routes.js';
 import type { PaymentProvider } from './modules/payments/providers/types.js';
 import { v1Router, type AccountsRouterOptions } from './routes/v1.js';
 import type { StreamTimings } from './services/signal-stream.js';
@@ -441,6 +443,7 @@ export function createApp({
         | 'promotions'
         | 'couponLimiter'
         | 'support'
+        | 'reviews'
       >
     | undefined;
   let sessionValid: (token: string | undefined) => Promise<boolean> = () => Promise.resolve(false);
@@ -522,6 +525,9 @@ export function createApp({
   const supportTicketStore = createRateLimitStore?.('support-tickets');
   const supportMessageStore = createRateLimitStore?.('support-messages');
   const supportAiStore = createRateLimitStore?.('support-ai');
+  const reviewWriteStore = createRateLimitStore?.('review-writes');
+  const reviewReportStore = createRateLimitStore?.('review-reports');
+  const reviewVoteStore = createRateLimitStore?.('review-votes');
   const payments = prisma
     ? createPaymentsService(prisma, env, logger, {
         ...(now ? { now } : {}),
@@ -649,6 +655,33 @@ export function createApp({
           }),
         }
       : undefined;
+  // Reviews (Phase 28, docs/reviews.md).
+  const reviewsService = prisma ? new ReviewsService(prisma, now) : undefined;
+  const reviewsRoutes: ReviewsRouterOptions | undefined = reviewsService
+    ? {
+        service: reviewsService,
+        writeLimiter: bookingWriteRateLimiter({
+          max: env.REVIEW_RATE_LIMIT_MAX,
+          windowMs: 60 * 60 * 1000,
+          subject: 'reviews',
+          userIdOf: (res) => currentUser(res).id,
+          ...(reviewWriteStore ? { store: reviewWriteStore } : {}),
+        }),
+        reportLimiter: bookingWriteRateLimiter({
+          max: env.REVIEW_REPORT_RATE_LIMIT_MAX,
+          windowMs: 60 * 60 * 1000,
+          subject: 'review reports',
+          userIdOf: (res) => currentUser(res).id,
+          ...(reviewReportStore ? { store: reviewReportStore } : {}),
+        }),
+        voteLimiter: bookingWriteRateLimiter({
+          max: env.REVIEW_VOTE_RATE_LIMIT_MAX,
+          subject: 'helpful votes',
+          userIdOf: (res) => currentUser(res).id,
+          ...(reviewVoteStore ? { store: reviewVoteStore } : {}),
+        }),
+      }
+    : undefined;
   const accountRoutes: AccountsRouterOptions | undefined =
     accounts &&
     prisma &&
@@ -660,7 +693,8 @@ export function createApp({
     assistantService &&
     rewardsService &&
     promotionsService &&
-    supportRoutes
+    supportRoutes &&
+    reviewsRoutes
       ? {
           ...accounts,
           bookings: bookingsService,
@@ -680,6 +714,7 @@ export function createApp({
             rewards: rewardsService,
             promotions: promotionsService,
             support: supportRoutes,
+            reviews: reviewsRoutes.service,
             health: new PlatformHealth({
               prisma,
               ...(redis ? { redis } : {}),
@@ -760,6 +795,7 @@ export function createApp({
           rewards: rewardsService,
           promotions: promotionsService,
           support: supportRoutes,
+          reviews: reviewsRoutes,
           couponLimiter: bookingWriteRateLimiter({
             max: env.COUPON_RATE_LIMIT_MAX,
             windowMs: 15 * 60 * 1000,

@@ -25,4 +25,8 @@ export const ADMIN_PATHS = {
   support: '/admin/support',
   supportQueue: '/admin/support/tickets',
   supportTicket: (reference: string) => `/admin/support/tickets/${encodeURIComponent(reference)}`,
+  /** Reviews (Phase 28). */
+  reviews: '/admin/reviews',
+  reviewQueue: '/admin/reviews/queue',
+  review: (id: string) => `/admin/reviews/${encodeURIComponent(id)}`,
 } as const;

@@ -6,6 +6,7 @@ import {
   LifeBuoy,
   LayoutDashboard,
   Luggage,
+  MessageSquareText,
   ScrollText,
   Search,
   Tag,
@@ -66,6 +67,13 @@ export const ADMIN_NAV: readonly AdminNavItem[] = [
     label: 'Support',
     icon: LifeBuoy,
     permission: 'admin.support.read',
+    end: false,
+  },
+  {
+    to: ADMIN_PATHS.reviews,
+    label: 'Reviews',
+    icon: MessageSquareText,
+    permission: 'admin.reviews.read',
     end: false,
   },
   {

@@ -64,11 +64,19 @@ The mapping lives in one place, `packages/contracts/src/admin.ts`
 | `admin.support.read`        | –    | ✓       | ✓     |
 | `admin.support.manage`      | –    | ✓       | ✓     |
 | `admin.support.supervise`   | –    | –       | ✓     |
+| `admin.reviews.read`        | –    | ✓       | ✓     |
+| `admin.reviews.moderate`    | –    | ✓       | ✓     |
+| `admin.reviews.remove`      | –    | –       | ✓     |
 
-Support staff have one write permission, `admin.support.manage`: working
-support tickets (Phase 27, [support.md](support.md#permissions)). Assigning
-tickets to others and handling escalated tickets need
-`admin.support.supervise` (admins).
+Support staff have two write permissions:
+
+- `admin.support.manage`: working support tickets (Phase 27,
+  [support.md](support.md#permissions)). Assigning tickets to others and
+  handling escalated tickets need `admin.support.supervise` (admins).
+- `admin.reviews.moderate`: publishing, rejecting and flagging reviews and
+  dismissing reports (Phase 28, [reviews.md](reviews.md#moderation)).
+  Removing a review needs `admin.reviews.remove` (admins), and nobody
+  moderates their own review.
 
 Enforcement (`apps/api/src/modules/admin/access.ts`):
 

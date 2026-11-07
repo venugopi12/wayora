@@ -272,3 +272,11 @@ ticket through `notifications.support_ticket_id`: the customer's own ticket
 page, or the staff workspace while the recipient still has
 `admin.support.read`. Dedupe keys are `support:<ticketId>:<seq>:<recipientId>`.
 Events and recipients are listed in [support.md](support.md#notifications).
+
+## Reviews (Phase 28)
+
+One type, **in-app only**: `REVIEW` (`review`, category `reviews`), to a
+review's author when it is published, not published, or removed. Its link
+is the author's own reviews page (`my-reviews`); no extra column is needed.
+Dedupe key: `review:<reviewId>:<revision>`. Details:
+[reviews.md](reviews.md#notifications).

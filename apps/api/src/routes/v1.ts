@@ -23,6 +23,7 @@ import { bookingRewardsRouter, rewardsRouter } from '../modules/rewards/rewards.
 import { bookingPricingRouter, promotionsRouter } from '../modules/promotions/promotions.routes.js';
 import type { PromotionsService } from '../modules/promotions/promotions.service.js';
 import { supportRouter, type SupportRouterOptions } from '../modules/support/support.routes.js';
+import { reviewsRouter, type ReviewsRouterOptions } from '../modules/reviews/reviews.routes.js';
 import type { RewardsService } from '../modules/rewards/rewards.service.js';
 import type { ProviderRegistry } from '../modules/providers/registry.js';
 import { searchRouter, type BookingAvailability } from '../modules/search/search.routes.js';
@@ -66,6 +67,8 @@ export interface AccountsRouterOptions {
   couponLimiter?: RequestHandler;
   /** Customer support (Phase 27), docs/support.md. */
   support: SupportRouterOptions;
+  /** Reviews and ratings (Phase 28), docs/reviews.md. */
+  reviews: ReviewsRouterOptions;
   logger: Logger;
 }
 
@@ -119,6 +122,7 @@ export function v1Router(options: V1RouterOptions): Router {
       promotions,
       couponLimiter,
       support,
+      reviews,
       logger,
     } = options.accounts;
     router.use('/auth', loadSession, authRouter(auth));
@@ -157,6 +161,8 @@ export function v1Router(options: V1RouterOptions): Router {
     // Public; a session only adds the customer's personal offers.
     router.use('/promotions', loadSession, promotionsRouter(promotions));
     router.use('/support', loadSession, supportRouter(support));
+    // Public reading; writing, votes and reports need a session.
+    router.use('/reviews', loadSession, reviewsRouter(reviews));
     router.use('/admin', loadSession, adminRouter(admin));
     // Signed provider webhooks: no session; only providers that verify signatures.
     router.use('/payment-events', paymentEventsRouter(payments, logger));

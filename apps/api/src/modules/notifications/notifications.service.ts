@@ -58,11 +58,14 @@ export class NotificationsService {
       read: row.readAt !== null,
       readAt: row.readAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
-      link: booking
-        ? row.paymentId
-          ? { kind: 'payment', bookingReference: booking.reference, paymentId: row.paymentId }
-          : { kind: 'booking', bookingReference: booking.reference }
-        : this.planLink(row),
+      link:
+        row.type === 'REVIEW'
+          ? { kind: 'my-reviews' }
+          : booking
+            ? row.paymentId
+              ? { kind: 'payment', bookingReference: booking.reference, paymentId: row.paymentId }
+              : { kind: 'booking', bookingReference: booking.reference }
+            : this.planLink(row),
     };
   }
 

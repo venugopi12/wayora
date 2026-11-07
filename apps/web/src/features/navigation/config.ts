@@ -77,6 +77,8 @@ export const ACCOUNT_PATHS = {
   rewards: '/rewards',
   /** Support requests (Phase 27). */
   support: '/support',
+  /** Your reviews (Phase 28). */
+  reviews: '/reviews',
 } as const satisfies Record<string, AppPath>;
 
 export const SIGN_IN_PATH: AppPath = ACCOUNT_PATHS.login;

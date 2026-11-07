@@ -114,6 +114,9 @@ Docker Compose out of the box. `.env` files are git-ignored.
 | `SUPPORT_TICKET_RATE_LIMIT_MAX`                            | no               | `5`                           | New support tickets per customer per hour ([support.md](support.md#configuration))                                                           |
 | `SUPPORT_MESSAGE_RATE_LIMIT_MAX`                           | no               | `20`                          | Support messages per user per minute                                                                                                         |
 | `SUPPORT_AUTO_CLOSE_DAYS`                                  | no               | `7`                           | Days a resolved ticket waits before closing by itself                                                                                        |
+| `REVIEW_RATE_LIMIT_MAX`                                    | no               | `10`                          | Reviews written or edited per customer per hour ([reviews.md](reviews.md#configuration))                                                     |
+| `REVIEW_REPORT_RATE_LIMIT_MAX`                             | no               | `10`                          | Review reports per customer per hour                                                                                                         |
+| `REVIEW_VOTE_RATE_LIMIT_MAX`                               | no               | `30`                          | Helpful votes per customer per minute                                                                                                        |
 | `SUPPLIER_RESERVATION_TIMEOUT_MS`                          | no               | `12000`                       | Time limit per reservation, lookup or cancellation call; ran out = outcome unknown                                                           |
 
 **Redis and search.** Search sessions live in Redis whenever `REDIS_URL` is

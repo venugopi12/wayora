@@ -86,6 +86,8 @@ export const apiErrorCodeSchema = z.enum([
   'USER_NOT_ELIGIBLE',
   'CURRENCY_NOT_SUPPORTED',
   'PROMOTION_NOT_STACKABLE',
+  /** The booking can't be reviewed (yet): see the message (Phase 28, docs/reviews.md#eligibility). */
+  'REVIEW_NOT_ELIGIBLE',
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

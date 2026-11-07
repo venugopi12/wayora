@@ -4,6 +4,7 @@ import {
   Check,
   Gift,
   LifeBuoy,
+  MessageSquareText,
   Luggage,
   TriangleAlert,
   Users,
@@ -22,6 +23,7 @@ import { paymentPath, tripPath } from '../bookings/paths';
 import { invitationPath, planPath } from '../planner/paths';
 import { ADMIN_PATHS } from '../admin/paths';
 import { ticketPath } from '../support/paths';
+import { MY_REVIEWS_PATH } from '../reviews/paths';
 import { notificationKeys } from './keys';
 
 /*
@@ -79,6 +81,8 @@ export function linkFor(notification: Notification): { to: string; label: string
       return { to: ticketPath(link.reference), label: 'View request' };
     case 'admin-support-ticket':
       return { to: ADMIN_PATHS.supportTicket(link.reference), label: 'Open ticket' };
+    case 'my-reviews':
+      return { to: MY_REVIEWS_PATH, label: 'Your reviews' };
   }
 }
 
@@ -90,6 +94,7 @@ const ICON: Record<NotificationCategory, typeof Luggage> = {
   plan: Users,
   rewards: Gift,
   support: LifeBuoy,
+  reviews: MessageSquareText,
 };
 
 const relative = new Intl.RelativeTimeFormat('en-IN', { numeric: 'auto' });
