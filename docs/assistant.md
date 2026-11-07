@@ -57,6 +57,12 @@ credentials, and the build environment can't reach the provider. No model is
 assumed. Use a model your account can access, and check its output with the
 tests' expectations in mind (JSON only, the block shapes below).
 
+**Support suggestions (Phase 27)**: `AssistantProvider` has an optional
+`complete({ system, messages }, options)` for plain-text requests from other
+features. The Anthropic adapter implements it with the same transport and
+safeguards; the demo provider doesn't (support then uses labelled templates).
+See [support.md](support.md#ai-assistance).
+
 **Adding a provider**: implement `AssistantProvider` (`generate(input, { signal,
 maxOutputTokens })` → `{ output, usage }`) and add it to
 `createAssistantProvider` (`modules/assistant/index.ts`). Throw

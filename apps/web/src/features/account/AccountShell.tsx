@@ -1,4 +1,13 @@
-import { Bell, CalendarRange, Gift, Luggage, Sparkles, UserRound, Users } from 'lucide-react';
+import {
+  Bell,
+  CalendarRange,
+  Gift,
+  LifeBuoy,
+  Luggage,
+  Sparkles,
+  UserRound,
+  Users,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router';
 import { Container, cn } from '@wayora/ui';
@@ -6,7 +15,7 @@ import { ACCOUNT_PATHS } from '../navigation/config';
 
 /*
  * The signed-in area's frame: side navigation (Profile, Saved travellers,
- * My trips, Trip planner, Travel assistant, Rewards, Notifications) and a
+ * My trips, Trip planner, Travel assistant, Rewards, Notifications, Support) and a
  * page heading. Used by /profile, /profile/travellers, /trips, /plans,
  * /assistant, /rewards and /notifications.
  */
@@ -22,6 +31,8 @@ const ACCOUNT_NAV = [
   { to: ACCOUNT_PATHS.assistant, label: 'Travel assistant', icon: Sparkles, end: false },
   { to: ACCOUNT_PATHS.rewards, label: 'Rewards', icon: Gift, end: true },
   { to: ACCOUNT_PATHS.notifications, label: 'Notifications', icon: Bell, end: true },
+  // Requests live under /support/:reference (Phase 27).
+  { to: ACCOUNT_PATHS.support, label: 'Support', icon: LifeBuoy, end: false },
 ] as const;
 
 export function AccountShell({

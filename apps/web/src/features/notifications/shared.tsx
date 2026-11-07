@@ -1,5 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BellRing, Check, Gift, Luggage, TriangleAlert, Users, Wallet } from 'lucide-react';
+import {
+  BellRing,
+  Check,
+  Gift,
+  LifeBuoy,
+  Luggage,
+  TriangleAlert,
+  Users,
+  Wallet,
+} from 'lucide-react';
 import { Link } from 'react-router';
 import type { Notification, NotificationCategory } from '@wayora/contracts';
 import { Badge, Button, cn } from '@wayora/ui';
@@ -11,6 +20,8 @@ import {
 import { useAuth } from '../auth/AuthProvider';
 import { paymentPath, tripPath } from '../bookings/paths';
 import { invitationPath, planPath } from '../planner/paths';
+import { ADMIN_PATHS } from '../admin/paths';
+import { ticketPath } from '../support/paths';
 import { notificationKeys } from './keys';
 
 /*
@@ -64,6 +75,10 @@ export function linkFor(notification: Notification): { to: string; label: string
       return { to: planPath(link.tripId), label: 'View plan' };
     case 'plan-invitation':
       return { to: invitationPath(link.invitationId), label: 'View invitation' };
+    case 'support-ticket':
+      return { to: ticketPath(link.reference), label: 'View request' };
+    case 'admin-support-ticket':
+      return { to: ADMIN_PATHS.supportTicket(link.reference), label: 'Open ticket' };
   }
 }
 
@@ -74,6 +89,7 @@ const ICON: Record<NotificationCategory, typeof Luggage> = {
   trip: TriangleAlert,
   plan: Users,
   rewards: Gift,
+  support: LifeBuoy,
 };
 
 const relative = new Intl.RelativeTimeFormat('en-IN', { numeric: 'auto' });

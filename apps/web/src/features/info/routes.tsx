@@ -1,17 +1,7 @@
 import { ArrowRight, FileWarning } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-  Alert,
-  Badge,
-  Card,
-  cn,
-  interaction,
-} from '@wayora/ui';
+import { Alert, Badge, Card, cn, interaction } from '@wayora/ui';
 import { ContentPage } from '../../components/layout/ContentPage';
 import { ACCOUNT_PATHS, DISCOVER, INFO_PATHS } from '../navigation/config';
 
@@ -111,137 +101,8 @@ export function AboutRoute() {
   );
 }
 
-const FAQ: { q: string; a: ReactNode }[] = [
-  {
-    q: 'Can I book travel on Wayora?',
-    a: (
-      <>
-        Only as a demo. Each service page has a demo search, and you can book any of its offers as a
-        demo booking (you need an account). Wayora saves the booking in My trips, but no supplier
-        reservation, ticket or payment is made, and nothing is charged. Real booking opens one
-        service at a time.
-      </>
-    ),
-  },
-  {
-    q: 'Are the destinations, prices and ratings real?',
-    a: (
-      <>
-        Discover uses a small, curated set of sample destinations with editorial descriptions. The
-        prices and times in search results are demo data: illustrative, not live fares, and not
-        bookable. Availability isn&apos;t checked, and Wayora shows no ratings, reviews or deals.
-      </>
-    ),
-  },
-  {
-    q: 'What does the currency selector do?',
-    a: (
-      <>
-        It sets the currency you&apos;d like prices shown in, for this visit. Nothing is converted
-        or charged, and the choice isn&apos;t saved: it resets when you reload the page.
-      </>
-    ),
-  },
-  {
-    q: 'Do I need an account?',
-    a: (
-      <>
-        Only to save travellers. Browsing Discover and the service pages works without one. You can{' '}
-        <Link to={ACCOUNT_PATHS.register}>create an account</Link> with your name, email and a
-        password; see <a href="#accounts">Your account</a> above for what it stores.
-      </>
-    ),
-  },
-  {
-    q: 'Something isn’t working. Where can I check?',
-    a: (
-      <>
-        <Link to={INFO_PATHS.status}>Platform status</Link> shows whether Wayora&apos;s API and the
-        services it depends on are reachable right now.
-      </>
-    ),
-  },
-  {
-    q: 'Does Wayora use cookies?',
-    a: (
-      <>
-        Only one, and only when you sign in: a session cookie that keeps you signed in. It
-        can&apos;t be read by the page&apos;s scripts and is removed when you sign out. Besides
-        that, the browser keeps only scroll positions for the current tab, so Back returns you to
-        the same place. Wayora loads no analytics or advertising scripts. The{' '}
-        <Link to={INFO_PATHS.privacy}>draft privacy page</Link> has the details.
-      </>
-    ),
-  },
-];
-
-/** /help */
-export function HelpRoute() {
-  return (
-    <ContentPage
-      eyebrow="Support"
-      title="Help and support"
-      description="Answers to common questions about what Wayora does today."
-      aside={
-        <Card padding="md" className="flex flex-col gap-2">
-          <h2 className="text-label text-ink">Contacting Wayora</h2>
-          <p className="text-body-sm text-ink-secondary">
-            There&apos;s no support contact yet. One will be added before real booking opens, when
-            there&apos;s something to support.
-          </p>
-        </Card>
-      }
-      after={
-        <section aria-labelledby="faq-title" className="flex flex-col gap-4">
-          <h2 id="faq-title" className="text-heading-3">
-            Frequently asked questions
-          </h2>
-          <Accordion type="multiple" className="border-t border-line">
-            {FAQ.map((item, i) => (
-              <AccordionItem key={item.q} value={`q${i}`}>
-                <AccordionTrigger className="text-body font-semibold">{item.q}</AccordionTrigger>
-                <AccordionContent className="text-body text-ink-secondary [&_a]:font-semibold [&_a]:text-brand-ink [&_a]:underline [&_a]:underline-offset-4">
-                  {item.a}
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        </section>
-      }
-    >
-      <p>
-        Wayora is in development, so there&apos;s less to go wrong than on a live booking site:
-        nothing is booked or paid for. If you&apos;re wondering what something does, the answers
-        below cover what exists today.
-      </p>
-      <h2 id="accounts" className="scroll-mt-(--header-offset)">
-        Your account
-      </h2>
-      <p>
-        An account holds your name, your email address, your password (stored only as a one-way
-        hash, never as the password itself) and any travellers you save: their names and,
-        optionally, date of birth and nationality. Wayora never asks for passport or ID numbers.
-      </p>
-      <ul>
-        <li>
-          <strong>Staying signed in.</strong> You stay signed in for up to 30 days, or until 7 days
-          pass without using Wayora. Sign out from the account menu, or from your{' '}
-          <Link to={ACCOUNT_PATHS.profile}>profile</Link>, where you can also sign out on all
-          devices at once.
-        </li>
-        <li>
-          <strong>Forgotten password.</strong> Password reset isn&apos;t available yet, because
-          Wayora doesn&apos;t send email yet and a reset must be confirmed by email to be safe.
-          It&apos;ll be added with email support.
-        </li>
-        <li>
-          <strong>Changing your email or deleting your account.</strong> Not available in the app
-          yet. Your name and saved travellers can be changed or removed at any time.
-        </li>
-      </ul>
-    </ContentPage>
-  );
-}
+// The FAQ and account answers that were on /help moved into the Help Center
+// articles (Phase 27, packages/contracts/src/help.ts; /help is now features/help).
 
 /** /legal/privacy (draft) */
 export function PrivacyRoute() {

@@ -38,6 +38,10 @@ export const NOTIFICATION_TYPES = [
   'plan_updated',
   /** Loyalty points or travel credit changed, or points are about to expire (Phase 25, docs/rewards.md#notifications). */
   'rewards',
+  /** Your support ticket: received, replied to, status changed, resolved or closed (Phase 27, docs/support.md#notifications). */
+  'support_ticket',
+  /** Support staff: a ticket assigned to you, new in the queue, a customer reply, or an escalation (Phase 27). */
+  'support_queue',
 ] as const;
 export const notificationTypeSchema = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof notificationTypeSchema>;
@@ -50,6 +54,7 @@ export const notificationCategorySchema = z.enum([
   'trip',
   'plan',
   'rewards',
+  'support',
 ]);
 export type NotificationCategory = z.infer<typeof notificationCategorySchema>;
 
@@ -58,6 +63,7 @@ export function notificationCategory(type: NotificationType): NotificationCatego
   if (type === 'trip_disruption') return 'trip';
   if (type.startsWith('plan_')) return 'plan';
   if (type === 'rewards') return 'rewards';
+  if (type.startsWith('support_')) return 'support';
   return type.startsWith('payment_') ? 'payment' : 'booking';
 }
 
@@ -81,6 +87,10 @@ export const notificationLinkSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('plan'), tripId: z.uuid() }),
   /** An invitation addressed to the recipient. */
   z.object({ kind: z.literal('plan-invitation'), invitationId: z.uuid() }),
+  /** The recipient's own support ticket (Phase 27). */
+  z.object({ kind: z.literal('support-ticket'), reference: z.string() }),
+  /** A ticket in the admin support workspace, for staff who can still open it (Phase 27). */
+  z.object({ kind: z.literal('admin-support-ticket'), reference: z.string() }),
 ]);
 export type NotificationLink = z.infer<typeof notificationLinkSchema>;
 

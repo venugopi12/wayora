@@ -1,5 +1,6 @@
 import {
   Bell,
+  LifeBuoy,
   CalendarRange,
   ChevronDown,
   LogOut,
@@ -90,6 +91,9 @@ function AccountMenu({ tone }: { tone: HeaderTone }) {
           onSelect={() => void navigate(ACCOUNT_PATHS.notifications)}
         >
           Notifications
+        </DropdownMenuItem>
+        <DropdownMenuItem icon={<LifeBuoy />} onSelect={() => void navigate(ACCOUNT_PATHS.support)}>
+          Support
         </DropdownMenuItem>
         <DropdownMenuItem
           icon={<UserRound />}

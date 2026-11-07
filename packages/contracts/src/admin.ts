@@ -34,6 +34,12 @@ export const ADMIN_PERMISSIONS = [
   'admin.promotions.read',
   /** Create, edit, activate or deactivate promotions (Phase 26). Admins only. */
   'admin.promotions.manage',
+  /** Support queue, tickets, conversations, notes, history and metrics (Phase 27). Read-only. */
+  'admin.support.read',
+  /** Reply, add internal notes, change status, take or release tickets, escalate (Phase 27). */
+  'admin.support.manage',
+  /** Assign tickets to others, change priority, handle and de-escalate escalated tickets (Phase 27). Admins only. */
+  'admin.support.supervise',
 ] as const;
 export const adminPermissionSchema = z.enum(ADMIN_PERMISSIONS);
 export type AdminPermission = z.infer<typeof adminPermissionSchema>;
@@ -51,6 +57,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly AdminPermission[]> = {
     'admin.health.read',
     'admin.rewards.read',
     'admin.promotions.read',
+    'admin.support.read',
+    'admin.support.manage',
   ],
   admin: ADMIN_PERMISSIONS,
 };

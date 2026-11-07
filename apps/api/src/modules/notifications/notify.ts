@@ -32,6 +32,8 @@ export interface NotifyInput {
   /** Planner notifications (Phase 19): the plan or invitation they're about. */
   plannedTripId?: string | null;
   tripInvitationId?: string | null;
+  /** Support notifications (Phase 27): the ticket they're about. */
+  supportTicketId?: string | null;
   dedupeKey: string;
 }
 
@@ -84,6 +86,7 @@ export async function notify(tx: Tx, now: Date, input: NotifyInput): Promise<boo
         paymentId: input.paymentId ?? null,
         plannedTripId: input.plannedTripId ?? null,
         tripInvitationId: input.tripInvitationId ?? null,
+        supportTicketId: input.supportTicketId ?? null,
         dedupeKey: input.dedupeKey,
         createdAt: now,
       },

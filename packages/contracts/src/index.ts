@@ -16,4 +16,6 @@ export * from './planner-collaboration.js';
 export * from './promotions.js';
 export * from './rewards.js';
 export * from './search/index.js';
+export * from './support.js';
+export * from './help.js';
 export * from './trips.js';

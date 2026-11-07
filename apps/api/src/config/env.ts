@@ -215,12 +215,19 @@ export const envSchema = z.object({
    * pay for real bookings. Off by default; no live payment provider exists, so
    * every reward today is a demo reward (no cash value).
    */
-  /** Coupon applications and removals per customer per 15 minutes (Phase 26; slows code guessing). */
-  COUPON_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
   LOYALTY_LIVE_REWARDS_ENABLED: z.preprocess(
     emptyToUndefined,
     z.enum(['true', 'false']).default('false'),
   ),
+  /** Coupon applications and removals per customer per 15 minutes (Phase 26; slows code guessing). */
+  COUPON_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+  // Customer support (Phase 27, docs/support.md#configuration).
+  /** New support tickets per customer per hour. */
+  SUPPORT_TICKET_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  /** Support messages per user (customer or staff) per minute. */
+  SUPPORT_MESSAGE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+  /** A resolved ticket closes by itself after this many days without a reply. */
+  SUPPORT_AUTO_CLOSE_DAYS: z.coerce.number().int().min(1).max(90).default(7),
 });
 
 /** Which search-session store this configuration selects. */

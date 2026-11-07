@@ -1,5 +1,7 @@
 import {
   EMAIL_NOT_CONFIGURED_STATUS,
+  hasPermission,
+  type UserRole,
   notificationCategory,
   type Notification,
   type NotificationListQuery,
@@ -24,6 +26,9 @@ const include = {
   // Planner links (Phase 19): only while the recipient can still open them.
   plannedTrip: { select: { id: true, userId: true, members: { select: { userId: true } } } },
   tripInvitation: { select: { id: true, inviteeId: true } },
+  // Support (Phase 27): the customer's own ticket, or the staff workspace while still staff.
+  supportTicket: { select: { reference: true, userId: true } },
+  user: { select: { role: true, status: true } },
 } satisfies Prisma.NotificationInclude;
 type Row = Prisma.NotificationGetPayload<{ include: typeof include }>;
 
@@ -63,6 +68,15 @@ export class NotificationsService {
 
   /** A plan or invitation link, if the recipient may still open it (else none). */
   private planLink(row: Row): Notification['link'] {
+    const ticket = row.supportTicket;
+    if (ticket) {
+      if (ticket.userId === row.userId)
+        return { kind: 'support-ticket', reference: ticket.reference };
+      const role = row.user.role.toLowerCase() as UserRole;
+      return row.user.status === 'ACTIVE' && hasPermission(role, 'admin.support.read')
+        ? { kind: 'admin-support-ticket', reference: ticket.reference }
+        : null;
+    }
     const invitation = row.tripInvitation;
     if (invitation && invitation.inviteeId === row.userId) {
       return { kind: 'plan-invitation', invitationId: invitation.id };

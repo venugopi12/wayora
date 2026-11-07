@@ -33,6 +33,16 @@ export interface AssistantOutput {
   usage: { inputTokens: number | null; outputTokens: number | null };
 }
 
+/**
+ * A plain-text request for features other than trip planning (support
+ * suggestions, Phase 27, docs/support.md#ai-assistance). The caller builds
+ * the whole prompt; untrusted text must be delimited inside `messages`.
+ */
+export interface TextCompletion {
+  system: string;
+  messages: readonly { role: 'user' | 'assistant'; content: string }[];
+}
+
 export interface AssistantProvider {
   /** Stable id stored with replies (`demo`, `anthropic`). */
   readonly id: string;
@@ -44,6 +54,11 @@ export interface AssistantProvider {
   readonly model: string | null;
   generate(
     input: AssistantGeneration,
+    options: { signal: AbortSignal; maxOutputTokens: number },
+  ): Promise<AssistantOutput>;
+  /** Plain-text completion; absent for providers that only plan trips (the demo). */
+  complete?(
+    input: TextCompletion,
     options: { signal: AbortSignal; maxOutputTokens: number },
   ): Promise<AssistantOutput>;
 }

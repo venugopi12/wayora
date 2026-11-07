@@ -262,3 +262,13 @@ Then deploy the Phase 13 code (and stop workers running Phase 14 code).
 Loyalty events use one type, `REWARDS` (`rewards`), and are **in-app only**:
 no email is queued for them. Events and dedupe keys are listed in
 [rewards.md](rewards.md#notifications).
+
+## Support (Phase 27)
+
+Two types, both **in-app only** (no email is queued): `SUPPORT_TICKET`
+(`support_ticket`, to the customer who opened the ticket) and
+`SUPPORT_QUEUE` (`support_queue`, to support staff). They link to the
+ticket through `notifications.support_ticket_id`: the customer's own ticket
+page, or the staff workspace while the recipient still has
+`admin.support.read`. Dedupe keys are `support:<ticketId>:<seq>:<recipientId>`.
+Events and recipients are listed in [support.md](support.md#notifications).

@@ -21,4 +21,8 @@ export const ADMIN_PATHS = {
   promotions: '/admin/promotions',
   promotionNew: '/admin/promotions/new',
   promotion: (id: string) => `/admin/promotions/${encodeURIComponent(id)}`,
+  /** Support workspace (Phase 27). */
+  support: '/admin/support',
+  supportQueue: '/admin/support/tickets',
+  supportTicket: (reference: string) => `/admin/support/tickets/${encodeURIComponent(reference)}`,
 } as const;

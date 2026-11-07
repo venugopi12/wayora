@@ -144,6 +144,9 @@ enum NotificationType {
   PLAN_UPDATED
   /// Loyalty points and travel credits (Phase 25, docs/rewards.md#notifications). In-app only.
   REWARDS
+  /// Support (Phase 27, docs/support.md#notifications). In-app only.
+  SUPPORT_TICKET
+  SUPPORT_QUEUE
 
   @@map("notification_type")
 }
@@ -341,6 +344,11 @@ model User {
   /// Promotions (Phase 26, docs/promotions.md): personal offers, and uses.
   personalPromotions   Promotion[]           @relation("PromotionForUser")
   promotionRedemptions PromotionRedemption[]
+  /// Support (Phase 27, docs/support.md): tickets opened, tickets assigned, messages and history written.
+  supportTickets       SupportTicket[]       @relation("SupportTicketCustomer")
+  assignedSupport      SupportTicket[]       @relation("SupportTicketAssignee")
+  supportMessages      SupportMessage[]
+  supportTicketEvents  SupportTicketEvent[]
 
   @@index([status])
   @@index([role])
@@ -484,6 +492,8 @@ model Booking {
   rewardRedemptions  RewardRedemption[]
   /// Promotions applied to it (Phase 26).
   promotionRedemptions PromotionRedemption[]
+  /// Support tickets linked to it (Phase 27).
+  supportTickets       SupportTicket[]
 
   @@unique([provider, providerReference])
   @@index([orderId])
@@ -621,6 +631,8 @@ model Notification {
   /// Planner notifications (Phase 19): the plan, or the invitation, it is about.
   plannedTripId    String?   @map("planned_trip_id") @db.Uuid
   tripInvitationId String?   @map("trip_invitation_id") @db.Uuid
+  /// Support notifications (Phase 27): the ticket they're about.
+  supportTicketId  String?   @map("support_ticket_id") @db.Uuid
   /// One notification per event: e.g. "payment:<id>:SUCCEEDED".
   dedupeKey String           @unique @map("dedupe_key") @db.VarChar(200)
   readAt    DateTime?        @map("read_at") @db.Timestamptz(3)
@@ -631,11 +643,13 @@ model Notification {
   payment    Payment?               @relation(fields: [paymentId], references: [id], onDelete: Restrict)
   plannedTrip    PlannedTrip?    @relation(fields: [plannedTripId], references: [id], onDelete: SetNull)
   tripInvitation TripInvitation? @relation(fields: [tripInvitationId], references: [id], onDelete: SetNull)
+  supportTicket  SupportTicket?  @relation(fields: [supportTicketId], references: [id], onDelete: SetNull)
   deliveries NotificationDelivery[]
 
   @@index([userId, createdAt(sort: Desc), id(sort: Desc)])
   @@index([plannedTripId])
   @@index([tripInvitationId])
+  @@index([supportTicketId])
   @@map("notifications")
 }
 
@@ -1896,4 +1910,179 @@ model PromotionRedemption {
   @@index([bookingId])
   @@index([status, reservedUntil])
   @@map("promotion_redemptions")
+}
+
+// ─── Customer support (Phase 27, docs/support.md) ────────────────────────
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_FOR_CUSTOMER
+  WAITING_FOR_PROVIDER
+  RESOLVED
+  /// Final: a new question is a new ticket.
+  CLOSED
+
+  @@map("support_ticket_status")
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  /// Set by staff only.
+  URGENT
+
+  @@map("support_ticket_priority")
+}
+
+enum SupportTicketCategory {
+  BOOKING
+  PAYMENT
+  CANCELLATION
+  REFUND
+  FLIGHT
+  HOTEL
+  TRAIN_BUS
+  REWARDS
+  PROMOTIONS
+  ACCOUNT
+  TECHNICAL
+  GENERAL
+
+  @@map("support_ticket_category")
+}
+
+enum SupportAuthorKind {
+  CUSTOMER
+  AGENT
+  /// Wayora itself (automatic acknowledgements, auto-close). Never a human first response.
+  SYSTEM
+
+  @@map("support_author_kind")
+}
+
+enum SupportEventType {
+  CREATED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  CATEGORY_CHANGED
+  ASSIGNED
+  UNASSIGNED
+  ESCALATED
+  DE_ESCALATED
+  CUSTOMER_MESSAGE
+  AGENT_REPLY
+  INTERNAL_NOTE
+  /// An automatic message from Wayora (e.g. the acknowledgement). Not a human response.
+  SYSTEM_MESSAGE
+
+  @@map("support_event_type")
+}
+
+/// A customer's support request. Status changes follow the lifecycle (a
+/// trigger enforces it); every change bumps `revision` and appends a
+/// support_ticket_events row with that sequence number.
+model SupportTicket {
+  id                    String                @id @default(uuid(7)) @db.Uuid
+  /// Public reference, e.g. WYS-7KQ2-M9XD (never the id).
+  reference             String                @unique @db.VarChar(16)
+  userId                String                @map("user_id") @db.Uuid
+  bookingId             String?               @map("booking_id") @db.Uuid
+  category              SupportTicketCategory
+  priority              SupportTicketPriority @default(NORMAL)
+  status                SupportTicketStatus   @default(OPEN)
+  subject               String                @db.VarChar(120)
+  /// The linked booking as it was when the ticket opened (from Wayora's records).
+  bookingContext        Json?                 @map("booking_context")
+  assigneeId            String?               @map("assignee_id") @db.Uuid
+  /// Escalated to administrators (only admins may then be assigned).
+  escalated             Boolean               @default(false)
+  escalatedAt           DateTime?             @map("escalated_at") @db.Timestamptz(3)
+  revision              Int                   @default(0)
+  /// Up to which sequence number the customer / staff have read.
+  customerReadSeq       Int                   @default(0) @map("customer_read_seq")
+  staffReadSeq          Int                   @default(0) @map("staff_read_seq")
+  lastCustomerMessageAt DateTime?             @map("last_customer_message_at") @db.Timestamptz(3)
+  lastAgentReplyAt      DateTime?             @map("last_agent_reply_at") @db.Timestamptz(3)
+  /// The first public reply by a person on the support team (never an automatic message).
+  firstResponseAt       DateTime?             @map("first_response_at") @db.Timestamptz(3)
+  firstResponseDueAt    DateTime              @map("first_response_due_at") @db.Timestamptz(3)
+  resolutionDueAt       DateTime              @map("resolution_due_at") @db.Timestamptz(3)
+  resolvedAt            DateTime?             @map("resolved_at") @db.Timestamptz(3)
+  closedAt              DateTime?             @map("closed_at") @db.Timestamptz(3)
+  reopenCount           Int                   @default(0) @map("reopen_count")
+  /// Makes a retried submission create one ticket.
+  clientKey             String                @map("client_key") @db.Uuid
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user          User                 @relation("SupportTicketCustomer", fields: [userId], references: [id], onDelete: Restrict)
+  booking       Booking?             @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  assignee      User?                @relation("SupportTicketAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  messages      SupportMessage[]
+  events        SupportTicketEvent[]
+  notifications Notification[]
+
+  @@unique([userId, clientKey])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@index([bookingId])
+  @@index([status, priority])
+  @@index([assigneeId, status])
+  @@index([escalated, status])
+  @@index([status, resolutionDueAt])
+  @@index([createdAt])
+  @@index([updatedAt(sort: Desc)])
+  @@map("support_tickets")
+}
+
+/// One message in a ticket's conversation (append-only). `internal` notes
+/// are staff-only and never leave the staff API.
+model SupportMessage {
+  id         String            @id @default(uuid(7)) @db.Uuid
+  ticketId   String            @map("ticket_id") @db.Uuid
+  /// The ticket revision it was written at (orders the conversation).
+  seq        Int
+  authorKind SupportAuthorKind @map("author_kind")
+  authorId   String?           @map("author_id") @db.Uuid
+  internal   Boolean           @default(false)
+  body       String
+  /// The agent started from an AI draft and reviewed it before sending.
+  aiAssisted Boolean           @default(false) @map("ai_assisted")
+  clientKey  String?           @map("client_key") @db.Uuid
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  ticket SupportTicket        @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  author User?                @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  events SupportTicketEvent[]
+
+  @@unique([ticketId, seq])
+  @@unique([ticketId, authorId, clientKey])
+  @@index([authorId])
+  @@map("support_messages")
+}
+
+/// A ticket's history (append-only); each row is announced to live streams.
+model SupportTicketEvent {
+  id        String            @id @default(uuid(7)) @db.Uuid
+  ticketId  String            @map("ticket_id") @db.Uuid
+  seq       Int
+  type      SupportEventType
+  actorKind SupportAuthorKind @map("actor_kind")
+  actorId   String?           @map("actor_id") @db.Uuid
+  fromValue String?           @map("from_value") @db.VarChar(40)
+  toValue   String?           @map("to_value") @db.VarChar(40)
+  reason    String?           @db.VarChar(300)
+  /// Staff-only (internal notes, assignment, escalation, priority).
+  internal  Boolean           @default(false)
+  messageId String?           @map("message_id") @db.Uuid
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  ticket  SupportTicket   @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  actor   User?           @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  message SupportMessage? @relation(fields: [messageId], references: [id], onDelete: Restrict)
+
+  @@unique([ticketId, seq])
+  @@index([type, createdAt])
+  @@map("support_ticket_events")
 }

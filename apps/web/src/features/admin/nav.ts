@@ -3,6 +3,7 @@ import {
   BellRing,
   CreditCard,
   Gift,
+  LifeBuoy,
   LayoutDashboard,
   Luggage,
   ScrollText,
@@ -58,6 +59,13 @@ export const ADMIN_NAV: readonly AdminNavItem[] = [
     label: 'Rewards',
     icon: Gift,
     permission: 'admin.rewards.read',
+    end: false,
+  },
+  {
+    to: ADMIN_PATHS.support,
+    label: 'Support',
+    icon: LifeBuoy,
+    permission: 'admin.support.read',
     end: false,
   },
   {

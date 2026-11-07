@@ -70,6 +70,9 @@ const admin = () => import('../features/admin/routes');
 const adminLayout = () => import('../features/admin/AdminLayout');
 const adminRewards = () => import('../features/admin/RewardsAdmin');
 const adminPromotions = () => import('../features/admin/PromotionsAdmin');
+const adminSupport = () => import('../features/admin/SupportAdmin');
+const support = () => import('../features/support/routes');
+const help = () => import('../features/help/routes');
 
 /** /sign-in (the pre-Phase 8 link) → /login, keeping any query string. */
 function LegacySignInRedirect() {
@@ -220,6 +223,18 @@ export function createRoutes({
                       lazy: async () => ({ Component: (await rewards()).RewardsRoute }),
                     },
                     {
+                      path: ACCOUNT_PATHS.support.slice(1),
+                      lazy: async () => ({ Component: (await support()).SupportTicketsRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.support.slice(1)}/new`,
+                      lazy: async () => ({ Component: (await support()).NewTicketRoute }),
+                    },
+                    {
+                      path: `${ACCOUNT_PATHS.support.slice(1)}/:reference`,
+                      lazy: async () => ({ Component: (await support()).TicketRoute }),
+                    },
+                    {
                       path: ACCOUNT_PATHS.plans.slice(1),
                       lazy: async () => ({ Component: (await planner()).PlansRoute }),
                     },
@@ -279,9 +294,17 @@ export function createRoutes({
                   lazy: async () => ({ Component: (await info()).AboutRoute }),
                 },
                 {
+                  // Help Center (Phase 27): searchable articles, topics, contact support.
                   path: INFO_PATHS.help.slice(1),
-                  handle: crumb('Help and support'),
-                  lazy: async () => ({ Component: (await info()).HelpRoute }),
+                  lazy: async () => ({ Component: (await help()).HelpCenterRoute }),
+                },
+                {
+                  path: `${INFO_PATHS.help.slice(1)}/topics/:category`,
+                  lazy: async () => ({ Component: (await help()).HelpTopicRoute }),
+                },
+                {
+                  path: `${INFO_PATHS.help.slice(1)}/articles/:slug`,
+                  lazy: async () => ({ Component: (await help()).HelpArticleRoute }),
                 },
                 {
                   path: INFO_PATHS.privacy.slice(1),
@@ -354,6 +377,18 @@ export function createRoutes({
                 {
                   path: 'rewards/users/:userId',
                   lazy: async () => ({ Component: (await adminRewards()).UserRewardsRoute }),
+                },
+                {
+                  path: 'support',
+                  lazy: async () => ({ Component: (await adminSupport()).SupportDashboardRoute }),
+                },
+                {
+                  path: 'support/tickets',
+                  lazy: async () => ({ Component: (await adminSupport()).SupportQueueRoute }),
+                },
+                {
+                  path: 'support/tickets/:reference',
+                  lazy: async () => ({ Component: (await adminSupport()).SupportWorkspaceRoute }),
                 },
                 {
                   path: 'promotions',

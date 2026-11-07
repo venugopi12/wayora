@@ -61,6 +61,14 @@ The mapping lives in one place, `packages/contracts/src/admin.ts`
 | `admin.rewards.manage`      | –    | –       | ✓     |
 | `admin.promotions.read`     | –    | ✓       | ✓     |
 | `admin.promotions.manage`   | –    | –       | ✓     |
+| `admin.support.read`        | –    | ✓       | ✓     |
+| `admin.support.manage`      | –    | ✓       | ✓     |
+| `admin.support.supervise`   | –    | –       | ✓     |
+
+Support staff have one write permission, `admin.support.manage`: working
+support tickets (Phase 27, [support.md](support.md#permissions)). Assigning
+tickets to others and handling escalated tickets need
+`admin.support.supervise` (admins).
 
 Enforcement (`apps/api/src/modules/admin/access.ts`):
 

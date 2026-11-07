@@ -208,8 +208,8 @@ describe('layout', () => {
     expect(announcer).toHaveAttribute('aria-live', 'polite');
     expect(announcer.textContent).toBe('');
     await act(() => router.navigate('/help'));
-    await screen.findByRole('heading', { level: 1, name: 'Help and support' });
-    await waitFor(() => expect(announcer.textContent).toBe('Help and support | Wayora'));
+    await screen.findByRole('heading', { level: 1, name: 'How can we help?' });
+    await waitFor(() => expect(announcer.textContent).toBe('Help Center | Wayora'));
   });
 });
 
@@ -307,17 +307,20 @@ describe('info and legal pages', () => {
     }
   });
 
-  it('answers help questions in an accordion and offers no invented contact details', async () => {
+  it('answers help questions from the Help Center and offers no invented contact details', async () => {
     renderRoute('/help');
-    const q = await screen.findByRole('button', { name: 'Can I book travel on Wayora?' });
-    expect(q).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.click(q);
-    expect(q).toHaveAttribute('aria-expanded', 'true');
-    expect(
-      screen.getByText(/only as a demo\. each service page has a demo search/i),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/there's no support contact yet/i)).toBeInTheDocument();
+    await screen.findByRole('heading', { level: 1, name: 'How can we help?' });
+    // Contact goes through an in-app support request (Phase 27), never an invented address or number.
+    expect(screen.getByRole('link', { name: 'Contact support' })).toHaveAttribute(
+      'href',
+      '/support/new',
+    );
     expect(screen.getByRole('main').textContent).not.toMatch(/@\w|mailto:|tel:|\+\d{2}/);
+    fireEvent.click(screen.getByRole('link', { name: /What is a demo booking\?/ }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'What is a demo booking?' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/no real money moves/i)).toBeInTheDocument();
   });
 
   it('describes Wayora without market or customer claims', async () => {

@@ -60,6 +60,8 @@ import {
 import { DemoPaymentProvider } from './modules/payments/providers/demo.js';
 import { RewardsService } from './modules/rewards/rewards.service.js';
 import { PromotionsService } from './modules/promotions/promotions.service.js';
+import { SupportService, type SupportServiceOptions } from './modules/support/support.service.js';
+import type { SupportRouterOptions } from './modules/support/support.routes.js';
 import type { PaymentProvider } from './modules/payments/providers/types.js';
 import { v1Router, type AccountsRouterOptions } from './routes/v1.js';
 import type { StreamTimings } from './services/signal-stream.js';
@@ -123,6 +125,14 @@ export interface AppDependencies {
   plannerEvents?: SignalHub;
   /** Stream timings for plan live updates (tests shorten them). */
   plannerStream?: Partial<StreamTimings>;
+  /**
+   * Live support-ticket updates (Phase 27, docs/support.md#live-updates):
+   * customer-visible announcements and all announcements (staff). The server
+   * passes PostgreSQL-fed hubs; without them, pages fall back to re-reading.
+   */
+  supportEvents?: { customer: SignalHub; staff: SignalHub };
+  /** Stream timings for support live updates (tests shorten them). */
+  supportStream?: Partial<StreamTimings>;
   /** Overrides the travel-status provider chosen by env (tests); null = none. */
   travelStatus?: { provider?: TravelStatusProvider | null; stream?: Partial<StreamTimings> };
   /**
@@ -284,6 +294,31 @@ export function createRewardsService(
   });
 }
 
+/** Customer support (Phase 27, docs/support.md). */
+export function createSupportService(
+  prisma: PrismaClient,
+  env: Env,
+  logger: Logger,
+  options: {
+    now?: () => Date;
+    bookings?: SupportServiceOptions['bookings'];
+    aiProvider?: AssistantProvider | null;
+  } = {},
+): SupportService {
+  return new SupportService({
+    prisma,
+    logger: logger.child({ component: 'support' }),
+    bookings: options.bookings,
+    ai: {
+      provider: options.aiProvider ?? null,
+      timeoutMs: env.AI_TIMEOUT_MS,
+      maxOutputTokens: Math.min(env.AI_MAX_OUTPUT_TOKENS, 1024),
+    },
+    autoCloseDays: env.SUPPORT_AUTO_CLOSE_DAYS,
+    ...(options.now ? { now: options.now } : {}),
+  });
+}
+
 /** Coupons and promotions (Phase 26, docs/promotions.md). */
 export function createPromotionsService(
   prisma: PrismaClient,
@@ -339,6 +374,8 @@ export function createApp({
   travelStatus,
   plannerEvents,
   plannerStream,
+  supportEvents,
+  supportStream,
   assistant,
   reservations: reservationOptions,
 }: AppDependencies): Express {
@@ -403,6 +440,7 @@ export function createApp({
         | 'rewardsLimiter'
         | 'promotions'
         | 'couponLimiter'
+        | 'support'
       >
     | undefined;
   let sessionValid: (token: string | undefined) => Promise<boolean> = () => Promise.resolve(false);
@@ -481,6 +519,9 @@ export function createApp({
   const assistantWriteStore = createRateLimitStore?.('assistant-writes');
   const rewardsStore = createRateLimitStore?.('rewards');
   const couponStore = createRateLimitStore?.('coupons');
+  const supportTicketStore = createRateLimitStore?.('support-tickets');
+  const supportMessageStore = createRateLimitStore?.('support-messages');
+  const supportAiStore = createRateLimitStore?.('support-ai');
   const payments = prisma
     ? createPaymentsService(prisma, env, logger, {
         ...(now ? { now } : {}),
@@ -568,6 +609,46 @@ export function createApp({
           ...(now ? { now } : {}),
         })
       : undefined;
+  // Customer support (Phase 27): booking context comes from the owner's own booking view.
+  const supportService =
+    prisma && bookingsService && assistantService
+      ? createSupportService(prisma, env, logger, {
+          ...(now ? { now } : {}),
+          bookings: bookingsService,
+          aiProvider: assistantService.provider,
+        })
+      : undefined;
+  const supportRoutes: SupportRouterOptions | undefined =
+    prisma && supportService
+      ? {
+          service: supportService,
+          prisma,
+          logger: logger.child({ component: 'support' }),
+          customerHub: supportEvents?.customer ?? new LocalSignalHub(),
+          staffHub: supportEvents?.staff ?? new LocalSignalHub(),
+          sessionValid,
+          ...(supportStream ? { stream: supportStream } : {}),
+          ticketLimiter: bookingWriteRateLimiter({
+            max: env.SUPPORT_TICKET_RATE_LIMIT_MAX,
+            windowMs: 60 * 60 * 1000,
+            subject: 'support requests',
+            userIdOf: (res) => currentUser(res).id,
+            ...(supportTicketStore ? { store: supportTicketStore } : {}),
+          }),
+          messageLimiter: bookingWriteRateLimiter({
+            max: env.SUPPORT_MESSAGE_RATE_LIMIT_MAX,
+            subject: 'support messages',
+            userIdOf: (res) => currentUser(res).id,
+            ...(supportMessageStore ? { store: supportMessageStore } : {}),
+          }),
+          aiLimiter: bookingWriteRateLimiter({
+            max: env.AI_RATE_LIMIT_MAX,
+            subject: 'AI suggestions',
+            userIdOf: (res) => currentUser(res).id,
+            ...(supportAiStore ? { store: supportAiStore } : {}),
+          }),
+        }
+      : undefined;
   const accountRoutes: AccountsRouterOptions | undefined =
     accounts &&
     prisma &&
@@ -578,7 +659,8 @@ export function createApp({
     budgetService &&
     assistantService &&
     rewardsService &&
-    promotionsService
+    promotionsService &&
+    supportRoutes
       ? {
           ...accounts,
           bookings: bookingsService,
@@ -597,6 +679,7 @@ export function createApp({
             reservations: reservationService ?? null,
             rewards: rewardsService,
             promotions: promotionsService,
+            support: supportRoutes,
             health: new PlatformHealth({
               prisma,
               ...(redis ? { redis } : {}),
@@ -676,6 +759,7 @@ export function createApp({
           },
           rewards: rewardsService,
           promotions: promotionsService,
+          support: supportRoutes,
           couponLimiter: bookingWriteRateLimiter({
             max: env.COUPON_RATE_LIMIT_MAX,
             windowMs: 15 * 60 * 1000,

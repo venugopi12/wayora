@@ -4,6 +4,7 @@ import {
   type AssistantGeneration,
   type AssistantOutput,
   type AssistantProvider,
+  type TextCompletion,
 } from './provider.js';
 
 /*
@@ -77,11 +78,27 @@ export class AnthropicProvider implements AssistantProvider {
     this.fetchImpl = options.fetch ?? globalThis.fetch;
   }
 
-  async generate(
+  generate(
     input: AssistantGeneration,
     options: { signal: AbortSignal; maxOutputTokens: number },
   ): Promise<AssistantOutput> {
     const prompt = buildPrompt(input);
+    return this.send(prompt.system, prompt.messages, options);
+  }
+
+  /** Plain-text completion (support suggestions, Phase 27). Same transport and safeguards. */
+  complete(
+    input: TextCompletion,
+    options: { signal: AbortSignal; maxOutputTokens: number },
+  ): Promise<AssistantOutput> {
+    return this.send(input.system, input.messages, options);
+  }
+
+  private async send(
+    system: string,
+    messages: readonly { role: 'user' | 'assistant'; content: string }[],
+    options: { signal: AbortSignal; maxOutputTokens: number },
+  ): Promise<AssistantOutput> {
     let response: Response;
     try {
       response = await this.fetchImpl(this.url, {
@@ -95,8 +112,8 @@ export class AnthropicProvider implements AssistantProvider {
         body: JSON.stringify({
           model: this.model,
           max_tokens: options.maxOutputTokens,
-          system: prompt.system,
-          messages: prompt.messages,
+          system,
+          messages,
         }),
       });
     } catch {

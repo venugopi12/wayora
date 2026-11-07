@@ -41,6 +41,8 @@ describe('admin access (presentation follows the server)', JOURNEY, () => {
       'Payments',
       // Read-only loyalty views (Phase 25); changes need an administrator.
       'Rewards',
+      // The support workspace (Phase 27): support staff work tickets.
+      'Support',
       // Read-only promotion views (Phase 26); changes need an administrator.
       'Promotions',
       'Search activity',

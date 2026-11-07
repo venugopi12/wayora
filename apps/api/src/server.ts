@@ -7,6 +7,7 @@ import {
   createPaymentsService,
   createRewardsService,
   createPromotionsService,
+  createSupportService,
   createProviderRegistry,
   createReservationService,
   createSessionService,
@@ -26,6 +27,10 @@ import { createTravelReminders } from './modules/notifications/reminders.js';
 import { RedisSearchSessionStore, type SearchSessionStore } from './modules/search/sessions.js';
 import { PgTripEventHub } from './modules/trips/stream.js';
 import { PLANNER_EVENTS_CHANNEL } from './modules/planner/planner.routes.js';
+import {
+  SUPPORT_CUSTOMER_CHANNEL,
+  SUPPORT_STAFF_CHANNEL,
+} from './modules/support/support.routes.js';
 import { PgSignalHub } from './services/signal-hub.js';
 import type { DependencyCheck } from './services/health.js';
 import { createRedisConnection, type RedisConnection } from './services/redis.js';
@@ -114,6 +119,23 @@ async function main(): Promise<void> {
     label: 'plan updates',
   });
 
+  // Live support-ticket updates (docs/support.md#live-updates): staff hear
+  // every change, customers only customer-visible ones (two channels).
+  const supportEvents = {
+    customer: new PgSignalHub(env.DATABASE_URL, logger, {
+      channel: SUPPORT_CUSTOMER_CHANNEL,
+      keyField: 'ticketId',
+      component: 'support-events',
+      label: 'support updates (customer)',
+    }),
+    staff: new PgSignalHub(env.DATABASE_URL, logger, {
+      channel: SUPPORT_STAFF_CHANNEL,
+      keyField: 'ticketId',
+      component: 'support-events',
+      label: 'support updates (staff)',
+    }),
+  };
+
   const app = createApp({
     env,
     logger,
@@ -121,6 +143,7 @@ async function main(): Promise<void> {
     prisma,
     tripEvents,
     plannerEvents,
+    supportEvents,
     ...(redis ? { redis: redis.client } : {}),
     ...(searchSessions ? { searchSessions } : {}),
     ...(redis
@@ -235,6 +258,25 @@ async function main(): Promise<void> {
   const promotionsTimer = setInterval(() => void promotionsMaintenance(), 60 * 1000);
   promotionsTimer.unref();
 
+  // Support (Phase 27, docs/support.md#lifecycle): resolved tickets with no
+  // reply for SUPPORT_AUTO_CLOSE_DAYS are closed. Idempotent and row-locked.
+  const support = createSupportService(prisma, env, logger);
+  let supportRunning = false;
+  const supportMaintenance = async () => {
+    if (supportRunning) return;
+    supportRunning = true;
+    try {
+      const closed = await support.sweep();
+      if (closed > 0) logger.info({ closed }, 'Closed resolved support tickets');
+    } catch (err) {
+      logger.warn({ err: unexpectedErrorForLog(err) }, 'Support maintenance failed; will retry');
+    } finally {
+      supportRunning = false;
+    }
+  };
+  const supportTimer = setInterval(() => void supportMaintenance(), 10 * 60 * 1000);
+  supportTimer.unref();
+
   // Supplier reservations (Phase 23, docs/bookings.md#recovery): open
   // reservations whose next check is due are looked up with the supplier (or
   // handed to staff). Each row is leased with a conditional update, so every
@@ -334,6 +376,8 @@ async function main(): Promise<void> {
     // Live-update streams never finish on their own: end them (browsers reconnect).
     await tripEvents.close();
     await plannerEvents.close();
+    await supportEvents.customer.close();
+    await supportEvents.staff.close();
     // 1. Stop accepting connections and let in-flight requests finish.
     await new Promise<void>((resolve) => {
       server.close(() => resolve());

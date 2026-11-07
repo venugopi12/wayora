@@ -25,6 +25,7 @@ import type { ReservationService } from '../bookings/reservations.service.js';
 import { adminRewardsRouter } from '../rewards/rewards.routes.js';
 import { adminPromotionsRouter } from '../promotions/promotions.routes.js';
 import type { PromotionsService } from '../promotions/promotions.service.js';
+import { adminSupportRouter, type SupportRouterOptions } from '../support/support.routes.js';
 import type { RewardsService } from '../rewards/rewards.service.js';
 
 export interface AdminRouterOptions {
@@ -38,6 +39,8 @@ export interface AdminRouterOptions {
   rewards?: RewardsService | null;
   /** Promotions (Phase 26): read views and audited changes. */
   promotions?: PromotionsService | null;
+  /** Customer support workspace (Phase 27). */
+  support?: SupportRouterOptions | null;
 }
 
 const noQuery = z.object({}).strict();
@@ -74,6 +77,7 @@ export function adminRouter({
   reservations,
   rewards,
   promotions,
+  support,
 }: AdminRouterOptions): Router {
   const router = Router();
   router.use(noStore);
@@ -194,6 +198,8 @@ export function adminRouter({
   if (rewards) router.use('/rewards', adminRewardsRouter({ prisma, logger, rewards }));
   // Promotions (Phase 26, docs/promotions.md#admin).
   if (promotions) router.use('/promotions', adminPromotionsRouter({ prisma, logger, promotions }));
+  // Customer support (Phase 27, docs/support.md#agent-workspace).
+  if (support) router.use('/support', adminSupportRouter(support));
 
   return router;
 }

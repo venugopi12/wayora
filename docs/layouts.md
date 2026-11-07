@@ -18,7 +18,8 @@ RootLayout                      components/layout/RootLayout.tsx
       ├─ /                     HomeRoute              handle.headerOverlay
       ├─ /discover             DiscoverRoute          handle.crumb "Discover"
       ├─ /discover/:slug       DestinationRoute       handle.crumb = destination name
-      ├─ /about, /help         info chunk             handle.crumb
+      ├─ /about                info chunk             handle.crumb
+      ├─ /help, /help/topics/:category, /help/articles/:slug  help chunk (Phase 27; own breadcrumbs)
       ├─ /legal/privacy, /legal/terms                 handle.crumb (drafts)
       ├─ /status, /flights … /holidays (demo search and results), /sign-in (→ /login)
       ├─ /offers/:serviceType/:resultId  offer details (Phase 10; own breadcrumbs)
@@ -157,7 +158,7 @@ shared display-currency selector (the same component and state as the header).
 | `/legal/terms`                              | **Draft placeholder.** States nothing creates a contract; lists what terms must cover. Needs terms written and reviewed by legal counsel.                                                                                                                                              |
 | Cookie policy                               | Not created. The only cookie is the strictly necessary session cookie (Phase 8), described in the privacy draft. Review whether a separate notice is needed before launch, and add one with any analytics or stored preferences.                                                       |
 | Log retention                               | Not defined. The privacy draft says so; decide before launch.                                                                                                                                                                                                                          |
-| Contact page / support channel              | Not created: no contact details exist and none were invented. Help says a contact will be added before booking opens.                                                                                                                                                                  |
+| Contact page / support channel              | In-app support requests since Phase 27 ([support.md](support.md)); no email, phone or address exists and none was invented. Review before launch whether a public contact channel is needed.                                                                                           |
 | `/about`, `/help`                           | Factual descriptions of the current product. Review copy and update as services launch.                                                                                                                                                                                                |
 | Social links, company address, legal entity | None configured. Add only real, official details.                                                                                                                                                                                                                                      |
 
