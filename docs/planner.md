@@ -180,7 +180,9 @@ travel between activities.
 
 Source: **curated sample data**, ranked by **deterministic rules**.
 
-- Data: `apps/api/src/modules/planner/catalog.ts` — 7–9 well-known places
+- Data: `packages/contracts/src/planner-catalog.ts` (moved from
+  `apps/api/src/modules/planner/catalog.ts` in Phase 29, which re-exports it,
+  so destination pages show the same list under "Things to see and do") — 7–9 well-known places
   and experiences for each of the 12 sample destinations of the discover pages
   (same ids). Each has a category, area, a one-line description, a planning
   estimate of how long to allow, a rough cost level, when it's commonly

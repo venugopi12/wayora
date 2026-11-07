@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, ScrollRestoration, useLocation } from 'react-router';
+import { SeoProvider } from '../../features/seo/SeoProvider';
 
 /**
  * Root of the route tree: application-wide behaviour that every layout shares.
@@ -10,16 +11,18 @@ import { Outlet, ScrollRestoration, useLocation } from 'react-router';
  *
  * - Restores scroll position on Back/Forward, scrolls to `#hash` targets and to
  *   the top on new pages (React Router `ScrollRestoration`).
+ * - Applies each page's metadata (title, description, canonical, robots,
+ *   social cards, structured data; features/seo, docs/seo.md).
  * - Announces each client-side page change to screen readers using the new
  *   document title, which a full page load would otherwise announce.
  */
 export function RootLayout() {
   return (
-    <>
+    <SeoProvider>
       <Outlet />
       <RouteAnnouncer />
       <ScrollRestoration />
-    </>
+    </SeoProvider>
   );
 }
 

@@ -46,6 +46,12 @@ export const ADMIN_PERMISSIONS = [
   'admin.reviews.moderate',
   /** Remove a review for a policy violation (Phase 28). Admins only. */
   'admin.reviews.remove',
+  /** Content (guides, articles, tips, FAQs, collections, landing pages) and its statistics (Phase 29). Read-only. */
+  'admin.content.read',
+  /** Create and edit content drafts (Phase 29). Admins only. */
+  'admin.content.edit',
+  /** Publish, archive and restore content (Phase 29). Admins only. */
+  'admin.content.publish',
 ] as const;
 export const adminPermissionSchema = z.enum(ADMIN_PERMISSIONS);
 export type AdminPermission = z.infer<typeof adminPermissionSchema>;
@@ -67,6 +73,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly AdminPermission[]> = {
     'admin.support.manage',
     'admin.reviews.read',
     'admin.reviews.moderate',
+    'admin.content.read',
   ],
   admin: ADMIN_PERMISSIONS,
 };

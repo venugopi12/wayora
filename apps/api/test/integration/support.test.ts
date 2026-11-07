@@ -174,7 +174,9 @@ describe.skipIf(!TEST_DATABASE_URL)('customer support (integration, real Postgre
   let clock: Clock;
   beforeEach(async () => {
     await resetAccounts();
-    clock = testClock(Date.parse('2026-11-06T06:00:00Z'));
+    // Real time: the database stamps some rows (idempotency keys) with its own clock,
+    // so a fixed past date makes their expiry precede their creation once it is >24 h old.
+    clock = testClock();
   });
   afterAll(disconnect);
 

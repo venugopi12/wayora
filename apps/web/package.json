@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/extract-sourcemaps.mjs && node scripts/assert-no-dev-routes.mjs",
+    "build": "vite build && node scripts/extract-sourcemaps.mjs && tsx scripts/prerender.ts && node scripts/assert-no-dev-routes.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
@@ -36,6 +36,7 @@
     "@wayora/config": "0.1.0",
     "jsdom": "26.1.0",
     "tailwindcss": "4.3.3",
+    "tsx": "4.23.15",
     "vite": "8.3.4",
     "vitest": "5.0.5"
   }

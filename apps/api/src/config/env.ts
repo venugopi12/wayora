@@ -235,6 +235,9 @@ export const envSchema = z.object({
   REVIEW_REPORT_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   /** Helpful votes (and taking them back) per customer per minute. */
   REVIEW_VOTE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
+  // Content and SEO (Phase 29, docs/seo.md#configuration).
+  /** First-party page-view and click events per client IP per minute. */
+  ANALYTICS_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
 });
 
 /** Which search-session store this configuration selects. */

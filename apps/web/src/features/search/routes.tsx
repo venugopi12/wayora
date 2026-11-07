@@ -16,6 +16,8 @@ import type { ParamUpdate } from './results/FilterPanel';
 import { SearchResultsLayout, type ParamOptions } from './results/SearchResultsLayout';
 import { SearchSummary } from './results/SearchSummary';
 import { SearchForm } from './SearchForm';
+import { serviceMeta } from '../seo/pages';
+import { siteUrl, usePageMeta } from '../seo/SeoProvider';
 
 /*
  * /flights, /hotels, … /holidays: search and results for one category
@@ -132,6 +134,7 @@ export function ServiceSearchRoute({ slug }: { slug: TravelCategorySlug }) {
   );
 
   useDocumentTitle(state.status === 'ready' ? `${service.name} search` : service.name);
+  usePageMeta(serviceMeta(siteUrl(), slug));
 
   return (
     <Container className="flex flex-col gap-6 py-section-sm">

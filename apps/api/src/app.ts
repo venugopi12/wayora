@@ -18,6 +18,7 @@ import {
   apiRateLimiter,
   bookingWriteRateLimiter,
   searchRateLimiter,
+  analyticsEventLimiter,
 } from './middleware/rate-limit.js';
 import { requestId } from './middleware/request-id.js';
 import { currentUser, loadSession } from './middleware/session.js';
@@ -63,6 +64,7 @@ import { PromotionsService } from './modules/promotions/promotions.service.js';
 import { SupportService, type SupportServiceOptions } from './modules/support/support.service.js';
 import type { SupportRouterOptions } from './modules/support/support.routes.js';
 import { ReviewsService } from './modules/reviews/reviews.service.js';
+import { ContentService } from './modules/content/content.service.js';
 import type { ReviewsRouterOptions } from './modules/reviews/reviews.routes.js';
 import type { PaymentProvider } from './modules/payments/providers/types.js';
 import { v1Router, type AccountsRouterOptions } from './routes/v1.js';
@@ -444,6 +446,7 @@ export function createApp({
         | 'couponLimiter'
         | 'support'
         | 'reviews'
+        | 'content'
       >
     | undefined;
   let sessionValid: (token: string | undefined) => Promise<boolean> = () => Promise.resolve(false);
@@ -528,6 +531,7 @@ export function createApp({
   const reviewWriteStore = createRateLimitStore?.('review-writes');
   const reviewReportStore = createRateLimitStore?.('review-reports');
   const reviewVoteStore = createRateLimitStore?.('review-votes');
+  const analyticsStore = createRateLimitStore?.('analytics-events');
   const payments = prisma
     ? createPaymentsService(prisma, env, logger, {
         ...(now ? { now } : {}),
@@ -682,6 +686,8 @@ export function createApp({
         }),
       }
     : undefined;
+  // Content and first-party counts (Phase 29, docs/seo.md).
+  const contentService = prisma ? new ContentService(prisma, now) : undefined;
   const accountRoutes: AccountsRouterOptions | undefined =
     accounts &&
     prisma &&
@@ -694,7 +700,8 @@ export function createApp({
     rewardsService &&
     promotionsService &&
     supportRoutes &&
-    reviewsRoutes
+    reviewsRoutes &&
+    contentService
       ? {
           ...accounts,
           bookings: bookingsService,
@@ -715,6 +722,7 @@ export function createApp({
             promotions: promotionsService,
             support: supportRoutes,
             reviews: reviewsRoutes.service,
+            content: contentService,
             health: new PlatformHealth({
               prisma,
               ...(redis ? { redis } : {}),
@@ -796,6 +804,13 @@ export function createApp({
           promotions: promotionsService,
           support: supportRoutes,
           reviews: reviewsRoutes,
+          content: {
+            service: contentService,
+            eventLimiter: analyticsEventLimiter({
+              max: env.ANALYTICS_RATE_LIMIT_MAX,
+              ...(analyticsStore ? { store: analyticsStore } : {}),
+            }),
+          },
           couponLimiter: bookingWriteRateLimiter({
             max: env.COUPON_RATE_LIMIT_MAX,
             windowMs: 15 * 60 * 1000,

@@ -49,6 +49,8 @@ import {
   helpTopicPath,
   newTicketPath,
 } from '../support/paths';
+import { helpArticleMeta, helpMeta, helpTopicMeta, notFoundMeta } from '../seo/pages';
+import { siteUrl, usePageMeta } from '../seo/SeoProvider';
 
 /*
  * Help Center (Phase 27, docs/support.md#help-center). Content lives in
@@ -193,6 +195,7 @@ export function HelpCenterRoute() {
   const [params] = useSearchParams();
   const q = (params.get('q') ?? '').slice(0, 120);
   useDocumentTitle(q ? `Search help: ${q}` : 'Help Center');
+  usePageMeta(helpMeta(siteUrl()));
   const results = q ? searchHelp(q, 12) : [];
   return (
     <Container className="flex flex-col gap-10 py-section-sm">
@@ -334,6 +337,7 @@ export function HelpTopicRoute() {
   const { category = '' } = useParams();
   const topic = helpCategory(category);
   useDocumentTitle(topic ? `${topic.title} · Help Center` : 'Help Center');
+  usePageMeta(helpTopicMeta(siteUrl(), category) ?? notFoundMeta());
   if (!topic) return <NotFoundRoute />;
   const articles = helpArticlesIn(topic.slug);
   return (
@@ -411,6 +415,7 @@ export function HelpArticleRoute() {
   const { slug = '' } = useParams();
   const article = helpArticle(slug);
   useDocumentTitle(article ? `${article.title} · Help Center` : 'Help Center');
+  usePageMeta(helpArticleMeta(siteUrl(), slug) ?? notFoundMeta());
   if (!article) return <NotFoundRoute />;
   const topic = helpCategory(article.category)!;
   const related = article.related

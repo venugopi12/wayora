@@ -117,6 +117,7 @@ Docker Compose out of the box. `.env` files are git-ignored.
 | `REVIEW_RATE_LIMIT_MAX`                                    | no               | `10`                          | Reviews written or edited per customer per hour ([reviews.md](reviews.md#configuration))                                                     |
 | `REVIEW_REPORT_RATE_LIMIT_MAX`                             | no               | `10`                          | Review reports per customer per hour                                                                                                         |
 | `REVIEW_VOTE_RATE_LIMIT_MAX`                               | no               | `30`                          | Helpful votes per customer per minute                                                                                                        |
+| `ANALYTICS_RATE_LIMIT_MAX`                                 | no               | `120`                         | Page-view and click events per client address per minute ([seo.md](seo.md#analytics))                                                        |
 | `SUPPLIER_RESERVATION_TIMEOUT_MS`                          | no               | `12000`                       | Time limit per reservation, lookup or cancellation call; ran out = outcome unknown                                                           |
 
 **Redis and search.** Search sessions live in Redis whenever `REDIS_URL` is
@@ -140,9 +141,11 @@ memory and logs a warning; if a configured Redis goes down, search answers
 
 ### `apps/web/.env`
 
-| Variable            | Default                 | Notes                                                                                |
-| ------------------- | ----------------------- | ------------------------------------------------------------------------------------ |
-| `VITE_API_BASE_URL` | `http://localhost:4000` | **Public.** Every `VITE_*` value ships in the browser bundle; never put secrets here |
+| Variable                | Default                 | Notes                                                                                                                                                                                                  |
+| ----------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `VITE_API_BASE_URL`     | `http://localhost:4000` | **Public.** Every `VITE_*` value ships in the browser bundle; never put secrets here                                                                                                                   |
+| `VITE_SITE_URL`         | `http://localhost:4173` | **Public.** The site origin for canonical links, the sitemap and social cards ([seo.md](seo.md)); production builds require it. An existing `apps/web/.env` from before Phase 29 needs this line added |
+| `PRERENDER_CONTENT_URL` | (unset)                 | Build time only, not in the bundle: API origin to prerender published CMS content from                                                                                                                 |
 
 ### `database/.env`
 
@@ -221,8 +224,10 @@ on Ubuntu with Node 22 and a PostgreSQL 16 service container:
    skipping them.
 6. `npm audit --omit=dev --audit-level=high`: fails on high or critical
    advisories in what ships.
-7. `npm run build` with `VITE_API_BASE_URL=http://localhost:4000` (production web
-   builds refuse to run without an explicit API URL). The web build also checks
+7. `npm run build` with `VITE_API_BASE_URL=http://localhost:4000` and
+   `VITE_SITE_URL=http://localhost:4173` (production web builds refuse to run
+   without explicit API and site URLs). The build prerenders the public pages
+   without CMS content (no `PRERENDER_CONTENT_URL`). The web build also checks
    that no source maps or development-only routes end up in `apps/web/dist`.
 
 The workflow uses read-only repository permissions, throwaway service
@@ -244,7 +249,7 @@ npm run db:migrate:deploy
 npm run db:migrate:check
 npm run lint && npm run format:check && npm run typecheck && npm test
 npm audit --omit=dev --audit-level=high
-npm run build   # VITE_API_BASE_URL comes from apps/web/.env (npm run setup)
+npm run build   # VITE_API_BASE_URL and VITE_SITE_URL come from apps/web/.env (npm run setup)
 unset DATABASE_URL                         # back to apps' .env files for dev
 ```
 

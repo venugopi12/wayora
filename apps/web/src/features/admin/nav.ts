@@ -2,6 +2,7 @@ import {
   Activity,
   BellRing,
   CreditCard,
+  FileText,
   Gift,
   LifeBuoy,
   LayoutDashboard,
@@ -74,6 +75,13 @@ export const ADMIN_NAV: readonly AdminNavItem[] = [
     label: 'Reviews',
     icon: MessageSquareText,
     permission: 'admin.reviews.read',
+    end: false,
+  },
+  {
+    to: ADMIN_PATHS.content,
+    label: 'Content',
+    icon: FileText,
+    permission: 'admin.content.read',
     end: false,
   },
   {

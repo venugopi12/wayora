@@ -29,4 +29,8 @@ export const ADMIN_PATHS = {
   reviews: '/admin/reviews',
   reviewQueue: '/admin/reviews/queue',
   review: (id: string) => `/admin/reviews/${encodeURIComponent(id)}`,
+  /** Content management (Phase 29). */
+  content: '/admin/content',
+  contentNew: '/admin/content/new',
+  contentItem: (id: string) => `/admin/content/${encodeURIComponent(id)}`,
 } as const;

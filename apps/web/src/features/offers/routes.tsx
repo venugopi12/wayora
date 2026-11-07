@@ -22,7 +22,9 @@ import { fetchOffer, searchTravel } from '../../services/search';
 import { serviceBySlug } from '../navigation/config';
 import { readSearchParams } from '../search/params';
 import { PriceBlock, SourceBadge, money } from '../search/cards/shared';
-import { OfferDetails, offerHeading } from './OfferDetails';
+import { OfferDetails, offerCity, offerHeading } from './OfferDetails';
+import { DESTINATIONS } from '../discover/data';
+import { destinationPath } from '../discover/paths';
 import { bookPath } from '../bookings/paths';
 import { OfferReviews } from '../reviews/sections';
 import { offerPath, readOfferParams, resultsPathFor } from './paths';
@@ -348,6 +350,7 @@ function OfferPage({
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="flex min-w-0 flex-col gap-4">
             <OfferDetails result={result} />
+            <AboutDestination city={offerCity(result)} />
             <OfferReviews result={result} />
           </div>
           <aside
@@ -420,5 +423,22 @@ function OfferPage({
       {problem || !offer.data ? <h1 className="sr-only">{service.name} offer</h1> : null}
       {body}
     </Container>
+  );
+}
+
+/** A link to the destination page when the offer's city is one of the Discover destinations. */
+function AboutDestination({ city }: { city: string | undefined }) {
+  const name = city?.trim().toLowerCase();
+  const d = name ? DESTINATIONS.find((x) => x.name.toLowerCase() === name) : undefined;
+  if (!d) return null;
+  return (
+    <p className="text-body-sm">
+      <Link
+        to={destinationPath(d.slug)}
+        className="font-medium text-brand-ink underline-offset-2 hover:underline"
+      >
+        About {d.name}: things to see and do, and ways to get there
+      </Link>
+    </p>
   );
 }

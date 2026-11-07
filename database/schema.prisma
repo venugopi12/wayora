@@ -357,6 +357,10 @@ model User {
   reviewReports        ReviewReport[]        @relation("ReviewReporter")
   resolvedReviewReports ReviewReport[]       @relation("ReviewReportResolver")
   reviewVotes          ReviewVote[]
+  /// Content (Phase 29, docs/seo.md#content-model): written, last edited, revisions saved.
+  contentAuthored      ContentEntry[]        @relation("ContentAuthor")
+  contentEdited        ContentEntry[]        @relation("ContentEditor")
+  contentRevisions     ContentRevision[]
 
   @@index([status])
   @@index([role])
@@ -2288,4 +2292,90 @@ model ReviewVote {
   @@id([reviewId, userId])
   @@index([userId, createdAt])
   @@map("review_votes")
+}
+
+// ─── Content (Phase 29, docs/seo.md#content-model) ────────────────────────
+
+enum ContentType {
+  GUIDE
+  ARTICLE
+  TIP
+  FAQ
+  COLLECTION
+  LANDING
+
+  @@map("content_type")
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+
+  @@map("content_status")
+}
+
+/// A guide, article, tip, FAQ, collection or landing page. Never deleted.
+model ContentEntry {
+  id               String        @id @default(uuid(7)) @db.Uuid
+  type             ContentType
+  /// One namespace for all types; permanent once published.
+  slug             String        @unique @db.VarChar(80)
+  status           ContentStatus @default(DRAFT)
+  title            String        @db.VarChar(120)
+  summary          String        @default("") @db.VarChar(400)
+  /// Structured blocks (contentBlockSchema); never HTML.
+  body             Json          @default("[]")
+  coverMedia       String?       @map("cover_media") @db.VarChar(64)
+  coverAlt         String?       @map("cover_alt") @db.VarChar(200)
+  seoTitle         String?       @map("seo_title") @db.VarChar(60)
+  metaDescription  String?       @map("meta_description") @db.VarChar(160)
+  destinations     String[]      @default([])
+  related          String[]      @default([])
+  revision         Int           @default(1)
+  authorId         String        @map("author_id") @db.Uuid
+  editorId         String        @map("editor_id") @db.Uuid
+  firstPublishedAt DateTime?     @map("first_published_at") @db.Timestamptz(3)
+  publishedAt      DateTime?     @map("published_at") @db.Timestamptz(3)
+  archivedAt       DateTime?     @map("archived_at") @db.Timestamptz(3)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  author    User              @relation("ContentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  editor    User              @relation("ContentEditor", fields: [editorId], references: [id], onDelete: Restrict)
+  revisions ContentRevision[]
+
+  @@index([status, type])
+  @@index([destinations], type: Gin)
+  @@index([updatedAt])
+  @@map("content_entries")
+}
+
+/// Every saved version of an entry (append-only).
+model ContentRevision {
+  entryId   String        @map("entry_id") @db.Uuid
+  revision  Int
+  status    ContentStatus
+  snapshot  Json
+  editorId  String        @map("editor_id") @db.Uuid
+  note      String?       @db.VarChar(200)
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  entry  ContentEntry @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  editor User         @relation(fields: [editorId], references: [id], onDelete: Restrict)
+
+  @@id([entryId, revision])
+  @@map("content_revisions")
+}
+
+/// First-party daily totals of page views and clicks: no user, session, cookie or IP.
+model ContentDailyCount {
+  day   DateTime @db.Date
+  event String   @db.VarChar(40)
+  key   String   @db.VarChar(120)
+  count Int      @default(0)
+
+  @@id([day, event, key])
+  @@index([event, day])
+  @@map("content_daily_counts")
 }

@@ -93,9 +93,11 @@ environment), never into `VITE_*` variables.
 
 ### Web (`apps/web`, build time only)
 
-| Variable            | Production               | Notes                                                                                                                       |
-| ------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_API_BASE_URL` | **required**, `https://` | Baked into the bundle and the CSP `connect-src`. The build refuses to run without it, or with plain http (except localhost) |
+| Variable                | Production               | Notes                                                                                                                                                                                                                                                    |
+| ----------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_API_BASE_URL`     | **required**, `https://` | Baked into the bundle and the CSP `connect-src`. The build refuses to run without it, or with plain http (except localhost)                                                                                                                              |
+| `VITE_SITE_URL`         | **required**, `https://` | The public site origin (no path): canonical links, sitemap, robots.txt, Open Graph, structured data ([seo.md](seo.md)). The build refuses to run without it                                                                                              |
+| `PRERENDER_CONTENT_URL` | recommended              | Not `VITE_`, never in the bundle: the API origin the build reads published CMS content from (`/api/v1/content/feed`) to prerender guides, collections and landing pages and list them in the sitemap. Unset: a warning, and they're client-rendered only |
 
 Everything `VITE_*` is public: it ends up in JavaScript anyone can read.
 
@@ -117,13 +119,18 @@ on a machine that will run migrations.
 ## 3. Build
 
 ```bash
-VITE_API_BASE_URL=https://api.wayora.example npm run build
+VITE_API_BASE_URL=https://api.wayora.example \
+VITE_SITE_URL=https://www.wayora.example \
+PRERENDER_CONTENT_URL=https://api.wayora.example \
+npm run build
 ```
 
 This builds `@wayora/contracts`, `@wayora/database` (Prisma client), the API,
 the worker and the web app. The web build also:
 
-- refuses to run without a safe `VITE_API_BASE_URL`,
+- refuses to run without a safe `VITE_API_BASE_URL` and `VITE_SITE_URL`,
+- prerenders the public pages (`dist/<path>/index.html`) and writes
+  `app.html`, `404.html`, `sitemap.xml` and `robots.txt` ([seo.md](seo.md#rendering)),
 - embeds the Content-Security-Policy in `index.html` as a `<meta>` tag,
 - moves source maps out of `dist/` into `apps/web/sourcemaps/` (never
   served; keep them privately if you add error monitoring),
@@ -208,11 +215,18 @@ schedule lives once in Redis and outbox rows are leased with
 
 **Web** — upload `apps/web/dist/` to the static host or CDN. Configure:
 
-- SPA fallback: unknown paths serve `index.html` (client-side routes such as
-  `/trips/WYD-…` or `/admin/users`),
+- the [hosting rules](#web-hosting-rules): a prerendered `<path>/index.html`
+  where one exists, HTTP 404 with `404.html` for unknown paths in fully
+  prerendered sections, and `app.html` for every other path (client-side
+  routes such as `/trips/WYD-…` or `/admin/users`),
 - long-lived caching for `/assets/*` (file names are content-hashed) and
-  `no-cache` for `index.html`,
+  `no-cache` for HTML files, `sitemap*.xml` and `robots.txt`,
 - the [security headers](#web-server-headers) on every response.
+
+The API (and its migrations) must be deployed before the web build when
+`PRERENDER_CONTENT_URL` is set, since the build reads published content from
+it. Rebuild and redeploy the web app after publishing or archiving content so
+the prerendered pages and the sitemap follow ([seo.md](seo.md#deployment)).
 
 Order for a release: migrate → API → worker → web. The web bundle only needs
 API endpoints that already exist, so deploying it last avoids a window where
@@ -337,6 +351,38 @@ shipping.
 - No email verification or password reset yet (docs/auth.md#limitations-and-future-work).
 - The admin dashboard is read-only (docs/admin.md#limitations).
 - Release steps are manual; CI checks every commit but deploys nothing.
+
+## Web hosting rules
+
+`vite preview` implements these (`prerenderedHostingPlugin`), so a build can
+be checked locally before it ships. The same in nginx:
+
+```nginx
+root /srv/wayora/web;            # apps/web/dist
+error_page 404 /404.html;
+
+# Fully prerendered sections: an unknown page is a real 404.
+location ~ ^/(discover(/themes)?|help/(topics|articles))/[^/]+/?$ {
+  try_files $uri/index.html =404;
+}
+
+location /assets/ {
+  add_header Cache-Control "public, max-age=31536000, immutable";
+  try_files $uri =404;
+}
+
+# Everything else: the prerendered page if there is one, otherwise the app.
+location / {
+  add_header Cache-Control "no-cache";
+  try_files $uri $uri/index.html /app.html;
+}
+```
+
+(Add the [security headers](#web-server-headers) in each `location`; nginx
+doesn't inherit `add_header` into blocks that set their own.) `/discover/themes`
+itself is prerendered, so the first rule serves it. Don't point the fallback at
+`index.html`: that's the prerendered home page, with the home page's canonical
+link and metadata.
 
 ## Web server headers
 

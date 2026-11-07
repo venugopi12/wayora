@@ -177,6 +177,24 @@ export function searchRateLimiter(config: { max: number; store?: Store }) {
 }
 
 /**
+ * First-party page-view and click events per client IP per minute (Phase 29,
+ * docs/seo.md#analytics). The IP is only the limiter's key: it is never stored
+ * with the counts.
+ */
+export function analyticsEventLimiter(config: { max: number; store?: Store }) {
+  return rateLimit({
+    windowMs: 60_000,
+    limit: config.max,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    ...(config.store ? { store: config.store } : {}),
+    handler: (_req, res) => {
+      sendError(res, 429, { code: 'RATE_LIMITED', message: 'Too many events. Wait a moment.' });
+    },
+  });
+}
+
+/**
  * Booking writes (create, cancel) per signed-in user per minute. Mounted after
  * `requireAuth`, so the key is the session's user id: one account can't
  * spread its writes across IPs, and people sharing an IP don't share a budget.

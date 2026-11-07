@@ -75,6 +75,9 @@ const support = () => import('../features/support/routes');
 const reviews = () => import('../features/reviews/routes');
 const adminReviews = () => import('../features/admin/ReviewsAdmin');
 const help = () => import('../features/help/routes');
+/** Guides, collections and landing pages (Phase 29). */
+const content = () => import('../features/content/routes');
+const adminContent = () => import('../features/admin/ContentAdmin');
 
 /** /sign-in (the pre-Phase 8 link) → /login, keeping any query string. */
 function LegacySignInRedirect() {
@@ -112,7 +115,8 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *   │     /admin/audit, /admin/health
  *   └─ MarketingLayout         header + <main> + footer for the public site
  *      └─ (pages)              errorElement here, so errors keep header and footer
- *         ├─ / , /status, /discover, /discover/:slug, /about, /help,
+ *         ├─ / , /status, /discover, /discover/:slug, /discover/themes[/:theme],
+ *         │  /guides[/:slug], /collections/:slug, /explore/:slug, /about, /help,
  *         │  /legal/privacy, /legal/terms, /flights … /holidays (demo search),
  *         │  /offers/:serviceType/:resultId (offer details), dev /design-system
  *         ├─ /sign-in          redirects to /login
@@ -193,6 +197,15 @@ export function createRoutes({
                     {
                       index: true,
                       lazy: async () => ({ Component: (await discover()).DiscoverRoute }),
+                    },
+                    {
+                      // Destination themes (Phase 29): editorial groupings, before :slug.
+                      path: 'themes',
+                      lazy: async () => ({ Component: (await discover()).ThemesIndexRoute }),
+                    },
+                    {
+                      path: 'themes/:theme',
+                      lazy: async () => ({ Component: (await discover()).ThemeRoute }),
                     },
                     {
                       path: ':slug',
@@ -331,6 +344,23 @@ export function createRoutes({
                   handle: crumb('Terms and conditions'),
                   lazy: async () => ({ Component: (await info()).TermsRoute }),
                 },
+                // Editorial content (Phase 29, docs/seo.md): published CMS entries.
+                {
+                  path: 'guides',
+                  lazy: async () => ({ Component: (await content()).GuidesRoute }),
+                },
+                {
+                  path: 'guides/:slug',
+                  lazy: async () => ({ Component: (await content()).GuideRoute }),
+                },
+                {
+                  path: 'collections/:slug',
+                  lazy: async () => ({ Component: (await content()).CollectionRoute }),
+                },
+                {
+                  path: 'explore/:slug',
+                  lazy: async () => ({ Component: (await content()).LandingRoute }),
+                },
                 ...serviceRoutes,
                 {
                   path: 'offers/:serviceType/:resultId',
@@ -416,6 +446,18 @@ export function createRoutes({
                 {
                   path: 'reviews/:id',
                   lazy: async () => ({ Component: (await adminReviews()).AdminReviewRoute }),
+                },
+                {
+                  path: 'content',
+                  lazy: async () => ({ Component: (await adminContent()).ContentListRoute }),
+                },
+                {
+                  path: 'content/new',
+                  lazy: async () => ({ Component: (await adminContent()).ContentNewRoute }),
+                },
+                {
+                  path: 'content/:id',
+                  lazy: async () => ({ Component: (await adminContent()).ContentEditRoute }),
                 },
                 {
                   path: 'promotions',

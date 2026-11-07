@@ -6,6 +6,8 @@ import { MoodSection } from '../features/home/MoodSection';
 import { TravelSelector } from '../features/home/TravelSelector';
 import { HomeOffers } from '../features/promotions/routes';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { homeMeta } from '../features/seo/pages';
+import { siteUrl, usePageMeta } from '../features/seo/SeoProvider';
 
 /**
  * Homepage narrative: arrive (hero) → choose how (travel selector) → find a
@@ -14,6 +16,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
  */
 export function HomeRoute() {
   useDocumentTitle();
+  usePageMeta(homeMeta(siteUrl()));
   return (
     <>
       <Hero />

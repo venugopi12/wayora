@@ -22,25 +22,13 @@ import { PAIRINGS, moodBySlug } from './data';
 import { placeLine } from './format';
 import { destinationPath, discoverPath, serviceForPlace, servicePathFor } from './paths';
 import { DestinationReviews } from '../reviews/sections';
+import { travelOptionsFor } from './travel';
+import { DestinationContent, ThingsToDo } from './DestinationExtras';
+import { ShareButton } from '../content/ShareButton';
+import { track } from '../../services/content';
 import { findDestination, relatedDestinations } from './search';
 
-/**
- * Services worth offering for a destination (demo search and demo booking).
- * Rail and road are offered for the India samples only. A service chosen on
- * the homepage moves to the front when it applies here, and is otherwise not
- * offered (no "trains to Bali").
- */
-export function travelOptionsFor(
-  destination: Pick<DestinationSummary, 'region'>,
-  preferred?: TravelCategorySlug,
-): TravelCategorySlug[] {
-  const base: TravelCategorySlug[] =
-    destination.region === 'india'
-      ? ['flights', 'trains', 'hotels', 'buses', 'cabs', 'holidays']
-      : ['flights', 'hotels', 'cabs', 'holidays'];
-  if (!preferred || !base.includes(preferred)) return base;
-  return [preferred, ...base.filter((s) => s !== preferred)];
-}
+export { travelOptionsFor };
 
 function Hero({ destination }: { destination: Destination }) {
   const crumbs = useRouteBreadcrumbs();
@@ -106,6 +94,7 @@ function Hero({ destination }: { destination: Destination }) {
                   </Link>
                 </Button>
               </div>
+              <ShareButton title={destination.name} path={destinationPath(destination.slug)} />
             </Reveal>
           </div>
           <ImageReveal className="relative overflow-hidden rounded-2xl shadow-lg lg:order-2">
@@ -213,6 +202,9 @@ function TravelOptions({
               <RevealItem as="li" key={slug}>
                 <Link
                   to={servicePathFor(slug, destination.slug)}
+                  onClick={() =>
+                    track({ event: 'destination_search_click', key: `${destination.slug}:${slug}` })
+                  }
                   aria-labelledby={`option-${slug}-name`}
                   aria-describedby={`option-${slug}-status`}
                   className={cn(
@@ -359,12 +351,14 @@ export function DestinationDetail({ destination, preferredService }: Destination
     <>
       <Hero destination={destination} />
       <About destination={destination} />
+      <ThingsToDo destination={destination} />
       <TravelOptions destination={destination} preferred={preferredService} />
       <div className="border-t border-line py-section-sm">
         <Container>
           <DestinationReviews slug={destination.slug} name={destination.name} />
         </Container>
       </div>
+      <DestinationContent destination={destination} />
       <Related destination={destination} />
     </>
   );

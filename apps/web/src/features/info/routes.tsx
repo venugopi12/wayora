@@ -4,6 +4,8 @@ import { Link } from 'react-router';
 import { Alert, Badge, Card, cn, interaction } from '@wayora/ui';
 import { ContentPage } from '../../components/layout/ContentPage';
 import { ACCOUNT_PATHS, DISCOVER, INFO_PATHS } from '../navigation/config';
+import { aboutMeta } from '../seo/pages';
+import { usePageMeta } from '../seo/SeoProvider';
 
 /*
  * Informational and legal pages (Phase 7). Everything stated here is true of
@@ -44,6 +46,7 @@ function DraftNotice({ children }: { children: ReactNode }) {
 
 /** /about */
 export function AboutRoute() {
+  usePageMeta(aboutMeta());
   return (
     <ContentPage
       eyebrow="Company"
@@ -157,8 +160,15 @@ export function PrivacyRoute() {
           only until you reload.
         </li>
         <li>
-          <strong>No analytics, advertising or third-party trackers.</strong> Fonts and images are
-          served by Wayora itself.
+          <strong>No advertising or third-party trackers.</strong> Fonts and images are served by
+          Wayora itself.
+        </li>
+        <li>
+          <strong>Page-view counts, without cookies.</strong> When a destination page or guide
+          opens, the site adds one to that page&apos;s total for the day. The count is stored
+          without your account, any identifier, your network address or browser details, and is used
+          to show which destination pages are viewed most. If your browser sends Do Not Track or
+          Global Privacy Control, nothing is sent.
         </li>
         <li>
           <strong>Technical request logs.</strong> When the site calls Wayora&apos;s API, the server

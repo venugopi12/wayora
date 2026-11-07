@@ -67,6 +67,9 @@ The mapping lives in one place, `packages/contracts/src/admin.ts`
 | `admin.reviews.read`        | –    | ✓       | ✓     |
 | `admin.reviews.moderate`    | –    | ✓       | ✓     |
 | `admin.reviews.remove`      | –    | –       | ✓     |
+| `admin.content.read`        | –    | ✓       | ✓     |
+| `admin.content.edit`        | –    | –       | ✓     |
+| `admin.content.publish`     | –    | –       | ✓     |
 
 Support staff have two write permissions:
 
@@ -77,6 +80,10 @@ Support staff have two write permissions:
   dismissing reports (Phase 28, [reviews.md](reviews.md#moderation)).
   Removing a review needs `admin.reviews.remove` (admins), and nobody
   moderates their own review.
+
+Content management (Phase 29, [seo.md](seo.md#cms)): support staff can read
+and preview guides and other content; creating, editing, publishing and
+archiving need `admin.content.edit` and `admin.content.publish` (admins).
 
 Enforcement (`apps/api/src/modules/admin/access.ts`):
 

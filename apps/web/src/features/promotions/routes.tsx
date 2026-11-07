@@ -21,6 +21,8 @@ import { getPromotions } from '../../services/promotions';
 import { INFO_PATHS } from '../navigation/config';
 import { categoriesText, conditions, discountText, validUntil } from './format';
 import { promotionKeys } from './keys';
+import { promotionsMeta } from '../seo/pages';
+import { usePageMeta } from '../seo/SeoProvider';
 
 /*
  * Promotion discovery (docs/promotions.md#web): offers that are active and
@@ -114,6 +116,7 @@ export function OfferCard({
 
 export function OffersRoute() {
   useDocumentTitle('Offers and coupons');
+  usePageMeta(promotionsMeta());
   const offers = useOffers();
   return (
     <Container className="flex flex-col gap-8 py-section-sm">

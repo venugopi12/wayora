@@ -3,5 +3,5 @@
   "compilerOptions": {
     "types": ["vite/client", "@testing-library/jest-dom/vitest"]
   },
-  "include": ["src", "test", "config", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "test", "config", "scripts/*.ts", "vite.config.ts", "vitest.config.ts"]
 }

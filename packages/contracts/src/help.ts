@@ -747,15 +747,17 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
         items: [
           'The session cookie can’t be read by page scripts, and is removed when you sign out.',
           'Besides that, the browser keeps scroll positions for the current tab, so Back returns you to the same place.',
-          'Wayora loads no analytics or advertising scripts.',
+          'Wayora loads no third-party analytics or advertising scripts.',
+          'Wayora counts how often its destination pages and guides are opened, as daily totals per page, without cookies. No account, identifier, IP address or browser details are stored with the counts.',
+          'If your browser sends Do Not Track or Global Privacy Control, nothing is counted.',
         ],
       },
     ],
     actions: [{ label: 'Draft privacy page', path: '/legal/privacy' }],
     related: ['signing-in'],
-    keywords: ['cookie', 'tracking', 'privacy', 'analytics', 'ads'],
+    keywords: ['cookie', 'tracking', 'privacy', 'analytics', 'ads', 'do not track'],
     supportCategory: 'account',
-    reviewed: R,
+    reviewed: '2026-11-07',
   },
   // ── Technical support ─────────────────────────────────────────────────
   {

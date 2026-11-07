@@ -45,6 +45,8 @@ describe('admin access (presentation follows the server)', JOURNEY, () => {
       'Support',
       // Review moderation (Phase 28): support staff publish, reject and flag.
       'Reviews',
+      // Read-only content views (Phase 29); editing and publishing need an administrator.
+      'Content',
       // Read-only promotion views (Phase 26); changes need an administrator.
       'Promotions',
       'Search activity',

@@ -1,9 +1,14 @@
 import { Compass, MapPinOff } from 'lucide-react';
+import { useEffect } from 'react';
 import { Link, Navigate, useParams, useSearchParams } from 'react-router';
 import { travelCategorySlugSchema } from '@wayora/contracts';
 import { Button, Container } from '@wayora/ui';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { DISCOVER } from '../navigation/config';
+import { track } from '../../services/content';
+import { destinationMeta, discoverMeta, notFoundMeta } from '../seo/pages';
+import { siteUrl, usePageMeta } from '../seo/SeoProvider';
+import { DiscoverEditorial } from './DiscoverEditorial';
 import { Collection, COLLECTION_TITLE_ID } from './Collection';
 import { DestinationDetail } from './DestinationDetail';
 import { DiscoverCta } from './DiscoverCta';
@@ -27,6 +32,7 @@ export function DiscoverRoute() {
   const [params] = useSearchParams();
   const { filters, setFilters, clearFilters } = useDiscoverFilters();
   useDocumentTitle('Discover');
+  usePageMeta(discoverMeta(siteUrl()));
 
   const legacy = findDestination(params.get('destination') ?? undefined);
   if (legacy) return <Navigate to={destinationPath(legacy.slug)} replace />;
@@ -49,6 +55,7 @@ export function DiscoverRoute() {
           requestAnimationFrame(() => focusResults(COLLECTION_TITLE_ID));
         }}
       />
+      <DiscoverEditorial />
       <FeaturedSection />
       <InspirationSection />
       <DiscoverCta />
@@ -65,6 +72,14 @@ export function DestinationRoute() {
   useDocumentTitle(
     destination ? `${destination.name}, ${placeLine(destination)}` : 'Destination not found',
   );
+
+  usePageMeta(
+    destination ? destinationMeta(siteUrl(), destination) : notFoundMeta('Destination not found'),
+  );
+  const viewed = destination?.slug;
+  useEffect(() => {
+    if (viewed) track({ event: 'destination_view', key: viewed });
+  }, [viewed]);
 
   if (!destination) return <DestinationNotFound slug={slug} />;
   return (
@@ -120,3 +135,5 @@ function DestinationNotFound({ slug }: { slug: string }) {
     </Container>
   );
 }
+
+export { ThemeRoute, ThemesIndexRoute } from './ThemeRoutes';

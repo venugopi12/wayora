@@ -403,3 +403,23 @@ export function offerHeading(result: SearchResult): { title: string; subtitle: s
       };
   }
 }
+
+/** The city an offer takes you to (or is in), for linking to its destination page. */
+export function offerCity(result: SearchResult): string {
+  switch (result.serviceType) {
+    case 'flights':
+      return result.itineraries[0]!.segments.at(-1)!.destination.cityName;
+    case 'hotels':
+      return result.property.cityName;
+    case 'trains':
+      return result.destination.cityName;
+    case 'buses':
+      return result.destination.cityName;
+    case 'metro':
+      return result.cityName;
+    case 'cabs':
+      return result.dropoff.cityName;
+    case 'holidays':
+      return result.destination.name;
+  }
+}

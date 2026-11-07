@@ -5,6 +5,11 @@ const publicEnvSchema = z.object({
     .url({ protocol: /^https?$/, error: 'VITE_API_BASE_URL must be an http(s) URL' })
     .default('http://localhost:4000')
     .transform((url) => url.replace(/\/+$/, '')),
+  /** The public site origin, for canonical links and social cards (docs/seo.md#configuration). */
+  VITE_SITE_URL: z
+    .url({ protocol: /^https?$/, error: 'VITE_SITE_URL must be an http(s) URL' })
+    .default('http://localhost:5173')
+    .transform((url) => new URL(url).origin),
 });
 
 /**
@@ -17,7 +22,7 @@ function readPublicEnv() {
     const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new Error(`Invalid web configuration (${issues}). Check apps/web/.env.`);
   }
-  return { apiBaseUrl: result.data.VITE_API_BASE_URL };
+  return { apiBaseUrl: result.data.VITE_API_BASE_URL, siteUrl: result.data.VITE_SITE_URL };
 }
 
 export const publicEnv = readPublicEnv();

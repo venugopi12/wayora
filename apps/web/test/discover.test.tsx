@@ -229,7 +229,7 @@ describe('/discover page', () => {
     expect(grid.querySelectorAll(':scope > li')).toHaveLength(12);
     expect(screen.getByRole('status')).toHaveTextContent('Showing all 12 sample destinations.');
     expect(screen.getAllByText(/sample data/i).length).toBeGreaterThan(0);
-    await waitFor(() => expect(document.title).toBe('Discover | Wayora'));
+    await waitFor(() => expect(document.title).toBe('Discover destinations | Wayora'));
   });
 
   it('renders each destination card with a stable image, place, moods and one link', async () => {

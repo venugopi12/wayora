@@ -27,6 +27,8 @@ import { adminPromotionsRouter } from '../promotions/promotions.routes.js';
 import type { PromotionsService } from '../promotions/promotions.service.js';
 import { adminSupportRouter, type SupportRouterOptions } from '../support/support.routes.js';
 import { adminReviewsRouter } from '../reviews/reviews.routes.js';
+import { adminContentRouter } from '../content/content.routes.js';
+import type { ContentService } from '../content/content.service.js';
 import type { ReviewsService } from '../reviews/reviews.service.js';
 import type { RewardsService } from '../rewards/rewards.service.js';
 
@@ -45,6 +47,8 @@ export interface AdminRouterOptions {
   support?: SupportRouterOptions | null;
   /** Review moderation and analytics (Phase 28). */
   reviews?: ReviewsService | null;
+  /** Content workspace (Phase 29). */
+  content?: ContentService | null;
 }
 
 const noQuery = z.object({}).strict();
@@ -83,6 +87,7 @@ export function adminRouter({
   promotions,
   support,
   reviews,
+  content,
 }: AdminRouterOptions): Router {
   const router = Router();
   router.use(noStore);
@@ -207,6 +212,8 @@ export function adminRouter({
   if (support) router.use('/support', adminSupportRouter(support));
   // Reviews (Phase 28, docs/reviews.md#moderation).
   if (reviews) router.use('/reviews', adminReviewsRouter(reviews, prisma, logger));
+  // Content (Phase 29, docs/seo.md#cms-workflow).
+  if (content) router.use('/content', adminContentRouter(content, prisma, logger));
 
   return router;
 }

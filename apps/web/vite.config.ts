@@ -1,5 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import {
@@ -8,6 +10,8 @@ import {
   productionApiUrlIssues,
   securityHeaders,
 } from './config/security-headers.ts';
+import { siteUrlIssues } from './src/features/seo/site.ts';
+import { staticSectionOf } from './src/features/seo/hosting.ts';
 
 const DEV_API = 'http://localhost:4000';
 
@@ -25,7 +29,10 @@ function securityHeadersPlugin(): Plugin {
     configResolved(config) {
       const url = config.env.VITE_API_BASE_URL as string | undefined;
       if (config.command === 'build' && config.mode === 'production') {
-        const issues = productionApiUrlIssues(url);
+        const issues = [
+          ...productionApiUrlIssues(url),
+          ...siteUrlIssues(config.env.VITE_SITE_URL as string | undefined),
+        ];
         if (issues.length) throw new Error(`\n${issues.join('\n')}\n`);
       }
       apiOrigin = apiOriginOf(url || DEV_API);
@@ -56,8 +63,41 @@ function securityHeadersPlugin(): Plugin {
   };
 }
 
+/**
+ * `vite preview` serves the build the way docs/deployment.md#web tells a host
+ * to (docs/seo.md#hosting): a prerendered page when one exists, a real 404
+ * for unknown URLs in fully static sections, and the app shell (app.html)
+ * for everything else (client-side routes).
+ */
+function prerenderedHostingPlugin(): Plugin {
+  return {
+    name: 'wayora-prerendered-hosting',
+    configurePreviewServer(server) {
+      const dist = server.config.build.outDir;
+      server.middlewares.use((req, res, next) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+        const path = decodeURIComponent((req.url ?? '/').split('?')[0]!);
+        if (/\.[a-z0-9]+$/i.test(path)) return next(); // assets, sitemap.xml, robots.txt
+        const clean = path.replace(/\/+$/, '') || '/';
+        const file = join(dist, clean === '/' ? 'index.html' : `${clean}/index.html`);
+        const send = (status: number, f: string) => {
+          res.statusCode = status;
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.end(readFileSync(f));
+        };
+        if (existsSync(file) && statSync(file).isFile()) return send(200, file);
+        if (staticSectionOf(clean) && existsSync(join(dist, '404.html')))
+          return send(404, join(dist, '404.html'));
+        if (existsSync(join(dist, 'app.html'))) return send(200, join(dist, 'app.html'));
+        return next();
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), securityHeadersPlugin()],
+  plugins: [react(), tailwindcss(), securityHeadersPlugin(), prerenderedHostingPlugin()],
   resolve: {
     // Bare "zod" → src/lib/zod.ts (sets jitless before any schema; see there).
     alias: [
