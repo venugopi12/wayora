@@ -30,7 +30,7 @@ import { renderEmail } from './templates.js';
  */
 
 export const MAX_ATTEMPTS = 5;
-const LEASE_MS = 2 * 60 * 1000;
+export const LEASE_MS = 2 * 60 * 1000;
 const BASE_BACKOFF_MS = 30 * 1000;
 const MAX_BACKOFF_MS = 60 * 60 * 1000;
 
@@ -38,11 +38,72 @@ export function backoffMs(attempts: number): number {
   return Math.min(BASE_BACKOFF_MS * 2 ** Math.max(0, attempts - 1), MAX_BACKOFF_MS);
 }
 
-interface Claimed {
+export interface Claimed {
   id: string;
   notification_id: string;
   attempts: number;
   locked_until: Date;
+}
+
+export type DeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'NOT_CONFIGURED';
+
+/**
+ * Leases and finishes outbox rows of one channel (EMAIL or PUSH). Each
+ * channel's dispatcher only ever sees its own rows.
+ */
+export class DeliveryOutbox {
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly channel: 'EMAIL' | 'PUSH',
+    private readonly now: () => Date,
+    private readonly batchSize = 20,
+  ) {}
+
+  /** Leases up to `batchSize` due deliveries. */
+  claim(): Promise<Claimed[]> {
+    const now = this.now();
+    const leaseUntil = new Date(now.getTime() + LEASE_MS);
+    return this.prisma.$queryRaw<Claimed[]>`
+      UPDATE "notification_deliveries"
+      SET "locked_until" = ${leaseUntil}, "attempts" = "attempts" + 1, "updated_at" = ${now}
+      WHERE "id" IN (
+        SELECT "id" FROM "notification_deliveries"
+        WHERE "status" = 'PENDING'
+          AND "channel" = ${this.channel}::"notification_channel"
+          AND "next_attempt_at" <= ${now}
+          AND ("locked_until" IS NULL OR "locked_until" < ${now})
+        ORDER BY "next_attempt_at", "id"
+        LIMIT ${this.batchSize}
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING "id", "notification_id", "attempts", "locked_until"`;
+  }
+
+  /** Finishes a row this worker still leases. Returns false if the lease was lost. */
+  async finish(
+    row: Claimed,
+    data: {
+      status: DeliveryStatus;
+      lastError?: string | null;
+      providerMessageId?: string;
+      nextAttemptAt?: Date;
+    },
+  ): Promise<boolean> {
+    const now = this.now();
+    const result = await this.prisma.notificationDelivery.updateMany({
+      where: { id: row.id, status: 'PENDING', lockedUntil: row.locked_until },
+      data: {
+        status: data.status,
+        lockedUntil: null,
+        lastError: data.lastError ?? null,
+        ...(data.status === 'SENT'
+          ? { sentAt: now, providerMessageId: data.providerMessageId ?? null }
+          : {}),
+        ...(data.nextAttemptAt ? { nextAttemptAt: data.nextAttemptAt } : {}),
+      },
+    });
+    return result.count === 1;
+  }
 }
 
 export interface DispatchResult {
@@ -65,54 +126,19 @@ export interface DispatcherOptions {
 
 export class NotificationDispatcher {
   private readonly now: () => Date;
+  private readonly outbox: DeliveryOutbox;
 
   constructor(private readonly options: DispatcherOptions) {
     this.now = options.now ?? (() => new Date());
+    this.outbox = new DeliveryOutbox(options.prisma, 'EMAIL', this.now, options.batchSize);
   }
 
-  /** Leases up to `batchSize` due deliveries. */
-  private async claim(): Promise<Claimed[]> {
-    const now = this.now();
-    const leaseUntil = new Date(now.getTime() + LEASE_MS);
-    return this.options.prisma.$queryRaw<Claimed[]>`
-      UPDATE "notification_deliveries"
-      SET "locked_until" = ${leaseUntil}, "attempts" = "attempts" + 1, "updated_at" = ${now}
-      WHERE "id" IN (
-        SELECT "id" FROM "notification_deliveries"
-        WHERE "status" = 'PENDING'
-          AND "next_attempt_at" <= ${now}
-          AND ("locked_until" IS NULL OR "locked_until" < ${now})
-        ORDER BY "next_attempt_at", "id"
-        LIMIT ${this.options.batchSize ?? 20}
-        FOR UPDATE SKIP LOCKED
-      )
-      RETURNING "id", "notification_id", "attempts", "locked_until"`;
+  private claim(): Promise<Claimed[]> {
+    return this.outbox.claim();
   }
 
-  /** Finishes a row this worker still leases. Returns false if the lease was lost. */
-  private async finish(
-    row: Claimed,
-    data: {
-      status: 'PENDING' | 'SENT' | 'FAILED' | 'NOT_CONFIGURED';
-      lastError?: string | null;
-      providerMessageId?: string;
-      nextAttemptAt?: Date;
-    },
-  ): Promise<boolean> {
-    const now = this.now();
-    const result = await this.options.prisma.notificationDelivery.updateMany({
-      where: { id: row.id, status: 'PENDING', lockedUntil: row.locked_until },
-      data: {
-        status: data.status,
-        lockedUntil: null,
-        lastError: data.lastError ?? null,
-        ...(data.status === 'SENT'
-          ? { sentAt: now, providerMessageId: data.providerMessageId ?? null }
-          : {}),
-        ...(data.nextAttemptAt ? { nextAttemptAt: data.nextAttemptAt } : {}),
-      },
-    });
-    return result.count === 1;
+  private finish(row: Claimed, data: Parameters<DeliveryOutbox['finish']>[1]): Promise<boolean> {
+    return this.outbox.finish(row, data);
   }
 
   private link(notification: {

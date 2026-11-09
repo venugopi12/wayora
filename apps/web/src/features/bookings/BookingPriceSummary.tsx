@@ -1,5 +1,6 @@
 import type { SearchPrice } from '@wayora/contracts';
 import { cn } from '@wayora/ui';
+import { useEditingOnTouch } from '../navigation/MobileTabBar';
 import { UNIT_LABEL, money } from '../search/cards/shared';
 
 /**
@@ -74,5 +75,50 @@ export function BookingPriceSummary({
           : 'Prices can change until a booking is confirmed.'}
       </p>
     </section>
+  );
+}
+
+/**
+ * Phones and small tablets (below `lg`, where the summary sits under the
+ * form): the total stays visible at the bottom edge while filling in the
+ * steps, with a link to the full price details. Information only: the
+ * step's own buttons stay in the form, so nothing important is hidden behind
+ * it, and the page reserves its height (`pb-24` on the checkout container).
+ */
+export function MobilePriceBar({
+  price,
+  demo,
+  detailsId,
+}: {
+  price: SearchPrice | null;
+  demo: boolean;
+  /** id of the full summary to jump to. */
+  detailsId: string;
+}) {
+  // Out of the way while the on-screen keyboard is up.
+  const editing = useEditingOnTouch();
+  if (price === null || editing) return null;
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-(--z-sticky) border-t border-line bg-page/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm lg:hidden">
+      <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-3">
+        <p className="flex flex-col">
+          <span className="text-caption text-ink-secondary">
+            {price.kind === 'range' ? 'Estimated fare' : 'Total'}
+            {demo ? ' (demo)' : ''}
+          </span>
+          <span className="numeric text-title text-ink">
+            {price.kind === 'range'
+              ? `${money(price.min)} – ${money(price.max)}`
+              : money(price.total)}
+          </span>
+        </p>
+        <a
+          href={`#${detailsId}`}
+          className="inline-flex min-h-11 items-center rounded-md px-3 text-label text-brand-ink underline-offset-4 hover:underline"
+        >
+          Price details
+        </a>
+      </div>
+    </div>
   );
 }

@@ -118,6 +118,8 @@ Docker Compose out of the box. `.env` files are git-ignored.
 | `REVIEW_REPORT_RATE_LIMIT_MAX`                             | no               | `10`                          | Review reports per customer per hour                                                                                                         |
 | `REVIEW_VOTE_RATE_LIMIT_MAX`                               | no               | `30`                          | Helpful votes per customer per minute                                                                                                        |
 | `ANALYTICS_RATE_LIMIT_MAX`                                 | no               | `120`                         | Page-view and click events per client address per minute ([seo.md](seo.md#analytics))                                                        |
+| `VAPID_PUBLIC_KEY`                                         | no               | (empty: push off)             | Browser push: the public VAPID key, same as the worker's ([pwa.md](pwa.md#push))                                                             |
+| `PUSH_SUBSCRIBE_RATE_LIMIT_MAX`                            | no               | `20`                          | Push turned on/off per user per hour                                                                                                         |
 | `SUPPLIER_RESERVATION_TIMEOUT_MS`                          | no               | `12000`                       | Time limit per reservation, lookup or cancellation call; ran out = outcome unknown                                                           |
 
 **Redis and search.** Search sessions live in Redis whenever `REDIS_URL` is
@@ -129,15 +131,16 @@ memory and logs a warning; if a configured Redis goes down, search answers
 
 ### `apps/worker/.env`
 
-| Variable                              | Required | Default | Notes                                                                                                                         |
-| ------------------------------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `REDIS_URL`                           | **yes**  |         | The worker cannot run without Redis                                                                                           |
-| `WORKER_CONCURRENCY`                  | no       | `5`     |                                                                                                                               |
-| `SHUTDOWN_TIMEOUT_MS`                 | no       | `15000` | Time allowed for in-flight jobs                                                                                               |
-| `DATABASE_URL`                        | no       |         | Needed for notification delivery (the email outbox); without it that job is off ([notifications.md](notifications.md#worker)) |
-| `WEB_ORIGIN`                          | no       |         | Public web origin for links in emails                                                                                         |
-| `NOTIFICATION_DISPATCH_INTERVAL_MS`   | no       | `15000` | How often the outbox is checked (1 s–10 min)                                                                                  |
-| `NODE_ENV`, `LOG_LEVEL`, `LOG_FORMAT` | no       |         | As for the API                                                                                                                |
+| Variable                                                 | Required | Default | Notes                                                                                                                         |
+| -------------------------------------------------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `REDIS_URL`                                              | **yes**  |         | The worker cannot run without Redis                                                                                           |
+| `WORKER_CONCURRENCY`                                     | no       | `5`     |                                                                                                                               |
+| `SHUTDOWN_TIMEOUT_MS`                                    | no       | `15000` | Time allowed for in-flight jobs                                                                                               |
+| `DATABASE_URL`                                           | no       |         | Needed for notification delivery (the email outbox); without it that job is off ([notifications.md](notifications.md#worker)) |
+| `WEB_ORIGIN`                                             | no       |         | Public web origin for links in emails                                                                                         |
+| `NOTIFICATION_DISPATCH_INTERVAL_MS`                      | no       | `15000` | How often the outbox is checked (1 s–10 min)                                                                                  |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | no       |         | Browser push: all three or none; the private key is a secret ([pwa.md](pwa.md#push))                                          |
+| `NODE_ENV`, `LOG_LEVEL`, `LOG_FORMAT`                    | no       |         | As for the API                                                                                                                |
 
 ### `apps/web/.env`
 

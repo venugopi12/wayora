@@ -25,7 +25,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnv } from 'vite';
 import { contentFeedSchema, type PublicContent } from '@wayora/contracts';
-import { DEFAULT_DESCRIPTION, headHtml, headTags } from '../src/features/seo/meta';
+import {
+  DEFAULT_DESCRIPTION,
+  escapeHtml,
+  headHtml,
+  headTags,
+  jsonForScript,
+} from '../src/features/seo/meta';
+import { PRERENDERED_CONTENT_ID } from '../src/features/content/prerendered';
 import { notFoundBody, notFoundMeta, publicPages } from '../src/features/seo/pages';
 import { buildSitemaps, robotsTxt } from '../src/features/seo/sitemap';
 import { normalizeSite, siteUrlIssues } from '../src/features/seo/site';
@@ -127,7 +134,24 @@ async function main() {
   for (const p of pages) {
     if (seen.has(p.path)) fail(`two pages share ${p.path}.`);
     seen.add(p.path);
-    write(p.path, compose(shell, headHtml(headTags(p.meta, site)), p.body));
+    const preloads = (p.preloadImages ?? [])
+      .map(
+        (i) =>
+          `<link rel="preload" as="image" href="${escapeHtml(i.href)}"${i.media ? ` media="${escapeHtml(i.media)}"` : ''} fetchpriority="high" />`,
+      )
+      .join('\n    ');
+    // The published entry itself, so the app shows it at once instead of fetching it again.
+    const data = p.content
+      ? `<script type="application/json" id="${PRERENDERED_CONTENT_ID}">${jsonForScript(p.content)}</script>`
+      : '';
+    write(
+      p.path,
+      compose(
+        shell,
+        [headHtml(headTags(p.meta, site)), preloads, data].filter(Boolean).join('\n    '),
+        p.body,
+      ),
+    );
   }
 
   const sitemaps = buildSitemaps(

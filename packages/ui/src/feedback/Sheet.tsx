@@ -17,6 +17,11 @@ export interface SheetContentProps {
   footer?: ReactNode;
   /** Label of the close button. */
   closeLabel?: string;
+  /**
+   * `right` (default): a side panel. `bottom`: a sheet rising from the bottom
+   * edge, for short lists of actions on phones.
+   */
+  side?: 'right' | 'bottom';
   className?: string;
   children: ReactNode;
 }
@@ -38,6 +43,7 @@ export function SheetContent({
   description,
   footer,
   closeLabel = 'Close',
+  side = 'right',
   className,
   children,
 }: SheetContentProps) {
@@ -48,8 +54,10 @@ export function SheetContent({
       />
       <DialogPrimitive.Content
         className={cn(
-          'fixed inset-y-0 right-0 z-(--z-modal) flex w-[min(26rem,92vw)] flex-col bg-page shadow-lg focus:outline-none',
-          overlayMotion.drawer,
+          'fixed z-(--z-modal) flex flex-col bg-page shadow-lg focus:outline-none',
+          side === 'right'
+            ? `inset-y-0 right-0 w-[min(26rem,92vw)] pt-[env(safe-area-inset-top)] ${overlayMotion.drawer}`
+            : `inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl ${overlayMotion.bottomSheet}`,
           className,
         )}
         {...(description ? {} : { 'aria-describedby': undefined })}
@@ -67,8 +75,20 @@ export function SheetContent({
             <IconButton label={closeLabel} icon={<X />} size="sm" className="-mr-2" />
           </DialogPrimitive.Close>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
-        {footer ? <div className="border-t border-line px-5 py-4">{footer}</div> : null}
+        <div
+          className={cn(
+            'flex-1 overflow-y-auto px-5 py-5',
+            // Keep the last row clear of the home indicator when there's no footer.
+            !footer && 'pb-[max(1.25rem,env(safe-area-inset-bottom))]',
+          )}
+        >
+          {children}
+        </div>
+        {footer ? (
+          <div className="border-t border-line px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {footer}
+          </div>
+        ) : null}
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );

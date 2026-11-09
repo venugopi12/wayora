@@ -18,11 +18,12 @@ import {
   breadcrumbLd,
   articleLd,
   collectionPageLd,
-  organizationLd,
   touristDestinationLd,
-  websiteLd,
   type Crumb,
 } from './jsonld';
+import { HERO_LAYERS } from '../home/media';
+import { homeMeta } from './home-meta';
+import { aboutMeta, notFoundMeta, promotionsMeta, simpleMeta } from './simple-meta';
 import { DEFAULT_DESCRIPTION, clip, escapeHtml, type PageMeta } from './meta';
 
 /*
@@ -73,15 +74,14 @@ export const placeLineOf = (d: Pick<DestinationSummary, 'locality' | 'country' |
 
 const crumbsLd = (site: string, crumbs: Crumb[]) => breadcrumbLd(site, crumbs);
 
-export function homeMeta(site: string): PageMeta {
-  return {
-    title: null,
-    description: DEFAULT_DESCRIPTION,
-    canonicalPath: '/',
-    robots: 'index, follow',
-    jsonLd: [organizationLd(site), websiteLd(site)],
-  };
-}
+export { homeMeta };
+
+const HERO_PRELOAD = HERO_LAYERS[0]!.portraitSrc
+  ? [
+      { href: HERO_LAYERS[0]!.portraitSrc, media: '(max-width: 767px)' },
+      { href: HERO_LAYERS[0]!.src, media: '(min-width: 768px)' },
+    ]
+  : [{ href: HERO_LAYERS[0]!.src }];
 
 export function discoverMeta(site: string): PageMeta {
   return {
@@ -280,32 +280,7 @@ export function serviceMeta(site: string, slug: TravelCategorySlug): PageMeta {
   };
 }
 
-export function simpleMeta(path: string, title: string, description: string): PageMeta {
-  return { title, description, canonicalPath: path, robots: 'index, follow' };
-}
-
-/** For pages that don't exist: never indexed. */
-export const promotionsMeta = () =>
-  simpleMeta(
-    '/promotions',
-    'Offers and coupons',
-    'Promotions running on Wayora now, with their terms. Eligibility is checked at payment.',
-  );
-export const aboutMeta = () =>
-  simpleMeta(
-    '/about',
-    'About Wayora',
-    'Wayora brings flights, hotels, trains, buses, metro, cabs and holiday packages into one booking experience.',
-  );
-
-export function notFoundMeta(title = 'Page not found'): PageMeta {
-  return {
-    title,
-    description: 'This page doesn’t exist on Wayora.',
-    canonicalPath: null,
-    robots: 'noindex, follow',
-  };
-}
+export { aboutMeta, notFoundMeta, promotionsMeta, simpleMeta };
 
 // ─── Prerendered body (HTML) ─────────────────────────────────────────────
 
@@ -524,6 +499,13 @@ export interface PublicPage {
   body: string;
   /** Only when accurately known (Help Center review dates, content updates). */
   lastmod?: string;
+  /**
+   * The page's largest image, fetched early (`<link rel="preload">`) so it
+   * isn't discovered only after the app's JavaScript runs (docs/pwa.md#performance).
+   */
+  preloadImages?: { href: string; media?: string }[];
+  /** CMS content the app starts from instead of fetching it again (no loading flash). */
+  content?: PublicContent;
 }
 
 /**
@@ -545,7 +527,13 @@ export function publicPages(site: string, content: PublicContent[]): PublicPage[
       .sort()
       .at(-1);
   const pages: PublicPage[] = [
-    { path: '/', meta: homeMeta(site), body: homeBody() },
+    {
+      path: '/',
+      meta: homeMeta(site),
+      body: homeBody(),
+      // The hero's back layer (portrait art on phones), the home page's largest paint.
+      preloadImages: HERO_PRELOAD,
+    },
     { path: '/discover', meta: discoverMeta(site), body: discoverBody() },
     { path: THEMES_PATH, meta: themesIndexMeta(site), body: themesIndexBody() },
     ...PUBLISHED_THEMES.map((t) => ({
@@ -566,6 +554,7 @@ export function publicPages(site: string, content: PublicContent[]): PublicPage[
         meta: destinationMeta(site, d),
         body: destinationBody(d, related, guides, faqs),
         ...(lastmod ? { lastmod } : {}),
+        ...(d.image ? { preloadImages: [{ href: d.image.src }] } : {}),
       };
     }),
     // The guides index only once there are guides to list (no empty, thin page).
@@ -584,6 +573,8 @@ export function publicPages(site: string, content: PublicContent[]): PublicPage[
       meta: contentMeta(site, c),
       body: contentBody(c),
       lastmod: c.updatedAt,
+      content: c,
+      ...(c.cover ? { preloadImages: [{ href: c.cover.src }] } : {}),
     })),
     {
       path: helpPath,

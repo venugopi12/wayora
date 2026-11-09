@@ -187,6 +187,8 @@
   --animate-scale-out: scale-out 140ms var(--ease-exit);
   --animate-sheet-in: sheet-in 320ms var(--ease-emphasized);
   --animate-sheet-out: sheet-out 200ms var(--ease-exit);
+  --animate-sheet-up-in: sheet-up-in 280ms var(--ease-emphasized);
+  --animate-sheet-up-out: sheet-up-out 180ms var(--ease-exit);
   --animate-toast-in: toast-in 240ms var(--ease-emphasized);
   --animate-shimmer: shimmer 1.6s ease-in-out infinite;
   --animate-sheen: sheen 1.6s var(--ease-standard) infinite;
@@ -222,6 +224,16 @@
   @keyframes sheet-out {
     to {
       transform: translateX(100%);
+    }
+  }
+  @keyframes sheet-up-in {
+    from {
+      transform: translateY(100%);
+    }
+  }
+  @keyframes sheet-up-out {
+    to {
+      transform: translateY(100%);
     }
   }
   @keyframes toast-in {

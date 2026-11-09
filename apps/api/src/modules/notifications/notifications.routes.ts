@@ -2,9 +2,11 @@ import { Router, type RequestHandler } from 'express';
 import {
   notificationListQuerySchema,
   notificationParamsSchema,
+  pushSubscriptionInputSchema,
+  pushUnsubscribeSchema,
   updateNotificationPreferencesSchema,
 } from '@wayora/contracts';
-import { currentUser, noStore, requireAuth } from '../../middleware/session.js';
+import { currentUser, noStore, requireAuth, type AuthLocals } from '../../middleware/session.js';
 import { sendData } from '../../utils/respond.js';
 import { validateRequest } from '../../utils/validate.js';
 import type { NotificationsService } from './notifications.service.js';
@@ -20,12 +22,17 @@ import type { NotificationsService } from './notifications.service.js';
  * POST  /notifications/read-all
  * GET   /notifications/preferences
  * PATCH /notifications/preferences
+ * POST  /notifications/push/subscriptions     this browser turns push on (Phase 30)
+ * DELETE /notifications/push/subscriptions    { endpoint } this browser turns push off
  */
 export function notificationsRouter(
   notifications: NotificationsService,
   /** Per-user limit on writes (mark read, read all, preferences). */
   writeLimiter?: RequestHandler,
+  /** Per-user limit on push subscription changes. */
+  pushLimiter?: RequestHandler,
 ): Router {
+  const pushLimit: RequestHandler[] = pushLimiter ? [pushLimiter] : [];
   const limit: RequestHandler[] = writeLimiter ? [writeLimiter] : [];
   const router = Router();
   router.use(noStore, requireAuth);
@@ -50,6 +57,17 @@ export function notificationsRouter(
   router.patch('/preferences', ...limit, async (req, res) => {
     const { body } = validateRequest(req, { body: updateNotificationPreferencesSchema });
     sendData(res, await notifications.updatePreferences(currentUser(res).id, body));
+  });
+
+  router.post('/push/subscriptions', ...pushLimit, async (req, res) => {
+    const { body } = validateRequest(req, { body: pushSubscriptionInputSchema });
+    const auth = (res.locals as AuthLocals).auth!;
+    sendData(res, await notifications.subscribePush(auth.user.id, auth.session.id, body), 201);
+  });
+
+  router.delete('/push/subscriptions', ...pushLimit, async (req, res) => {
+    const { body } = validateRequest(req, { body: pushUnsubscribeSchema });
+    sendData(res, await notifications.unsubscribePush(currentUser(res).id, body.endpoint));
   });
 
   router.patch('/:notificationId/read', ...limit, async (req, res) => {

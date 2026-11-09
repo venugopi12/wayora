@@ -1,11 +1,12 @@
 import { Queue, Worker } from 'bullmq';
 import { JOB_NAMES, QUEUE_NAMES, notificationsDispatchJobSchema } from '@wayora/contracts';
 import { createPrismaClient, type PrismaClient } from '@wayora/database';
-import { bullConnection, loadWorkerEnv } from './config.js';
+import { bullConnection, loadWorkerEnv, vapidConfig } from './config.js';
 import { startBeacon } from './liveness/beacon.js';
 import { createLogger } from './logger.js';
 import { NotificationDispatcher } from './notifications/dispatcher.js';
 import { NotConfiguredEmailProvider } from './notifications/email.js';
+import { NotConfiguredPushSender, PushDispatcher, WebPushSender } from './notifications/push.js';
 import { createProcessor, type Handler } from './processor.js';
 
 const env = loadWorkerEnv();
@@ -23,9 +24,18 @@ if (env.DATABASE_URL) {
     logger: logger.child({ component: 'notifications' }),
     webOrigin: env.WEB_ORIGIN,
   });
+  // Browser push (Phase 30, docs/pwa.md#push): on when the VAPID keys are set.
+  const vapid = vapidConfig(env);
+  const pushDispatcher = new PushDispatcher({
+    prisma,
+    sender: vapid ? new WebPushSender(vapid) : new NotConfiguredPushSender(),
+    logger: logger.child({ component: 'push' }),
+  });
+  if (!vapid)
+    logger.info('VAPID keys not set: browser push is off (deliveries recorded as NOT_CONFIGURED)');
   extraHandlers[JOB_NAMES.notificationsDispatch] = async (data) => {
     notificationsDispatchJobSchema.parse(data);
-    return dispatcher.run();
+    return { email: await dispatcher.run(), push: await pushDispatcher.run() };
   };
 } else {
   logger.warn(

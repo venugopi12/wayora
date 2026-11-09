@@ -187,7 +187,9 @@ export function SearchResultsLayout({
       </section>
 
       <div className="flex min-w-0 flex-col gap-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        {/* Below lg the wrapper dissolves (`contents`) so the controls row can
+            stick within the whole results column. */}
+        <div className="max-lg:contents lg:flex lg:flex-row lg:items-end lg:justify-between lg:gap-3">
           <div className="flex flex-col gap-1">
             <h2
               id="results-title"
@@ -201,7 +203,9 @@ export function SearchResultsLayout({
               {status}
             </p>
           </div>
-          <div className="grid gap-3 sm:flex sm:items-end">
+          {/* Phones: filters and sort side by side, kept in reach under the
+              header while scrolling a long list (docs/pwa.md#search-results). */}
+          <div className="grid grid-cols-2 items-end gap-3 max-lg:sticky max-lg:top-(--header-h) max-lg:z-(--z-raised) max-lg:-mx-1 max-lg:bg-page/95 max-lg:px-1 max-lg:py-2 max-lg:backdrop-blur-sm sm:flex sm:items-end">
             {filterPanel ? (
               <MobileFilterDrawer
                 activeCount={filterCount}

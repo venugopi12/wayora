@@ -518,6 +518,7 @@ export function createApp({
   const bookingStore = createRateLimitStore?.('bookings');
   const paymentStore = createRateLimitStore?.('payments');
   const notificationStore = createRateLimitStore?.('notifications');
+  const pushStore = createRateLimitStore?.('push-subscriptions');
   const tripStatusStore = createRateLimitStore?.('trip-status');
   const plannerStore = createRateLimitStore?.('planner');
   const plannerInviteStore = createRateLimitStore?.('planner-invites');
@@ -707,7 +708,10 @@ export function createApp({
           bookings: bookingsService,
           payments,
           // No email provider exists yet: delivery is reported as not configured.
-          notifications: new NotificationsService(prisma, { active: false }, now),
+          notifications: new NotificationsService(prisma, { active: false }, now, {
+            // Browser push (Phase 30): on when the VAPID public key is configured.
+            publicKey: env.VAPID_PUBLIC_KEY ?? null,
+          }),
           admin: {
             prisma,
             logger,
@@ -830,6 +834,13 @@ export function createApp({
             subject: 'notification changes',
             userIdOf: (res) => currentUser(res).id,
             ...(notificationStore ? { store: notificationStore } : {}),
+          }),
+          pushLimiter: bookingWriteRateLimiter({
+            max: env.PUSH_SUBSCRIBE_RATE_LIMIT_MAX,
+            windowMs: 60 * 60 * 1000,
+            subject: 'push notification changes',
+            userIdOf: (res) => currentUser(res).id,
+            ...(pushStore ? { store: pushStore } : {}),
           }),
           paymentLimiter: bookingWriteRateLimiter({
             max: env.PAYMENT_RATE_LIMIT_MAX,

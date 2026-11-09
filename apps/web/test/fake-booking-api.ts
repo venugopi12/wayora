@@ -13,6 +13,7 @@ import {
   paymentSchema,
   notificationListResponseSchema,
   notificationPreferencesSchema,
+  PUSH_NOT_CONFIGURED_STATUS,
   notificationSchema,
   type Booking,
   type BookingPayment,
@@ -871,6 +872,12 @@ export function installFakeBookingApi({
       active: false,
       status: 'Email isn’t set up on this server yet, so no emails are sent.',
     },
+    pushBookings: true,
+    pushPayments: true,
+    pushReminders: true,
+    pushSupport: true,
+    pushRewards: true,
+    push: { active: false, status: PUSH_NOT_CONFIGURED_STATUS, publicKey: null },
   });
   const notificationFailures: { path: RegExp; times: number }[] = [];
   const preferencePatches: Record<string, unknown>[] = [];

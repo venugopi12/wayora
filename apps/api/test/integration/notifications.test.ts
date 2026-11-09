@@ -4,6 +4,7 @@ import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   EMAIL_NOT_CONFIGURED_STATUS,
+  PUSH_NOT_CONFIGURED_STATUS,
   bookingRequirementsFor,
   bookingSchema,
   notificationListResponseSchema,
@@ -524,6 +525,13 @@ describe.skipIf(!TEST_DATABASE_URL)('notifications (integration, real PostgreSQL
         emailPayments: true,
         emailReminders: true,
         email: { active: false, status: EMAIL_NOT_CONFIGURED_STATUS },
+        // Browser push (Phase 30): on by topic, inactive without VAPID keys.
+        pushBookings: true,
+        pushPayments: true,
+        pushReminders: true,
+        pushSupport: true,
+        pushRewards: true,
+        push: { active: false, status: PUSH_NOT_CONFIGURED_STATUS, publicKey: null },
       });
       const updated = await agent
         .patch('/api/v1/notifications/preferences')

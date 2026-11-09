@@ -2,7 +2,7 @@
   "name": "@wayora/api",
   "version": "0.1.0",
   "private": true,
-  "description": "Wayora REST API \u2014 modular monolith (Express, /api/v1)",
+  "description": "Wayora REST API — modular monolith (Express, /api/v1)",
   "type": "module",
   "main": "./dist/server.js",
   "scripts": {

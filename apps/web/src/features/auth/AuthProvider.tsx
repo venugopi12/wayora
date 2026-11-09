@@ -17,6 +17,8 @@ import {
   signOutEverywhere as signOutEverywhereRequest,
 } from '../../services/account';
 import { onSessionEnded } from '../../services/api';
+import { forgetDeviceData } from '../../pwa/device-data';
+import { removePushBeforeSignOut } from '../../pwa/push';
 
 /** React Query keys. Everything under `account` belongs to the signed-in user. */
 export const authKeys = {
@@ -78,6 +80,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signedOutLocally = useCallback(
     (reason: Exclude<SessionEnd, null>) => {
       forgetAccountData(client);
+      // A shared device: the next person shouldn't see this one's searches or saved pages.
+      forgetDeviceData();
       setSessionEnd(reason);
       client.setQueryData(authKeys.me, null);
     },
@@ -116,10 +120,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Only forget the user once the server has revoked the session; if the
       // call fails the cookie is still valid, so the caller reports the error.
       signOut: async () => {
+        // This device stops getting the account's push notifications first (Phase 30).
+        await removePushBeforeSignOut();
         await signOutRequest();
         signedOutLocally('signed-out');
       },
       signOutEverywhere: async () => {
+        await removePushBeforeSignOut();
         const count = await signOutEverywhereRequest();
         signedOutLocally('signed-out');
         return count;

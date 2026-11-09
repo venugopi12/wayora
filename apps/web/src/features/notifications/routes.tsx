@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellOff, ChevronLeft, ChevronRight, RotateCw } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
-import type { NotificationPreferences, UpdateNotificationPreferences } from '@wayora/contracts';
+import type { UpdateNotificationPreferences } from '@wayora/contracts';
 import { Alert, Button, Checkbox, EmptyState, ErrorState, Skeleton } from '@wayora/ui';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { ApiClientError } from '../../lib/api-client';
@@ -14,6 +14,7 @@ import {
 import { AccountShell, Panel } from '../account/AccountShell';
 import { notificationKeys } from './keys';
 import { NotificationItem, useNotificationMutations } from './shared';
+import { currentPushSubscription, disablePush, enablePush, pushAvailability } from '../../pwa/push';
 
 /*
  * /notifications (signed in): every notification, paged, and the email
@@ -147,12 +148,14 @@ export function NotificationsRoute() {
           ) : null}
         </section>
       )}
+      <PushPreferences />
       <EmailPreferences />
     </AccountShell>
   );
 }
 
-function EmailPreferences() {
+/** The saved preferences, with each checkbox changing at once and the server's answer replacing it. */
+function usePreferenceToggles() {
   const queryClient = useQueryClient();
   const prefs = useQuery({
     queryKey: notificationKeys.preferences,
@@ -167,29 +170,89 @@ function EmailPreferences() {
     onSettled: (_data, _error, body) =>
       setDraft((current) => {
         const next = { ...current };
-        for (const key of Object.keys(body) as (keyof UpdateNotificationPreferences)[]) {
-          delete next[key];
-        }
+        for (const key of Object.keys(body) as PreferenceKey[]) delete next[key];
         return next;
       }),
   });
-  const options: {
-    key: keyof Omit<NotificationPreferences, 'email'>;
-    label: string;
-    description: string;
-  }[] = [
-    {
-      key: 'emailBookings',
-      label: 'Booking updates',
-      description: 'Saved, confirmed, cancelled or expired demo bookings.',
+  return {
+    prefs,
+    value: (key: PreferenceKey) => draft[key] ?? prefs.data?.[key] ?? true,
+    set: (key: PreferenceKey, checked: boolean) => {
+      const change = { [key]: checked };
+      setDraft((current) => ({ ...current, ...change }));
+      save.mutate(change);
     },
-    {
-      key: 'emailPayments',
-      label: 'Payment updates',
-      description: 'Demo payments that succeed, fail or are refunded.',
-    },
-    { key: 'emailReminders', label: 'Travel reminders', description: 'The day before a trip.' },
-  ];
+    saveFailed: save.isError,
+  };
+}
+
+type PreferenceKey = keyof UpdateNotificationPreferences;
+interface PreferenceOption {
+  key: PreferenceKey;
+  label: string;
+  description: string;
+}
+
+function PreferenceChoices({
+  legend,
+  options,
+  toggles,
+}: {
+  legend: string;
+  options: PreferenceOption[];
+  toggles: ReturnType<typeof usePreferenceToggles>;
+}) {
+  return (
+    <>
+      <fieldset className="flex flex-col gap-3">
+        <legend className="sr-only">{legend}</legend>
+        {options.map((o) => (
+          <Checkbox
+            key={o.key}
+            label={o.label}
+            description={o.description}
+            checked={toggles.value(o.key)}
+            onChange={(e) => toggles.set(o.key, e.target.checked)}
+          />
+        ))}
+      </fieldset>
+      {toggles.saveFailed ? (
+        <Alert tone="danger" title="We couldn’t save that">
+          Check your connection and try again.
+        </Alert>
+      ) : null}
+    </>
+  );
+}
+
+function LoadFailed({ what, onRetry }: { what: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-start gap-3">
+      <p className="text-body-sm text-ink-secondary">We couldn’t load your {what}.</p>
+      <Button variant="secondary" size="sm" onClick={onRetry}>
+        Try again
+      </Button>
+    </div>
+  );
+}
+
+const EMAIL_OPTIONS: PreferenceOption[] = [
+  {
+    key: 'emailBookings',
+    label: 'Booking updates',
+    description: 'Saved, confirmed, cancelled or expired demo bookings.',
+  },
+  {
+    key: 'emailPayments',
+    label: 'Payment updates',
+    description: 'Demo payments that succeed, fail or are refunded.',
+  },
+  { key: 'emailReminders', label: 'Travel reminders', description: 'The day before a trip.' },
+];
+
+function EmailPreferences() {
+  const toggles = usePreferenceToggles();
+  const { prefs } = toggles;
   return (
     <Panel
       title="Email preferences"
@@ -198,14 +261,7 @@ function EmailPreferences() {
       {prefs.isPending ? (
         <Skeleton className="h-24 rounded-lg" />
       ) : prefs.isError ? (
-        <div className="flex flex-col items-start gap-3">
-          <p className="text-body-sm text-ink-secondary">
-            We couldn’t load your email preferences.
-          </p>
-          <Button variant="secondary" size="sm" onClick={() => void prefs.refetch()}>
-            Try again
-          </Button>
-        </div>
+        <LoadFailed what="email preferences" onRetry={() => void prefs.refetch()} />
       ) : (
         <div className="flex flex-col gap-4">
           {!prefs.data.email.active ? (
@@ -213,27 +269,134 @@ function EmailPreferences() {
               {prefs.data.email.status}
             </Alert>
           ) : null}
-          <fieldset className="flex flex-col gap-3">
-            <legend className="sr-only">Email me about</legend>
-            {options.map((o) => (
-              <Checkbox
-                key={o.key}
-                label={o.label}
-                description={o.description}
-                checked={draft[o.key] ?? prefs.data[o.key]}
-                onChange={(e) => {
-                  const change = { [o.key]: e.target.checked };
-                  setDraft((current) => ({ ...current, ...change }));
-                  save.mutate(change);
-                }}
-              />
-            ))}
-          </fieldset>
-          {save.isError ? (
-            <Alert tone="danger" title="We couldn’t save that">
-              Check your connection and try again.
-            </Alert>
+          <PreferenceChoices legend="Email me about" options={EMAIL_OPTIONS} toggles={toggles} />
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+const PUSH_OPTIONS: PreferenceOption[] = [
+  {
+    key: 'pushBookings',
+    label: 'Booking updates',
+    description: 'Bookings saved, confirmed, cancelled or expired, and trip changes.',
+  },
+  {
+    key: 'pushPayments',
+    label: 'Payment updates',
+    description: 'Payments that succeed, fail or are refunded.',
+  },
+  { key: 'pushReminders', label: 'Travel reminders', description: 'The day before a trip.' },
+  {
+    key: 'pushSupport',
+    label: 'Support replies',
+    description: 'Answers to your support requests.',
+  },
+  { key: 'pushRewards', label: 'Rewards', description: 'Points and travel credit changes.' },
+];
+
+/**
+ * Browser push on this device (docs/pwa.md#push). Permission is asked only
+ * when "Turn on" is pressed, after saying what will be sent.
+ */
+function PushPreferences() {
+  const toggles = usePreferenceToggles();
+  const { prefs } = toggles;
+  const [availability] = useState(() => pushAvailability());
+  const device = useQuery({
+    queryKey: [...notificationKeys.preferences, 'push-device'],
+    queryFn: async () => Boolean(await currentPushSubscription()),
+    enabled: availability === 'available',
+  });
+  const [message, setMessage] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const change = useMutation({
+    mutationFn: async (on: boolean) => {
+      if (!on) {
+        await disablePush();
+        return 'disabled' as const;
+      }
+      return enablePush(prefs.data!.push.publicKey!);
+    },
+    onSuccess: (result) => {
+      setMessage(
+        result === 'enabled'
+          ? 'Push notifications are on for this device.'
+          : result === 'disabled'
+            ? 'Push notifications are off for this device.'
+            : result === 'denied'
+              ? 'Notifications are blocked for Wayora in this browser. Allow them in the browser’s site settings, then try again.'
+              : result === 'dismissed'
+                ? 'Nothing changed: the browser’s question was closed without an answer.'
+                : 'This browser can’t receive push notifications.',
+      );
+      void queryClient.invalidateQueries({
+        queryKey: [...notificationKeys.preferences, 'push-device'],
+      });
+    },
+    onError: (error) =>
+      setMessage(
+        error instanceof ApiClientError
+          ? error.message
+          : 'We couldn’t turn on push notifications here. Try again.',
+      ),
+  });
+
+  const on = device.data === true;
+  return (
+    <Panel
+      title="Notifications on this device"
+      description="Get booking, payment and trip updates as notifications from your browser or installed app, even when Wayora isn’t open."
+    >
+      {prefs.isPending ? (
+        <Skeleton className="h-24 rounded-lg" />
+      ) : prefs.isError ? (
+        <LoadFailed what="notification settings" onRetry={() => void prefs.refetch()} />
+      ) : !prefs.data.push.active ? (
+        <Alert tone="info" role="none" title="Push notifications aren’t active">
+          {prefs.data.push.status}
+        </Alert>
+      ) : availability === 'ios-needs-install' ? (
+        <Alert tone="info" role="none" title="Add Wayora to your home screen first">
+          On iPhone and iPad, notifications work in the installed app: in Safari, tap Share, then
+          Add to Home Screen, and open Wayora from there.
+        </Alert>
+      ) : availability === 'unsupported' ? (
+        <Alert tone="info" role="none" title="Not available in this browser">
+          This browser can’t receive push notifications. In-app notifications still work.
+        </Alert>
+      ) : availability === 'denied' ? (
+        <Alert tone="warning" role="none" title="Notifications are blocked">
+          Notifications are blocked for Wayora in this browser. Allow them in the browser’s site
+          settings to turn them on.
+        </Alert>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant={on ? 'secondary' : 'primary'}
+              loading={change.isPending || device.isPending}
+              onClick={() => change.mutate(!on)}
+            >
+              {on ? 'Turn off on this device' : 'Turn on for this device'}
+            </Button>
+            <p className="text-body-sm text-ink-secondary">
+              {on
+                ? 'On for this device. Signing out turns it off.'
+                : 'Your browser will ask for permission.'}
+            </p>
+          </div>
+          {message ? (
+            <p role="status" className="text-body-sm text-ink">
+              {message}
+            </p>
           ) : null}
+          <PreferenceChoices
+            legend="Notify this device about"
+            options={PUSH_OPTIONS}
+            toggles={toggles}
+          />
         </div>
       )}
     </Panel>

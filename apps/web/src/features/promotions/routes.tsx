@@ -21,7 +21,7 @@ import { getPromotions } from '../../services/promotions';
 import { INFO_PATHS } from '../navigation/config';
 import { categoriesText, conditions, discountText, validUntil } from './format';
 import { promotionKeys } from './keys';
-import { promotionsMeta } from '../seo/pages';
+import { promotionsMeta } from '../seo/simple-meta';
 import { usePageMeta } from '../seo/SeoProvider';
 
 /*

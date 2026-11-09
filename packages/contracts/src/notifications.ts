@@ -155,6 +155,19 @@ export const notificationPreferencesSchema = z.object({
     /** Plain-words status, e.g. that no email provider is configured. */
     status: z.string(),
   }),
+  /** Browser push (Phase 30): which topics reach devices where push is turned on. */
+  pushBookings: z.boolean(),
+  pushPayments: z.boolean(),
+  pushReminders: z.boolean(),
+  pushSupport: z.boolean(),
+  pushRewards: z.boolean(),
+  push: z.object({
+    /** Whether this server can send push notifications (Web Push keys configured). */
+    active: z.boolean(),
+    status: z.string(),
+    /** The VAPID public key browsers subscribe with; null when push isn't set up. */
+    publicKey: z.string().nullable(),
+  }),
 });
 export type NotificationPreferences = z.infer<typeof notificationPreferencesSchema>;
 
@@ -163,6 +176,11 @@ export const updateNotificationPreferencesSchema = z
     emailBookings: z.boolean().optional(),
     emailPayments: z.boolean().optional(),
     emailReminders: z.boolean().optional(),
+    pushBookings: z.boolean().optional(),
+    pushPayments: z.boolean().optional(),
+    pushReminders: z.boolean().optional(),
+    pushSupport: z.boolean().optional(),
+    pushRewards: z.boolean().optional(),
   })
   .strict()
   .refine((v) => Object.keys(v).length > 0, { message: 'Change at least one preference.' });
@@ -170,3 +188,40 @@ export type UpdateNotificationPreferences = z.input<typeof updateNotificationPre
 
 export const EMAIL_NOT_CONFIGURED_STATUS =
   'Email isn’t set up on this server yet, so no emails are sent. Your choices are saved and will apply once it is.';
+
+// ─── Browser push subscriptions (Phase 30, docs/pwa.md#push) ────────────
+
+export const PUSH_NOT_CONFIGURED_STATUS =
+  'Push notifications aren’t set up on this server yet, so none are sent. In-app notifications work as usual.';
+
+const base64url = (max: number) =>
+  z
+    .string()
+    .min(8)
+    .max(max)
+    .regex(/^[A-Za-z0-9_-]+={0,2}$/, 'Not a valid key.');
+
+/** What `PushSubscription.toJSON()` gives, as sent by the browser. */
+export const pushSubscriptionInputSchema = z
+  .object({
+    endpoint: z
+      .string()
+      .max(2048)
+      .url()
+      .refine((u) => u.startsWith('https://'), 'The push endpoint must use https.'),
+    expirationTime: z.number().int().nonnegative().nullable().optional(),
+    keys: z.object({ p256dh: base64url(200), auth: base64url(64) }).strict(),
+  })
+  .strict();
+export type PushSubscriptionInput = z.input<typeof pushSubscriptionInputSchema>;
+
+export const pushUnsubscribeSchema = z.object({ endpoint: z.string().max(2048).url() }).strict();
+export type PushUnsubscribe = z.input<typeof pushUnsubscribeSchema>;
+
+export const pushSubscriptionResultSchema = z.object({
+  subscribed: z.boolean(),
+});
+export type PushSubscriptionResult = z.infer<typeof pushSubscriptionResultSchema>;
+
+/** A VAPID public key: an uncompressed P-256 point, base64url (65 bytes → 87 characters). */
+export const VAPID_PUBLIC_KEY_PATTERN = /^B[A-Za-z0-9_-]{86}$/;

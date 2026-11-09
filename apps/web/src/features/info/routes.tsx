@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 import { Alert, Badge, Card, cn, interaction } from '@wayora/ui';
 import { ContentPage } from '../../components/layout/ContentPage';
 import { ACCOUNT_PATHS, DISCOVER, INFO_PATHS } from '../navigation/config';
-import { aboutMeta } from '../seo/pages';
+import { aboutMeta } from '../seo/simple-meta';
 import { usePageMeta } from '../seo/SeoProvider';
 
 /*

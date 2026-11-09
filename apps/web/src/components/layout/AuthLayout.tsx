@@ -45,13 +45,13 @@ export function AuthLayout({ children }: { children?: ReactNode }) {
           <div className="w-full max-w-[26rem]">{children ?? <Outlet />}</div>
         </main>
         <footer className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pb-6 text-caption text-ink-secondary">
-          <Link to={INFO_PATHS.privacy} className="rounded-sm hover:text-ink">
+          <Link to={INFO_PATHS.privacy} className="touch-target rounded-sm hover:text-ink">
             Privacy (draft)
           </Link>
-          <Link to={INFO_PATHS.terms} className="rounded-sm hover:text-ink">
+          <Link to={INFO_PATHS.terms} className="touch-target rounded-sm hover:text-ink">
             Terms (draft)
           </Link>
-          <Link to={INFO_PATHS.help} className="rounded-sm hover:text-ink">
+          <Link to={INFO_PATHS.help} className="touch-target rounded-sm hover:text-ink">
             Help
           </Link>
         </footer>

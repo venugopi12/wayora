@@ -78,7 +78,7 @@ export function DestinationsSection() {
             actions={
               <Link
                 to={DISCOVER.path}
-                className="group inline-flex shrink-0 items-center gap-1.5 rounded-md text-label text-brand-ink hover:underline hover:underline-offset-4"
+                className="group touch-target inline-flex shrink-0 items-center gap-1.5 rounded-md text-label text-brand-ink hover:underline hover:underline-offset-4"
               >
                 All destination ideas
                 <ArrowRight aria-hidden="true" className={cn('size-4', interaction.iconNudge)} />

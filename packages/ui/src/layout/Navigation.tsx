@@ -128,7 +128,7 @@ export function MobileNav({
         />
         <DialogPrimitive.Content
           className={cn(
-            'fixed inset-y-0 right-0 z-(--z-modal) flex w-[min(22rem,88vw)] flex-col bg-page shadow-lg',
+            'fixed inset-y-0 right-0 z-(--z-modal) flex w-[min(22rem,88vw)] flex-col bg-page pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] shadow-lg',
             overlayMotion.drawer,
           )}
           aria-describedby={undefined}
@@ -141,7 +141,11 @@ export function MobileNav({
             </DialogPrimitive.Close>
           </div>
           <div className="flex-1 overflow-y-auto p-4">{children}</div>
-          {footer ? <div className="border-t border-line p-5">{footer}</div> : null}
+          {footer ? (
+            <div className="border-t border-line p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+              {footer}
+            </div>
+          ) : null}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

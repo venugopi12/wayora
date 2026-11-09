@@ -68,6 +68,7 @@ import { bookingKeys, paymentKeys } from './keys';
 import { payPath, paymentPath, tripPath } from './paths';
 import { BookingSupportPanel } from '../support/BookingSupportPanel';
 import { BookingReviewPanel } from '../reviews/BookingReviewPanel';
+import { InstallOfferCard, OfflineDataNote } from '../../pwa/PwaNotices';
 
 /*
  * /trips, /trips/:reference and /trips/:reference/confirmation
@@ -239,6 +240,8 @@ export function TripsRoute() {
       title="My trips"
       description="Your demo bookings. Wayora keeps them for you, but none is a supplier reservation or ticket, and demo payments charge no real money."
     >
+      <OfflineDataNote updatedAt={list.dataUpdatedAt} what="Your trips are shown" />
+      <InstallOfferCard />
       <Tabs value={view} onValueChange={setView}>
         <TabsList label="Trips" className="self-start rounded-lg bg-sunken p-1">
           {(['upcoming', 'past', 'cancelled'] as const).map((v) => (
@@ -581,10 +584,10 @@ export function TripDetailRoute() {
   useDocumentTitle(booking.data ? `Booking ${booking.data.reference}` : 'Booking');
   if (reference === null) return <BookingNotFound />;
   if (!booking.data) return <BookingLoadState query={booking} />;
-  return <TripDetail booking={booking.data} />;
+  return <TripDetail booking={booking.data} loadedAt={booking.dataUpdatedAt} />;
 }
 
-function TripDetail({ booking }: { booking: Booking }) {
+function TripDetail({ booking, loadedAt }: { booking: Booking; loadedAt: number }) {
   const heading = offerHeading(booking.offer);
   const service = serviceBySlug[booking.serviceType];
   const [cancelledNow, setCancelledNow] = useState(false);
@@ -612,6 +615,7 @@ function TripDetail({ booking }: { booking: Booking }) {
           { label: booking.reference },
         ]}
       />
+      <OfflineDataNote updatedAt={loadedAt} what="This booking is shown" />
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge booking={booking} />

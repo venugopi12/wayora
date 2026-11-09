@@ -89,6 +89,7 @@ environment), never into `VITE_*` variables.
 | `REDIS_URL`                                                                                   | **required** | Same Redis as the API                                    |
 | `DATABASE_URL`                                                                                | **required** | Notification outbox; refused with a development password |
 | `WEB_ORIGIN`                                                                                  | `https://`   | Links in emails                                          |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (**secret store**), `VAPID_SUBJECT`                   | optional     | Browser push; all three or none ([pwa.md](pwa.md#push))  |
 | `WORKER_CONCURRENCY`, `NOTIFICATION_DISPATCH_INTERVAL_MS`, `SHUTDOWN_TIMEOUT_MS`, `LOG_LEVEL` | defaults     | See `apps/worker/.env.example`                           |
 
 ### Web (`apps/web`, build time only)
@@ -98,6 +99,7 @@ environment), never into `VITE_*` variables.
 | `VITE_API_BASE_URL`     | **required**, `https://` | Baked into the bundle and the CSP `connect-src`. The build refuses to run without it, or with plain http (except localhost)                                                                                                                              |
 | `VITE_SITE_URL`         | **required**, `https://` | The public site origin (no path): canonical links, sitemap, robots.txt, Open Graph, structured data ([seo.md](seo.md)). The build refuses to run without it                                                                                              |
 | `PRERENDER_CONTENT_URL` | recommended              | Not `VITE_`, never in the bundle: the API origin the build reads published CMS content from (`/api/v1/content/feed`) to prerender guides, collections and landing pages and list them in the sitemap. Unset: a warning, and they're client-rendered only |
+| `VITE_PWA`              | (on)                     | `off` builds the self-removing service worker ([pwa.md](pwa.md#kill-switch))                                                                                                                                                                             |
 
 Everything `VITE_*` is public: it ends up in JavaScript anyone can read.
 
@@ -351,6 +353,27 @@ shipping.
 - No email verification or password reset yet (docs/auth.md#limitations-and-future-work).
 - The admin dashboard is read-only (docs/admin.md#limitations).
 - Release steps are manual; CI checks every commit but deploys nothing.
+
+## Service worker and manifest
+
+The web build also writes `sw.js` (the service worker), `manifest.webmanifest`,
+`offline.html`, `offline.js` and `icons/` ([pwa.md](pwa.md)). Serve `sw.js`
+and the manifest with `Cache-Control: no-cache` (browsers must re-check the
+worker on every visit) and the manifest as `application/manifest+json`:
+
+```nginx
+location = /sw.js { add_header Cache-Control "no-cache"; try_files $uri =404; }
+location = /manifest.webmanifest {
+  default_type application/manifest+json;
+  add_header Cache-Control "no-cache";
+  try_files $uri =404;
+}
+```
+
+Browser push also needs `VAPID_PUBLIC_KEY` on the API and all three VAPID
+variables on the worker; without them push stays off and says so. If a
+service worker release ever misbehaves, deploy a build made with
+`VITE_PWA=off` ([kill switch](pwa.md#kill-switch)).
 
 ## Web hosting rules
 

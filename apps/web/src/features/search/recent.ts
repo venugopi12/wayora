@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { SearchServiceType } from '@wayora/contracts';
 import { SEARCH_CONFIG } from './config';
 import { readSearchParams, type FormValues } from './params';
+import { RECENT_SEARCHES_KEY, clearAllRecentSearches } from './recent-key';
 
 /*
  * Recent searches (Phase 24, docs/search.md#recent-searches).
@@ -15,7 +16,7 @@ import { readSearchParams, type FormValues } from './params';
  * windows, disabled site data); every read and write tolerates that.
  */
 
-export const RECENT_SEARCHES_KEY = 'wayora:recent-searches:v1';
+export { RECENT_SEARCHES_KEY };
 /** Per category. */
 export const MAX_RECENT_SEARCHES = 5;
 
@@ -123,3 +124,4 @@ export function clearRecentSearches(
   delete data[type];
   save(store, data);
 }
+export { clearAllRecentSearches };

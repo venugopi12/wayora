@@ -4,6 +4,8 @@ import { SkipLink } from '@wayora/ui';
 import { wantsHeaderOverlay } from './route-handle';
 import { SiteFooter } from './SiteFooter';
 import { SiteHeader } from './SiteHeader';
+import { MobileTabBar, TabBarSpacer } from '../../features/navigation/MobileTabBar';
+import { ConnectivityBanner, UpdatePrompt } from '../../pwa/PwaNotices';
 
 /**
  * Public-site layout: skip link, the one SiteHeader, the single `<main>`
@@ -30,10 +32,14 @@ export function MarketingLayout({
     <div className="relative flex min-h-dvh flex-col bg-page">
       <SkipLink />
       <SiteHeader overlay={overlay} />
+      <ConnectivityBanner />
       <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
         {children ?? <Outlet />}
       </main>
       {footer ? <SiteFooter /> : null}
+      <TabBarSpacer className={footer ? 'bg-deep' : undefined} />
+      <MobileTabBar />
+      <UpdatePrompt />
     </div>
   );
 }

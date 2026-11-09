@@ -12,7 +12,7 @@ export function SortControl({
   onChange: (value: string) => void;
 }) {
   return (
-    <Field label="Sort by" className="w-full sm:w-60">
+    <Field label="Sort by" className="w-full min-w-0 sm:w-60">
       <Select value={value} onChange={(e) => onChange(e.target.value)} options={[...options]} />
     </Field>
   );

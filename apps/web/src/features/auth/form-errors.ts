@@ -19,6 +19,8 @@ export function applyServerError<T extends FieldValues>(
     return 'Something went wrong. Please try again.';
   }
   switch (error.code) {
+    case 'OFFLINE':
+      return error.message;
     case 'NETWORK_ERROR':
     case 'TIMEOUT':
       return "We couldn't reach Wayora. Check your connection and try again.";

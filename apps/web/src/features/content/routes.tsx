@@ -28,6 +28,7 @@ import { siteUrl, usePageMeta } from '../seo/SeoProvider';
 import { ContentBody } from './ContentBody';
 import { DestinationGrid } from './DestinationGrid';
 import { contentKeys } from './keys';
+import { prerenderedContent } from './prerendered';
 import { ShareButton } from './ShareButton';
 
 /*
@@ -204,6 +205,9 @@ function useEntry(section: ContentSection, slug: string) {
   return useQuery({
     queryKey: contentKeys.entry(section, slug),
     queryFn: ({ signal }) => getPublishedContent(section, slug, signal),
+    // Start from the copy built into the page (if any), then refresh it at once.
+    initialData: () => prerenderedContent(`/${section}/${slug}`),
+    initialDataUpdatedAt: 0,
     retry: (count, e) => !(e instanceof ApiClientError && e.status === 404) && count < 2,
   });
 }

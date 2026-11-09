@@ -55,6 +55,8 @@ export interface AccountsRouterOptions {
   notifications: NotificationsService;
   /** Per-user limit on notification writes. */
   notificationLimiter?: RequestHandler;
+  /** Push subscription changes per user (Phase 30). */
+  pushLimiter?: RequestHandler;
   /** Admin dashboard (Phase 15, docs/admin.md). */
   admin: AdminRouterOptions;
   /** Trip timeline, status, disruptions and live updates (Phase 17, docs/trips.md). */
@@ -121,6 +123,7 @@ export function v1Router(options: V1RouterOptions): Router {
       paymentLimiter,
       notifications,
       notificationLimiter,
+      pushLimiter,
       admin,
       trips,
       planner,
@@ -162,7 +165,7 @@ export function v1Router(options: V1RouterOptions): Router {
     router.use(
       '/notifications',
       loadSession,
-      notificationsRouter(notifications, notificationLimiter),
+      notificationsRouter(notifications, notificationLimiter, pushLimiter),
     );
     router.use('/planner', loadSession, plannerRouter(planner));
     router.use('/assistant', loadSession, assistantRouter(assistant));

@@ -8,7 +8,7 @@ export function FooterNavLink({ link, className }: { link: FooterLink; className
     <Link
       to={link.to}
       className={cn(
-        'rounded-xs text-ink-inverse-secondary transition-colors duration-(--duration-fast) hover:text-ink-inverse',
+        'touch-target rounded-xs text-ink-inverse-secondary transition-colors duration-(--duration-fast) hover:text-ink-inverse',
         effects.underline,
         className,
       )}

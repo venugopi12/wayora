@@ -4,3 +4,19 @@
 
 /* Shared components live in packages/ui; let Tailwind see their classes. */
 @source '../../../../packages/ui/src';
+
+/* Phone navigation bar height (features/navigation/MobileTabBar.tsx). */
+:root {
+  --tab-bar-h: 4rem;
+}
+
+/* Mobile menu rows: staggered slide-in (MobileNavigationDrawer). */
+@keyframes drawer-row {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+.drawer-row {
+  animation: drawer-row 360ms var(--ease-emphasized) both;
+}

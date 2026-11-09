@@ -23,7 +23,7 @@ export function MobileFilterDrawer({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="secondary" className="w-full sm:w-auto lg:hidden">
+        <Button variant="secondary" className="w-full min-w-0 sm:w-auto lg:hidden">
           <SlidersHorizontal aria-hidden="true" />
           Filters{activeCount > 0 ? ` (${activeCount})` : ''}
         </Button>

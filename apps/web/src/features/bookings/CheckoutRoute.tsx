@@ -43,7 +43,8 @@ import { serviceBySlug } from '../navigation/config';
 import { OfferDetails, offerHeading } from '../offers/OfferDetails';
 import { offerPath, readOfferParams, resultsPathFor } from '../offers/paths';
 import { offerKeys } from '../offers/routes';
-import { BookingPriceSummary } from './BookingPriceSummary';
+import { BookingPriceSummary, MobilePriceBar } from './BookingPriceSummary';
+import { useOffline } from '../../pwa/online';
 import { BookingSteps } from './BookingSteps';
 import { notificationKeys } from '../notifications/keys';
 import { bookingKeys } from './keys';
@@ -442,7 +443,7 @@ function CheckoutFlow({
   const busy = create.isPending || waiting;
 
   return (
-    <Container className="flex flex-col gap-6 py-section-sm">
+    <Container className="flex flex-col gap-6 py-section-sm max-lg:pb-28">
       <Breadcrumbs
         items={[
           { label: 'Home', link: <Link to="/" /> },
@@ -519,8 +520,9 @@ function CheckoutFlow({
         </div>
 
         <aside
+          id="booking-summary"
           aria-label="Booking summary"
-          className="flex flex-col gap-4 lg:sticky lg:top-[calc(var(--header-offset,5rem)+1rem)]"
+          className="flex scroll-mt-(--header-offset) flex-col gap-4 lg:sticky lg:top-[calc(var(--header-offset,5rem)+1rem)]"
         >
           <div className="flex flex-col gap-1 rounded-xl border border-line bg-card p-5 shadow-xs">
             <p className="text-caption text-ink-secondary">{service.name}</p>
@@ -541,6 +543,11 @@ function CheckoutFlow({
           </p>
         </aside>
       </div>
+      <MobilePriceBar
+        price={result.price}
+        demo={result.source === 'demo'}
+        detailsId="booking-summary"
+      />
     </Container>
   );
 }
@@ -770,10 +777,18 @@ function ReviewStep({
   onSubmit: () => void;
 }) {
   const accepted = useWatch({ control: review.control, name: 'accept' });
+  // Never attempted (or queued) offline; enabled again when the connection returns.
+  const offline = useOffline();
   const code = codeOf(error);
   const api = error instanceof ApiClientError ? error : null;
   let problem: ReactNode = null;
-  if (code === 'PRICE_CHANGED') {
+  if (code === 'OFFLINE') {
+    problem = (
+      <Alert tone="warning" title="You’re offline: nothing was sent">
+        Your booking hasn&apos;t been made. Reconnect, then confirm again.
+      </Alert>
+    );
+  } else if (code === 'PRICE_CHANGED') {
     problem = (
       <Alert tone="danger" title="The price has changed">
         The offer now shows the provider&apos;s current price. Check it, then confirm again.
@@ -933,23 +948,28 @@ function ReviewStep({
             type="submit"
             size="lg"
             loading={busy}
-            disabled={!accepted || busy || offer.result.price === null}
-            aria-describedby={accepted ? undefined : 'confirm-hint'}
+            disabled={!accepted || busy || offline || offer.result.price === null}
+            aria-describedby={accepted && !offline ? undefined : 'confirm-hint'}
           >
             {supplier ? 'Send booking request' : 'Confirm demo booking'}
           </Button>
           <p
             id="confirm-hint"
             aria-live="polite"
-            className={cn('text-caption text-ink-secondary', accepted && !waiting && 'sr-only')}
+            className={cn(
+              'text-caption text-ink-secondary',
+              accepted && !waiting && !offline && 'sr-only',
+            )}
           >
-            {waiting
-              ? 'Still saving your booking…'
-              : accepted
-                ? ''
-                : supplier
-                  ? 'Tick “I understand how this supplier booking works” to send it.'
-                  : 'Tick “I understand this is a demo booking” to confirm.'}
+            {offline
+              ? 'You’re offline. Reconnect to confirm: nothing is sent until then.'
+              : waiting
+                ? 'Still saving your booking…'
+                : accepted
+                  ? ''
+                  : supplier
+                    ? 'Tick “I understand how this supplier booking works” to send it.'
+                    : 'Tick “I understand this is a demo booking” to confirm.'}
           </p>
         </div>
       </div>

@@ -9,7 +9,12 @@ import {
 } from '@wayora/contracts';
 
 /** Client-side error codes for failures that never produced an API envelope. */
-export type ClientErrorCode = 'NETWORK_ERROR' | 'TIMEOUT' | 'INVALID_RESPONSE';
+export type ClientErrorCode = 'NETWORK_ERROR' | 'TIMEOUT' | 'INVALID_RESPONSE' | 'OFFLINE';
+
+/** Shown when a change is attempted without a connection (docs/pwa.md#offline). */
+export const OFFLINE_MESSAGE = 'You’re offline, so nothing was sent. Reconnect and try again.';
+
+const browserOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
 export class ApiClientError extends Error {
   constructor(
@@ -91,6 +96,11 @@ export function createApiClient(
         reportsSessionEnd = true,
       },
     ) {
+      // Changes are never attempted (or queued) without a connection: bookings,
+      // payments, cancellations and the rest go through only when online.
+      if (method !== 'GET' && browserOffline()) {
+        throw new ApiClientError('OFFLINE', OFFLINE_MESSAGE, null);
+      }
       const timeout = AbortSignal.timeout(timeoutMs);
       const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
 
@@ -113,6 +123,13 @@ export function createApiClient(
         if (signal?.aborted) throw error; // caller cancelled (e.g. React Query) — rethrow as-is
         if (timeout.aborted) {
           throw new ApiClientError('TIMEOUT', 'The server took too long to respond.', null);
+        }
+        if (browserOffline()) {
+          throw new ApiClientError(
+            'OFFLINE',
+            method === 'GET' ? 'You’re offline. Reconnect to load this.' : OFFLINE_MESSAGE,
+            null,
+          );
         }
         throw new ApiClientError('NETWORK_ERROR', 'Could not reach the Wayora API.', null);
       }

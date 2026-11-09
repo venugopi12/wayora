@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 import type { ConnectionOptions } from 'bullmq';
 import { z } from 'zod';
 
+const optionalText = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+  z.string().trim().optional(),
+);
+
 export const workerEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
@@ -29,8 +34,46 @@ export const workerEnvSchema = z.object({
   /** How often the outbox is checked. */
   NOTIFICATION_DISPATCH_INTERVAL_MS: z.coerce.number().int().min(1000).max(600_000).default(15_000),
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  // Browser push (Phase 30, docs/pwa.md#push): the VAPID key pair and a
+  // contact for push services. All three, or none (push off). The private
+  // key is a secret: keep it in the secret store, never in the web app.
+  VAPID_PUBLIC_KEY: optionalText,
+  VAPID_PRIVATE_KEY: optionalText,
+  VAPID_SUBJECT: optionalText,
 });
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;
+
+/** The VAPID configuration when push is set up (all three values present and well formed). */
+export function vapidConfig(env: WorkerEnv) {
+  const {
+    VAPID_PUBLIC_KEY: publicKey,
+    VAPID_PRIVATE_KEY: privateKey,
+    VAPID_SUBJECT: subject,
+  } = env;
+  if (!publicKey || !privateKey || !subject) return null;
+  return { publicKey, privateKey, subject };
+}
+
+/** Problems with the push settings (any environment). Values are never echoed. */
+export function vapidIssues(env: WorkerEnv): string[] {
+  const set = [env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY, env.VAPID_SUBJECT].filter(
+    Boolean,
+  ).length;
+  if (set === 0) return [];
+  const issues: string[] = [];
+  if (set < 3)
+    issues.push('VAPID_*: set VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT together');
+  if (env.VAPID_PUBLIC_KEY && !/^B[A-Za-z0-9_-]{86}$/.test(env.VAPID_PUBLIC_KEY)) {
+    issues.push('VAPID_PUBLIC_KEY: must be a base64url P-256 public key (87 characters)');
+  }
+  if (env.VAPID_PRIVATE_KEY && !/^[A-Za-z0-9_-]{43}$/.test(env.VAPID_PRIVATE_KEY)) {
+    issues.push('VAPID_PRIVATE_KEY: must be a base64url P-256 private key (43 characters)');
+  }
+  if (env.VAPID_SUBJECT && !/^(mailto:\S+@\S+|https:\/\/\S+)$/.test(env.VAPID_SUBJECT)) {
+    issues.push('VAPID_SUBJECT: must be a mailto: address or an https:// URL');
+  }
+  return issues;
+}
 
 /** Local development credentials (Docker Compose / .env.example). Refused in production. */
 const DEV_ONLY_CREDENTIALS = ['wayora_local_dev_only', 'wayora_ci_only'];
@@ -75,7 +118,7 @@ export function validateWorkerEnv(
       }),
     };
   }
-  const issues = productionIssues(result.data);
+  const issues = [...vapidIssues(result.data), ...productionIssues(result.data)];
   return issues.length ? { ok: false, issues } : { ok: true, env: result.data };
 }
 

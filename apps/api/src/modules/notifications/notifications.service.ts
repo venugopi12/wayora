@@ -1,5 +1,8 @@
 import {
   EMAIL_NOT_CONFIGURED_STATUS,
+  PUSH_NOT_CONFIGURED_STATUS,
+  type PushSubscriptionInput,
+  type PushSubscriptionResult,
   hasPermission,
   type UserRole,
   notificationCategory,
@@ -37,11 +40,17 @@ export interface EmailStatus {
   active: boolean;
 }
 
+/** Browser push (Phase 30): the VAPID public key, when push is set up. */
+export interface PushStatus {
+  publicKey: string | null;
+}
+
 export class NotificationsService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly email: EmailStatus = { active: false },
     private readonly now: () => Date = () => new Date(),
+    private readonly push: PushStatus = { publicKey: null },
   ) {}
 
   private present(row: Row): Notification {
@@ -146,7 +155,16 @@ export class NotificationsService {
   // ─── Preferences ────────────────────────────────────────────────────────
 
   private presentPreferences(
-    row: { emailBookings: boolean; emailPayments: boolean; emailReminders: boolean } | null,
+    row: {
+      emailBookings: boolean;
+      emailPayments: boolean;
+      emailReminders: boolean;
+      pushBookings: boolean;
+      pushPayments: boolean;
+      pushReminders: boolean;
+      pushSupport: boolean;
+      pushRewards: boolean;
+    } | null,
   ): NotificationPreferences {
     return {
       emailBookings: row?.emailBookings ?? true,
@@ -155,6 +173,18 @@ export class NotificationsService {
       email: this.email.active
         ? { active: true, status: 'Emails are sent for the topics you choose.' }
         : { active: false, status: EMAIL_NOT_CONFIGURED_STATUS },
+      pushBookings: row?.pushBookings ?? true,
+      pushPayments: row?.pushPayments ?? true,
+      pushReminders: row?.pushReminders ?? true,
+      pushSupport: row?.pushSupport ?? true,
+      pushRewards: row?.pushRewards ?? true,
+      push: this.push.publicKey
+        ? {
+            active: true,
+            status: 'Devices where you turn push on get the topics you choose.',
+            publicKey: this.push.publicKey,
+          }
+        : { active: false, status: PUSH_NOT_CONFIGURED_STATUS, publicKey: null },
     };
   }
 
@@ -168,16 +198,64 @@ export class NotificationsService {
     userId: string,
     input: UpdateNotificationPreferences,
   ): Promise<NotificationPreferences> {
-    const data = {
-      ...(input.emailBookings !== undefined ? { emailBookings: input.emailBookings } : {}),
-      ...(input.emailPayments !== undefined ? { emailPayments: input.emailPayments } : {}),
-      ...(input.emailReminders !== undefined ? { emailReminders: input.emailReminders } : {}),
-    };
+    const keys = [
+      'emailBookings',
+      'emailPayments',
+      'emailReminders',
+      'pushBookings',
+      'pushPayments',
+      'pushReminders',
+      'pushSupport',
+      'pushRewards',
+    ] as const;
+    const data: Partial<Record<(typeof keys)[number], boolean>> = {};
+    for (const key of keys) if (input[key] !== undefined) data[key] = input[key];
     const row = await this.prisma.notificationPreference.upsert({
       where: { userId },
       create: { userId, ...data },
       update: data,
     });
     return this.presentPreferences(row);
+  }
+
+  // ─── Browser push subscriptions (Phase 30, docs/pwa.md#push) ──────────
+
+  /**
+   * Saves this browser's push subscription for the signed-in user and this
+   * session. An endpoint is one browser profile: if another account turned
+   * push on in it before (a shared device), it now belongs to this account
+   * only, so the previous account's notifications stop reaching it.
+   */
+  async subscribePush(
+    userId: string,
+    sessionId: string,
+    input: PushSubscriptionInput,
+  ): Promise<PushSubscriptionResult> {
+    if (!this.push.publicKey) {
+      throw new AppError('SERVICE_UNAVAILABLE', PUSH_NOT_CONFIGURED_STATUS);
+    }
+    const fields = {
+      userId,
+      sessionId,
+      p256dh: input.keys.p256dh,
+      auth: input.keys.auth,
+      expiresAt:
+        input.expirationTime === null || input.expirationTime === undefined
+          ? null
+          : new Date(input.expirationTime),
+      failureCount: 0,
+    };
+    await this.prisma.pushSubscription.upsert({
+      where: { endpoint: input.endpoint },
+      create: { endpoint: input.endpoint, ...fields },
+      update: fields,
+    });
+    return { subscribed: true };
+  }
+
+  /** Removes this browser's subscription (only if it's the signed-in user's). */
+  async unsubscribePush(userId: string, endpoint: string): Promise<PushSubscriptionResult> {
+    await this.prisma.pushSubscription.deleteMany({ where: { endpoint, userId } });
+    return { subscribed: false };
   }
 }

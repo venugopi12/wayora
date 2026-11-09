@@ -5,6 +5,7 @@ import { ApiClientError } from './api-client';
 function shouldRetry(failureCount: number, error: unknown): boolean {
   if (error instanceof ApiClientError) {
     const transient = error.code === 'NETWORK_ERROR' || error.code === 'TIMEOUT';
+    // Offline reads pause (and resume on reconnecting) rather than retrying.
     const serverError = error.status !== null && error.status >= 500;
     if (!transient && !serverError) return false;
   }
@@ -21,6 +22,11 @@ export function createQueryClient(): QueryClient {
       },
       mutations: {
         retry: false,
+        // React Query would otherwise pause a change made offline and send it
+        // when the connection returns. Bookings, payments, cancellations and
+        // every other change must never go out later on their own
+        // (docs/pwa.md#offline): run now, and fail with OFFLINE if offline.
+        networkMode: 'always',
       },
     },
   });

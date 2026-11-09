@@ -39,6 +39,8 @@ import { notificationKeys } from '../notifications/keys';
 import { bookingKeys, paymentKeys } from './keys';
 import { confirmationPath, payPath, paymentPath, tripPath } from './paths';
 import { BookingLoadState, BookingNotFound, referenceParam, useBooking } from './TripsRoutes';
+import { useOffline } from '../../pwa/online';
+import { OfflineDataNote } from '../../pwa/PwaNotices';
 
 /*
  * Demo payments (docs/payments.md#web):
@@ -241,6 +243,8 @@ function PayReview({ booking }: { booking: Booking }) {
     pay.mutate({ body, key: keyFor(body) });
   };
   const busy = pay.isPending || waiting;
+  // Payments are never attempted or queued offline.
+  const offline = useOffline();
   const code = pay.isError ? codeOf(pay.error) : null;
   const api = pay.error instanceof ApiClientError ? pay.error : null;
 
@@ -359,7 +363,11 @@ function PayReview({ booking }: { booking: Booking }) {
               or the booking expires (nothing is charged if it does).
             </p>
           ) : null}
-          {code === 'PAYMENT_AMOUNT_MISMATCH' ? (
+          {code === 'OFFLINE' ? (
+            <Alert tone="warning" title="You’re offline: nothing was sent">
+              No payment was started. Reconnect, then try again.
+            </Alert>
+          ) : code === 'PAYMENT_AMOUNT_MISMATCH' ? (
             <Alert tone="danger" title="The amount doesn’t match">
               {api?.message}
             </Alert>
@@ -381,16 +389,18 @@ function PayReview({ booking }: { booking: Booking }) {
             size="lg"
             fullWidth
             loading={busy}
-            disabled={busy}
+            disabled={busy || offline}
             onClick={start}
             aria-describedby="pay-note"
           >
             Pay {money(amount)} (demo)
           </Button>
           <p id="pay-note" aria-live="polite" className="text-caption text-ink-secondary">
-            {waiting
-              ? 'Still starting your payment…'
-              : 'Demo payment: no real money will be charged.'}
+            {offline
+              ? 'You’re offline. Reconnect to pay: nothing is sent until then.'
+              : waiting
+                ? 'Still starting your payment…'
+                : 'Demo payment: no real money will be charged.'}
           </p>
         </aside>
       </div>
@@ -505,6 +515,7 @@ function PaymentStatus({ reference, paymentId }: { reference: string; paymentId:
   if (p.bookingReference !== reference) return <PaymentNotFound />;
   return (
     <PaymentStatusView
+      loadedAt={payment.dataUpdatedAt}
       payment={p}
       pollingStopped={pollingStopped}
       onCheckAgain={() => {
@@ -526,11 +537,13 @@ function PaymentStatus({ reference, paymentId }: { reference: string; paymentId:
 }
 
 function PaymentStatusView({
+  loadedAt,
   payment,
   pollingStopped,
   onCheckAgain,
   cancel,
 }: {
+  loadedAt: number;
   payment: Payment;
   pollingStopped: boolean;
   onCheckAgain: () => void;
@@ -581,6 +594,7 @@ function PaymentStatusView({
           { label: 'Payment' },
         ]}
       />
+      <OfflineDataNote updatedAt={loadedAt} what="This payment’s status is shown" />
       <Reveal
         key={payment.status}
         trigger="mount"

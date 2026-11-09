@@ -43,6 +43,8 @@ export const overlayMotion = {
   backdrop: 'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
   /** Side drawer (mobile navigation). */
   drawer: 'data-[state=open]:animate-sheet-in data-[state=closed]:animate-sheet-out',
+  /** Bottom sheet (phone actions such as search shortcuts). */
+  bottomSheet: 'data-[state=open]:animate-sheet-up-in data-[state=closed]:animate-sheet-up-out',
   /** Tooltip (Radix uses delayed-open / instant-open). */
   tooltip:
     'data-[state=delayed-open]:animate-fade-in data-[state=instant-open]:animate-fade-in data-[state=closed]:animate-fade-out',

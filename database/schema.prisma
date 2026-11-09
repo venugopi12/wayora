@@ -215,6 +215,8 @@ enum DisruptionState {
 
 enum NotificationChannel {
   EMAIL
+  /// Browser push (Phase 30, docs/pwa.md#push).
+  PUSH
 
   @@map("notification_channel")
 }
@@ -315,6 +317,7 @@ model User {
 
   notifications           Notification[]
   notificationPreferences NotificationPreference?
+  pushSubscriptions       PushSubscription[]
 
   plannedTrips PlannedTrip[]
 
@@ -384,7 +387,8 @@ model Session {
   expiresAt      DateTime  @map("expires_at") @db.Timestamptz(3)
   revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(3)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushSubscriptions PushSubscription[]
 
   @@index([userId])
   @@index([expiresAt])
@@ -699,11 +703,41 @@ model NotificationPreference {
   emailBookings  Boolean  @default(true) @map("email_bookings")
   emailPayments  Boolean  @default(true) @map("email_payments")
   emailReminders Boolean  @default(true) @map("email_reminders")
+  /// Browser push topics (Phase 30); only devices with push turned on receive them.
+  pushBookings   Boolean  @default(true) @map("push_bookings")
+  pushPayments   Boolean  @default(true) @map("push_payments")
+  pushReminders  Boolean  @default(true) @map("push_reminders")
+  pushSupport    Boolean  @default(true) @map("push_support")
+  pushRewards    Boolean  @default(true) @map("push_rewards")
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notification_preferences")
+}
+
+/// A browser that turned on push notifications while signed in (Phase 30,
+/// docs/pwa.md#push). Tied to that session: nothing is sent once the session
+/// is revoked or expired, and the row goes with the session.
+model PushSubscription {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  sessionId     String    @map("session_id") @db.Uuid
+  endpoint      String    @unique @db.VarChar(2048)
+  p256dh        String    @db.VarChar(200)
+  auth          String    @db.VarChar(64)
+  expiresAt     DateTime? @map("expires_at") @db.Timestamptz(3)
+  failureCount  Int       @default(0) @map("failure_count")
+  lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionId])
+  @@map("push_subscriptions")
 }
 
 // ─── Search analytics (Phase 15) ──────────────────────────────────────────

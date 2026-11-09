@@ -2,6 +2,9 @@ import {
   markAllReadResponseSchema,
   notificationListResponseSchema,
   notificationPreferencesSchema,
+  pushSubscriptionResultSchema,
+  type PushSubscriptionInput,
+  type PushSubscriptionResult,
   notificationSchema,
   unreadCountResponseSchema,
   type MarkAllReadResponse,
@@ -67,5 +70,24 @@ export function updateNotificationPreferences(
     method: 'PATCH',
     body,
     schema: notificationPreferencesSchema,
+  });
+}
+
+// ─── Browser push (Phase 30, docs/pwa.md#push) ───────────────────────────
+
+export function savePushSubscription(body: PushSubscriptionInput): Promise<PushSubscriptionResult> {
+  return api.request('/notifications/push/subscriptions', {
+    method: 'POST',
+    body,
+    schema: pushSubscriptionResultSchema,
+  });
+}
+
+export function deletePushSubscription(endpoint: string): Promise<PushSubscriptionResult> {
+  return api.request('/notifications/push/subscriptions', {
+    method: 'DELETE',
+    body: { endpoint },
+    schema: pushSubscriptionResultSchema,
+    timeoutMs: 4000,
   });
 }

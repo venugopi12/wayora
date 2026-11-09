@@ -56,7 +56,7 @@ export function Breadcrumbs({ items, tone = 'default', className }: BreadcrumbsP
               item.link as ReactElement<{ className?: string; children?: ReactNode }>,
               {
                 className: cn(
-                  'rounded-xs underline-offset-4 hover:underline',
+                  'touch-target rounded-xs underline-offset-4 hover:underline',
                   inverse ? 'hover:text-ink-inverse' : 'hover:text-ink',
                 ),
                 children: item.label,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { VAPID_PUBLIC_KEY_PATTERN } from '@wayora/contracts';
 
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const;
 
@@ -238,6 +239,19 @@ export const envSchema = z.object({
   // Content and SEO (Phase 29, docs/seo.md#configuration).
   /** First-party page-view and click events per client IP per minute. */
   ANALYTICS_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+  // Browser push (Phase 30, docs/pwa.md#push). The public half of the VAPID
+  // key pair the worker signs with; browsers subscribe with it. Empty: push
+  // is off (shown as not set up), and in-app notifications work as before.
+  VAPID_PUBLIC_KEY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v : undefined))
+    .refine((v) => v === undefined || VAPID_PUBLIC_KEY_PATTERN.test(v), {
+      message: 'VAPID_PUBLIC_KEY must be a base64url P-256 public key (87 characters).',
+    }),
+  /** Push subscriptions added or removed per user per hour. */
+  PUSH_SUBSCRIBE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
 });
 
 /** Which search-session store this configuration selects. */

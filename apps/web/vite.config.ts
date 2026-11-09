@@ -3,7 +3,8 @@ import react from '@vitejs/plugin-react';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 import {
   apiOriginOf,
   contentSecurityPolicy,
@@ -12,6 +13,7 @@ import {
 } from './config/security-headers.ts';
 import { siteUrlIssues } from './src/features/seo/site.ts';
 import { staticSectionOf } from './src/features/seo/hosting.ts';
+import { appManifest, shellPrecacheTransform } from './config/pwa.ts';
 
 const DEV_API = 'http://localhost:4000';
 
@@ -96,8 +98,42 @@ function prerenderedHostingPlugin(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), tailwindcss(), securityHeadersPlugin(), prerenderedHostingPlugin()],
+export default defineConfig(({ mode }) => ({
+  plugins: [
+    react(),
+    tailwindcss(),
+    securityHeadersPlugin(),
+    prerenderedHostingPlugin(),
+    // Installable app and service worker (docs/pwa.md). Production builds only:
+    // the dev server never registers a worker, so development stays predictable.
+    VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      // The app registers the worker itself (src/pwa/register.ts) and asks before updating.
+      injectRegister: false,
+      registerType: 'prompt',
+      manifest: appManifest,
+      includeManifestIcons: false,
+      // VITE_PWA=off builds a worker that removes itself and its caches (the kill switch).
+      selfDestroying: loadEnv(mode, process.cwd(), '').VITE_PWA === 'off',
+      injectManifest: {
+        globPatterns: [
+          'assets/*.{js,css}',
+          'icons/*.png',
+          'offline.html',
+          'offline.js',
+          'favicon.svg',
+        ],
+        // Precache only what the app shell loads at start-up; other chunks are cached when used.
+        manifestTransforms: [
+          shellPrecacheTransform(fileURLToPath(new URL('./dist/', import.meta.url))),
+        ],
+        maximumFileSizeToCacheInBytes: 1024 * 1024,
+      },
+      devOptions: { enabled: false },
+    }),
+  ],
   resolve: {
     // Bare "zod" → src/lib/zod.ts (sets jitless before any schema; see there).
     alias: [
@@ -133,11 +169,17 @@ export default defineConfig({
             },
             {
               name: 'data',
-              test: /node_modules[\\/](@tanstack|zod|react-hook-form|@hookform)[\\/]/,
+              test: /node_modules[\\/](@tanstack|zod)[\\/]/,
+            },
+            {
+              // Only form pages (sign-in, checkout, planner…) load it, so it
+              // stays out of the start-up bundle (docs/pwa.md#performance).
+              name: 'forms',
+              test: /node_modules[\\/](react-hook-form|@hookform)[\\/]/,
             },
           ],
         },
       },
     },
   },
-});
+}));

@@ -89,6 +89,19 @@
   }
 }
 
+/*
+ * Enlarges a small text link's touch area (to about 32px tall) without
+ * changing the layout, for links in compact rows: breadcrumbs, footer lists.
+ */
+@utility touch-target {
+  position: relative;
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -0.4rem -0.25rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -280,3 +280,17 @@ review's author when it is published, not published, or removed. Its link
 is the author's own reviews page (`my-reviews`); no extra column is needed.
 Dedupe key: `review:<reviewId>:<revision>`. Details:
 [reviews.md](reviews.md#notifications).
+
+## Browser push (Phase 30)
+
+A second delivery channel, `PUSH`, next to email in the same outbox
+(`notification_deliveries`, one row per notification and channel). A push
+row is queued in the notification's transaction only when the topic's push
+preference is on (`pushBookings`, `pushPayments`, `pushReminders`,
+`pushSupport`, `pushRewards`; all default on) and the user has a device with
+push turned on in a session that's still signed in. The worker's
+`PushDispatcher` sends it with Web Push (VAPID); the email dispatcher only
+claims `EMAIL` rows. Without VAPID keys, push rows become `NOT_CONFIGURED`
+and nothing is sent. Preferences gained the `push*` fields and a `push`
+status object (`active`, `status`, `publicKey`). Details, setup and limits:
+[pwa.md](pwa.md#push).

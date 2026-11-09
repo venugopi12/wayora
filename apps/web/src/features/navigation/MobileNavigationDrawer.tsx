@@ -1,17 +1,26 @@
-import type { LucideIcon } from 'lucide-react';
+import { Download, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import type { CategoryAvailability, CurrencyCode } from '@wayora/contracts';
 import { Divider, Field, MobileNav, Select, Wordmark, cn } from '@wayora/ui';
-import { RevealGroup, RevealItem, stagger } from '@wayora/ui/motion';
+import { stagger } from '@wayora/ui/motion';
 import { DISPLAY_CURRENCIES, useDisplayCurrency } from '../preferences/currency';
 import { DrawerAccount } from './AccountAction';
 import { DISCOVER, SERVICE_NAV, type AppPath, type HeaderTone } from './config';
 import { ServiceMenuItem, serviceMenuRow } from './ServiceMenuItem';
+import { useInstallMethod } from '../../pwa/install';
+import { InstallDialog } from '../../pwa/PwaNotices';
 
-/** Rows slide in one after another each time the drawer opens. */
+/**
+ * Rows slide in one after another each time the drawer opens. A CSS animation
+ * (compositor only) rather than per-row JavaScript, so opening the menu stays
+ * quick on slow phones (docs/pwa.md#performance); none under reduced motion.
+ */
 const ROW_STAGGER = stagger.tight / 2;
 const FIRST_ROW_DELAY = stagger.tight;
+const rowDelay = (index: number) => ({
+  animationDelay: `${Math.round((FIRST_ROW_DELAY + index * ROW_STAGGER) * 1000)}ms`,
+});
 
 function DrawerLink({
   to,
@@ -20,8 +29,10 @@ function DrawerLink({
   summary,
   availability,
   current,
+  index,
   onNavigate,
 }: {
+  index: number;
   to: AppPath;
   icon: LucideIcon;
   title: string;
@@ -31,7 +42,7 @@ function DrawerLink({
   onNavigate: () => void;
 }) {
   return (
-    <RevealItem as="li" preset="fadeStart" distance={12}>
+    <li className="drawer-row" style={rowDelay(index)}>
       <Link
         to={to}
         onClick={onNavigate}
@@ -43,7 +54,7 @@ function DrawerLink({
       >
         <ServiceMenuItem icon={icon} title={title} summary={summary} availability={availability} />
       </Link>
-    </RevealItem>
+    </li>
   );
 }
 
@@ -89,16 +100,11 @@ export function MobileNavigationDrawer({
           <h2 id="drawer-travel" className="px-3 pb-2 text-caption text-ink-secondary">
             Travel services
           </h2>
-          <RevealGroup
-            as="ul"
-            trigger="mount"
-            stagger={ROW_STAGGER}
-            delayChildren={FIRST_ROW_DELAY}
-            className="flex flex-col gap-0.5"
-          >
-            {SERVICE_NAV.map((s) => (
+          <ul className="flex flex-col gap-0.5">
+            {SERVICE_NAV.map((s, i) => (
               <DrawerLink
                 key={s.slug}
+                index={i}
                 to={s.path}
                 icon={s.icon}
                 title={s.name}
@@ -108,7 +114,7 @@ export function MobileNavigationDrawer({
                 onNavigate={close}
               />
             ))}
-          </RevealGroup>
+          </ul>
         </section>
 
         <Divider />
@@ -117,12 +123,9 @@ export function MobileNavigationDrawer({
           <h2 id="drawer-explore" className="px-3 pb-2 text-caption text-ink-secondary">
             Explore
           </h2>
-          <RevealGroup
-            as="ul"
-            trigger="mount"
-            delayChildren={FIRST_ROW_DELAY + SERVICE_NAV.length * ROW_STAGGER}
-          >
+          <ul>
             <DrawerLink
+              index={SERVICE_NAV.length}
               to={DISCOVER.path}
               icon={DISCOVER.icon}
               title={DISCOVER.name}
@@ -130,10 +133,12 @@ export function MobileNavigationDrawer({
               current={pathname === DISCOVER.path}
               onNavigate={close}
             />
-          </RevealGroup>
+          </ul>
         </section>
 
         <Divider />
+
+        <InstallEntry />
 
         <section aria-labelledby="drawer-preferences" className="px-3 pb-2">
           <h2 id="drawer-preferences" className="pb-3 text-caption text-ink-secondary">
@@ -152,5 +157,29 @@ export function MobileNavigationDrawer({
         </section>
       </nav>
     </MobileNav>
+  );
+}
+
+/** "Install the app" where this browser can install (docs/pwa.md#install). */
+function InstallEntry() {
+  const method = useInstallMethod();
+  const [open, setOpen] = useState(false);
+  if (method === 'installed' || method === 'unsupported') return null;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={cn(serviceMenuRow, 'min-h-14 w-full items-center px-3 py-2 text-left')}
+      >
+        <ServiceMenuItem
+          icon={Download}
+          title="Install the app"
+          summary="Open Wayora from your home screen."
+        />
+      </button>
+      <InstallDialog open={open} onOpenChange={setOpen} />
+      <Divider />
+    </>
   );
 }

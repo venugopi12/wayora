@@ -1,0 +1,8 @@
+{
+  "extends": "@wayora/config/tsconfig.react.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "WebWorker"],
+    "types": ["vite/client"]
+  },
+  "include": ["src/sw.ts"]
+}

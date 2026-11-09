@@ -13,10 +13,11 @@ import type { NotificationType as DbNotificationType, Prisma } from '@wayora/dat
  * ON CONFLICT DO NOTHING, so a retried or replayed event adds nothing (and
  * doesn't abort the surrounding transaction).
  *
- * The optional email is queued in the same transaction as an outbox row
- * (notification_deliveries), which the worker processes later. Whether it is
- * queued depends on the user's email preferences; the in-app notification is
- * always kept.
+ * The optional email and browser push are queued in the same transaction as
+ * outbox rows (notification_deliveries, one per channel), which the worker
+ * processes later. Whether they are queued depends on the user's preferences
+ * (and, for push, on a signed-in device having push on); the in-app
+ * notification is always kept.
  */
 
 type Tx = Prisma.TransactionClient;
@@ -72,6 +73,30 @@ const EMAILED = new Set<DbNotificationType>([
   'TRIP_DISRUPTION',
 ]);
 
+/**
+ * Which push preference covers each pushed type (Phase 30, docs/pwa.md#push).
+ * "Processing" updates, plan activity and staff queue alerts stay in-app.
+ */
+const PUSH_CATEGORY: Partial<
+  Record<
+    DbNotificationType,
+    'pushBookings' | 'pushPayments' | 'pushReminders' | 'pushSupport' | 'pushRewards'
+  >
+> = {
+  BOOKING_CREATED: 'pushBookings',
+  BOOKING_CONFIRMED: 'pushBookings',
+  BOOKING_CANCELLED: 'pushBookings',
+  BOOKING_EXPIRED: 'pushBookings',
+  BOOKING_FAILED: 'pushBookings',
+  TRIP_DISRUPTION: 'pushBookings',
+  PAYMENT_SUCCEEDED: 'pushPayments',
+  PAYMENT_FAILED: 'pushPayments',
+  PAYMENT_REFUNDED: 'pushPayments',
+  TRAVEL_REMINDER: 'pushReminders',
+  SUPPORT_TICKET: 'pushSupport',
+  REWARDS: 'pushRewards',
+};
+
 /** Creates the notification (once per dedupe key) and queues its email. Returns whether it was new. */
 export async function notify(tx: Tx, now: Date, input: NotifyInput): Promise<boolean> {
   const created = await tx.notification.createManyAndReturn({
@@ -97,14 +122,28 @@ export async function notify(tx: Tx, now: Date, input: NotifyInput): Promise<boo
   const notification = created[0];
   if (!notification) return false;
   const preference = CATEGORY[input.type];
-  if (EMAILED.has(input.type) && preference) {
-    const preferences = await tx.notificationPreference.findUnique({
-      where: { userId: input.userId },
+  const pushPreference = PUSH_CATEGORY[input.type];
+  if (!(EMAILED.has(input.type) && preference) && !pushPreference) return true;
+  // No row: the defaults (on).
+  const preferences = await tx.notificationPreference.findUnique({
+    where: { userId: input.userId },
+  });
+  if (EMAILED.has(input.type) && preference && preferences?.[preference] !== false) {
+    await tx.notificationDelivery.create({
+      data: { notificationId: notification.id, channel: 'EMAIL', nextAttemptAt: now },
     });
-    // No row: the defaults (on).
-    if (preferences?.[preference] !== false) {
+  }
+  // Push only when some device of theirs has it on, in a session that's still signed in.
+  if (pushPreference && preferences?.[pushPreference] !== false) {
+    const devices = await tx.pushSubscription.count({
+      where: {
+        userId: input.userId,
+        session: { revokedAt: null, expiresAt: { gt: now } },
+      },
+    });
+    if (devices > 0) {
       await tx.notificationDelivery.create({
-        data: { notificationId: notification.id, channel: 'EMAIL', nextAttemptAt: now },
+        data: { notificationId: notification.id, channel: 'PUSH', nextAttemptAt: now },
       });
     }
   }

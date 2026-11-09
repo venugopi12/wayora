@@ -84,6 +84,12 @@ export function SearchEmptyState({
 /** Wording per error code for a failed search (docs/search.md#errors). */
 function searchErrorCopy(error: unknown): { title: string; description: string } {
   const api = error instanceof ApiClientError ? error : null;
+  if (api?.code === 'OFFLINE') {
+    return {
+      title: 'You’re offline',
+      description: 'Searching needs a connection. Reconnect and try again.',
+    };
+  }
   if (!api || api.code === 'NETWORK_ERROR' || api.code === 'TIMEOUT') {
     return {
       title: "We couldn't reach Wayora",
