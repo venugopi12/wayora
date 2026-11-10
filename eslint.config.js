@@ -48,4 +48,10 @@ export default tseslint.config(
     files: ['scripts/**', 'apps/*/scripts/**', 'database/seed.ts', 'apps/worker/src/scripts/**'],
     rules: { 'no-console': 'off' },
   },
+  {
+    // The end-to-end journey (Node) reports its steps, and runs code in the page.
+    files: ['apps/web/e2e/**'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+    rules: { 'no-console': 'off' },
+  },
 );

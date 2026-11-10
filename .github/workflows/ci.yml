@@ -126,3 +126,102 @@ jobs:
         env:
           VITE_API_BASE_URL: http://localhost:4000
           VITE_SITE_URL: http://localhost:4173
+
+  # End-to-end smoke journey (docs/testing.md#end-to-end): the production web
+  # build and the API, against throwaway PostgreSQL and Redis, driven by a real
+  # Chromium. Demo search and demo payments only: nothing external is called.
+  e2e:
+    name: End-to-end journey
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wayora
+          POSTGRES_PASSWORD: wayora_ci_only
+          POSTGRES_DB: wayora_e2e_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wayora -d wayora_e2e_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+
+    env:
+      CI: 'true'
+      NODE_ENV: development
+      DATABASE_URL: postgresql://wayora:wayora_ci_only@localhost:5432/wayora_e2e_test
+      REDIS_URL: redis://localhost:6379/0
+      CORS_ORIGIN: http://localhost:4173
+      WEB_ORIGIN: http://localhost:4173
+      API_BASE_URL: http://localhost:4000
+      VITE_API_BASE_URL: http://localhost:4000
+      VITE_SITE_URL: http://localhost:4173
+      CHECKPOINT_DISABLE: '1'
+      PRISMA_HIDE_UPDATE_MESSAGE: '1'
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Cache Prisma engines
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/prisma
+          key: prisma-engines-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx --workspace @wayora/web playwright install --with-deps chromium
+
+      - name: Apply migrations
+        run: npm run db:migrate:deploy
+
+      - name: Build
+        run: npm run build
+
+      - name: Start the API and the web build
+        run: |
+          (node apps/api/dist/server.js > api.log 2>&1 &)
+          (cd apps/web && npx vite preview --port 4173 --strictPort > ../../web.log 2>&1 &)
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:4000/api/v1/health/ready > /dev/null \
+              && curl -sf http://localhost:4173/ > /dev/null && exit 0
+            sleep 2
+          done
+          echo "API or web did not start"; cat api.log web.log; exit 1
+
+      - name: Run the journey
+        run: npm run test:e2e -w @wayora/web
+
+      - name: Keep screenshots and logs of a failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: |
+            apps/web/e2e-results/
+            api.log
+            web.log
+          retention-days: 7

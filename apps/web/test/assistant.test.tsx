@@ -396,8 +396,13 @@ describe('Travel assistant', () => {
     await waitFor(() => expect(router.state.location.search).toBe(`?trip=${trip.id}`));
     expect(await screen.findByRole('link', { name: 'Goa with friends' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Make my itinerary less hectic.' }));
-    await waitFor(() =>
-      expect(router.state.location.pathname).toMatch(/^\/assistant\/[0-9a-f-]+$/),
+    // Two requests, then the conversation page's lazy chunk loads. On a cold
+    // test run transforming that chunk alone can take over a second (this
+    // failed intermittently in full runs, never when run alone), so allow
+    // up to 5 s; the behaviour checked is unchanged.
+    await waitFor(
+      () => expect(router.state.location.pathname).toMatch(/^\/assistant\/[0-9a-f-]+$/),
+      { timeout: 5_000 },
     );
     expect(api.writes()[0]).toMatchObject({
       path: '/assistant/conversations',

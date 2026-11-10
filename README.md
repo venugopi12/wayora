@@ -43,31 +43,32 @@ Full instructions and troubleshooting: [docs/SETUP.md](docs/SETUP.md).
 
 ## Scripts
 
-| Script                                       | Purpose                                                                              |
-| -------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `npm run setup`                              | Copy every `.env.example` to `.env` (never overwrites)                               |
-| `npm run dev`                                | Build shared packages, then run API, worker and web                                  |
-| `npm run dev:api` / `dev:worker` / `dev:web` | Run one app in watch mode                                                            |
-| `npm run build`                              | Build packages, API, worker and web for production                                   |
-| `npm run start:api` / `start:worker`         | Run the built API / worker                                                           |
-| `npm run lint` / `lint:fix`                  | ESLint across the monorepo                                                           |
-| `npm run format` / `format:check`            | Prettier                                                                             |
-| `npm run typecheck`                          | Strict TypeScript in every workspace                                                 |
-| `npm test`                                   | Vitest in every workspace (no external services needed)                              |
-| `npm run check`                              | lint + format check + typecheck + tests (also run by CI, `.github/workflows/ci.yml`) |
-| `npm run infra:up` / `infra:down`            | Start / stop PostgreSQL and Redis                                                    |
-| `npm run infra:reset`                        | Stop and **delete** local database and Redis volumes                                 |
-| `npm run infra:logs` / `infra:ps`            | Follow logs / list containers                                                        |
-| `npm run db:migrate`                         | Create/apply migrations in development (`prisma migrate dev`)                        |
-| `npm run db:migrate:deploy`                  | Apply committed migrations (CI / production)                                         |
-| `npm run db:migrate:check`                   | Fail (exit 2) if the migrated database differs from `schema.prisma` (CI)             |
-| `npm run db:migrate:status`                  | Show migration status                                                                |
-| `npm run db:generate`                        | Regenerate the Prisma client                                                         |
-| `npm run db:seed`                            | Seed development data (refuses in production)                                        |
-| `npm run db:reset`                           | Drop, re-migrate and re-seed the dev database                                        |
-| `npm run db:studio`                          | Prisma Studio                                                                        |
-| `npm run job:example`                        | Enqueue the example worker job and wait for its result                               |
-| `npm run admin:role -- --email … --role …`   | Grant or remove a staff role (audited; [admin.md](docs/admin.md#provisioning))       |
+| Script                                       | Purpose                                                                                           |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `npm run setup`                              | Copy every `.env.example` to `.env` (never overwrites)                                            |
+| `npm run dev`                                | Build shared packages, then run API, worker and web                                               |
+| `npm run dev:api` / `dev:worker` / `dev:web` | Run one app in watch mode                                                                         |
+| `npm run build`                              | Build packages, API, worker and web for production                                                |
+| `npm run start:api` / `start:worker`         | Run the built API / worker                                                                        |
+| `npm run lint` / `lint:fix`                  | ESLint across the monorepo                                                                        |
+| `npm run format` / `format:check`            | Prettier                                                                                          |
+| `npm run typecheck`                          | Strict TypeScript in every workspace                                                              |
+| `npm test`                                   | Vitest in every workspace (no external services needed)                                           |
+| `npm run check`                              | lint + format check + typecheck + tests (also run by CI, `.github/workflows/ci.yml`)              |
+| `npm run test:e2e -w @wayora/web`            | End-to-end journey in Chromium against a running build ([testing.md](docs/testing.md#end-to-end)) |
+| `npm run infra:up` / `infra:down`            | Start / stop PostgreSQL and Redis                                                                 |
+| `npm run infra:reset`                        | Stop and **delete** local database and Redis volumes                                              |
+| `npm run infra:logs` / `infra:ps`            | Follow logs / list containers                                                                     |
+| `npm run db:migrate`                         | Create/apply migrations in development (`prisma migrate dev`)                                     |
+| `npm run db:migrate:deploy`                  | Apply committed migrations (CI / production)                                                      |
+| `npm run db:migrate:check`                   | Fail (exit 2) if the migrated database differs from `schema.prisma` (CI)                          |
+| `npm run db:migrate:status`                  | Show migration status                                                                             |
+| `npm run db:generate`                        | Regenerate the Prisma client                                                                      |
+| `npm run db:seed`                            | Seed development data (refuses in production)                                                     |
+| `npm run db:reset`                           | Drop, re-migrate and re-seed the dev database                                                     |
+| `npm run db:studio`                          | Prisma Studio                                                                                     |
+| `npm run job:example`                        | Enqueue the example worker job and wait for its result                                            |
+| `npm run admin:role -- --email … --role …`   | Grant or remove a staff role (audited; [admin.md](docs/admin.md#provisioning))                    |
 
 ## Environment
 
@@ -92,6 +93,9 @@ is missing. See the `.env.example` next to each app and
 - [Trip tracking](docs/trips.md): trip timeline, travel status and freshness, the (simulated) demo status provider, disruptions, notifications, live updates (Server-Sent Events), migration (with rollback)
 - [Trip planner](docs/planner.md): planned trips and day-by-day itineraries, API and validation, date handling, schedule warnings, curated sample suggestions (rule-based), booking links; collaboration (Phase 19): roles, in-app invitations, conflict handling, live updates, history, notifications; budget and shared expenses (Phase 20): exact splits, balances, settlement suggestions (no money moved, no currency conversion); migrations (with rollback)
 - [Travel assistant](docs/assistant.md) (Phase 21): AI provider interface (demo rule-based assistant, Anthropic adapter, or off), configuration, authorized minimal context, prompt-injection defences, validated structured replies, confirmed apply actions (itinerary, activity, budget, moves), persistent conversations, rate limits and cost controls; migration (with rollback)
+- [Launch readiness](docs/launch-readiness.md): what is production-ready, demo-only or missing; prioritized issues; release checklist and plan
+- [Testing](docs/testing.md): unit, integration and end-to-end tests, and how to run them
+- [Performance](docs/performance.md): lab measurements and what changed because of them
 - [Analytics](docs/analytics.md): event schema and tracking rules, metric definitions, revenue methodology, funnel attribution, timezone, access, CSV export, retention and privacy
 - [Admin dashboard](docs/admin.md): roles and permissions, provisioning, API, metric definitions, search analytics, platform health and worker heartbeat, audit log, migration (with rollback)
 - [Authentication and accounts](docs/auth.md): sessions, cookies and CSRF, endpoints, migration, how to run the account tests, limitations

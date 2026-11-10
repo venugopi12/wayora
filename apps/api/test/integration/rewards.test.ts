@@ -437,6 +437,31 @@ describe.skipIf(!TEST_DATABASE_URL)('rewards (integration, real PostgreSQL)', ()
       await consistent(userId, clock);
     });
 
+    it('two checkouts at once cannot overspend the same travel credit (Phase 32)', async () => {
+      const clock = testClock();
+      const target = app(clock);
+      const { agent, userId } = await register(target, 'asha@example.com');
+      const staff = await admin(target);
+      expect((await issue(staff, userId, {})).status).toBe(201); // ₹500 credit
+      const [a, b] = [await book(agent), await book(agent)];
+      // Each asks for ₹400 of the same ₹500 credit, at the same moment.
+      const results = await Promise.all([
+        apply(agent, a.reference, 0, '40000'),
+        apply(agent, b.reference, 0, '40000'),
+      ]);
+      expect(results.map((r) => r.status).sort()).toEqual([200, 400]);
+      const credit = await testPrisma().travelCredit.findFirstOrThrow({ where: { userId } });
+      expect(credit.remainingAmountMinor).toBe(10_000n);
+      const redeemed = await testPrisma().rewardTransaction.aggregate({
+        where: { creditId: credit.id, type: 'CREDIT_REDEEMED' },
+        _sum: { amountMinor: true },
+      });
+      // What was taken from the credit equals what it lost: never more than it held.
+      const taken = redeemed._sum.amountMinor ?? 0n;
+      expect(taken < 0n ? -taken : taken).toBe(40_000n);
+      await consistent(userId, clock);
+    });
+
     it('rewards cannot change while a payment is in progress', async () => {
       const clock = testClock();
       const target = app(clock);

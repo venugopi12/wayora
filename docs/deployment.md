@@ -352,9 +352,19 @@ shipping.
   simulated provider (when enabled), clearly labelled; nothing is tracked live.
 - **No email delivery.** Notifications are in-app; email deliveries are
   recorded as not configured.
-- No email verification or password reset yet (docs/auth.md#limitations-and-future-work).
-- The admin dashboard is read-only (docs/admin.md#limitations).
+- No email verification, password reset, password change or account
+  deletion yet (docs/auth.md#limitations-and-future-work).
+- No push notifications until the VAPID keys are configured
+  ([pwa.md](pwa.md#push)); no AI answers unless `AI_PROVIDER` is set.
+- Staff changes are limited to reservations, rewards, promotions, support,
+  reviews and content (docs/admin.md); everything else in the admin
+  dashboard is read-only.
+- The privacy policy and terms are drafts and must be replaced before a
+  public launch.
+- No error-tracking service or alerting is wired up: errors are in the JSON
+  logs only.
 - Release steps are manual; CI checks every commit but deploys nothing.
+- The full list, with priorities: [launch-readiness.md](launch-readiness.md).
 
 ## Service worker and manifest
 
@@ -454,3 +464,10 @@ must not strip them.
   request: a high or critical advisory in a shipped dependency fails the
   build. Run it before each release too; fix by upgrading the pinned version
   (then the full checks), not by suppressing the advisory.
+- Phase 32: `body-parser` (via Express) moved to 2.4.0 for a high-severity
+  denial-of-service advisory; `npm audit --omit=dev` reports none. The
+  remaining advisories are moderate or low and in development tools only
+  (ESLint and typescript-eslint through `minimatch`; `vite-plugin-pwa`
+  through `workbox-build`, `glob` and `deepmerge`, build time only). npm's
+  only offered fixes are major downgrades, so they wait for upstream
+  releases; none of that code ships to browsers or servers.

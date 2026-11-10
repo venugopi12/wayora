@@ -235,6 +235,12 @@ on Ubuntu with Node 22 and a PostgreSQL 16 service container:
    without CMS content (no `PRERENDER_CONTENT_URL`). The web build also checks
    that no source maps or development-only routes end up in `apps/web/dist`.
 
+A second job, `e2e`, runs after it: fresh PostgreSQL and Redis containers,
+`npm ci`, Chromium for Playwright, migrations, `npm run build`, then the API
+(`apps/api/dist/server.js`) and `vite preview`, and the end-to-end journey
+(`npm run test:e2e -w @wayora/web`, [testing.md](testing.md#end-to-end)). On
+failure it keeps the screenshots and the API and web logs as an artifact.
+
 The workflow uses read-only repository permissions, throwaway service
 containers and CI-only credentials, and never touches a real database.
 Releases are a separate, manual process: [deployment.md](deployment.md).

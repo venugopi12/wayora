@@ -933,20 +933,27 @@ export class BookingsService {
     const refund = row.refunds[0];
     if (!refund) {
       const owed = row.payments.find((p) => p.refundRequired);
-      return owed
-        ? {
-            state: 'required',
-            amount: null,
-            demo: true,
-            explanation:
-              'A refund would be owed, but this was a demo payment: no real money was charged, and the demo provider can’t refund.',
-          }
-        : {
-            state: 'not-applicable',
-            amount: null,
-            demo: row.isDemo,
-            explanation: 'Nothing was paid, so there is nothing to refund.',
-          };
+      if (owed) {
+        return {
+          state: 'required',
+          amount: null,
+          demo: true,
+          explanation:
+            'A refund would be owed, but this was a demo payment: no real money was charged, and the demo provider can’t refund.',
+        };
+      }
+      // Paid and still active (Phase 32 fix: this used to say "nothing was paid").
+      const paid = row.payments.some((p) =>
+        ['SUCCEEDED', 'REFUND_PENDING', 'REFUNDED'].includes(p.status),
+      );
+      return {
+        state: 'not-applicable',
+        amount: null,
+        demo: row.isDemo,
+        explanation: paid
+          ? 'No refund: the booking is active. If you cancel it, its demo payment would be owed back, but no real money was charged.'
+          : 'Nothing was paid, so there is nothing to refund.',
+      };
     }
     const demo = refund.mode === 'DEMO';
     const amount = { amountMinor: refund.amountMinor.toString(), currency: refund.currency };

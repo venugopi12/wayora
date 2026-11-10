@@ -6,6 +6,8 @@ dist/
 build/
 # Production source maps extracted from apps/web/dist (never published)
 apps/web/sourcemaps/
+# End-to-end failure screenshots (apps/web/e2e)
+apps/web/e2e-results/
 *.tsbuildinfo
 coverage/
 

@@ -20,7 +20,7 @@
  * Without it, guides, collections and landing pages aren't prerendered or
  * listed (a warning says so); they still work as client-rendered pages.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnv } from 'vite';
@@ -98,6 +98,52 @@ function write(path: string, html: string) {
   writeFileSync(file, html);
 }
 
+/*
+ * Route chunks (Phase 32, docs/performance.md#route-preloads). The app shell
+ * only knows its entry; a page's lazy route module is requested after the
+ * entry has run, a second round trip that measured ~0.8 s of LCP on a
+ * throttled phone. Each prerendered page therefore preloads its route
+ * module and that module's static imports from the start.
+ */
+type ViteManifest = Record<string, { file: string; imports?: string[]; isEntry?: boolean }>;
+
+const ROUTE_MODULES: [RegExp, string][] = [
+  [/^\/(flights|hotels|trains|buses|metro|cabs|holidays)$/, 'src/features/search/routes.tsx'],
+  [/^\/discover(\/|$)/, 'src/features/discover/routes.tsx'],
+  [/^\/(guides|collections|explore)(\/|$)/, 'src/features/content/routes.tsx'],
+  [/^\/help(\/|$)/, 'src/features/help/routes.tsx'],
+  [/^\/(about|privacy|terms)$/, 'src/features/info/routes.tsx'],
+  [/^\/promotions$/, 'src/features/promotions/routes.tsx'],
+];
+
+function routePreloader(manifest: ViteManifest | null) {
+  if (!manifest) return () => '';
+  const entry = Object.values(manifest).find((c) => c.isEntry);
+  // Already preloaded by the shell: the entry and everything it imports statically.
+  const inShell = new Set<string>();
+  const walk = (key: string, into: Set<string>) => {
+    const chunk = manifest[key];
+    if (!chunk || into.has(chunk.file)) return;
+    into.add(chunk.file);
+    for (const i of chunk.imports ?? []) walk(i, into);
+  };
+  const entryKey = Object.keys(manifest).find((k) => manifest[k] === entry);
+  if (entryKey) walk(entryKey, inShell);
+  return (path: string) => {
+    const module = ROUTE_MODULES.find(([re]) => re.test(path))?.[1];
+    if (!module) return '';
+    // The bundler may merge a small route module into a shared chunk, which the
+    // manifest then doesn't name: that page simply goes without the preload.
+    if (!manifest[module]) return '';
+    const files = new Set<string>();
+    walk(module, files);
+    return [...files]
+      .filter((f) => !inShell.has(f) && f.endsWith('.js'))
+      .map((f) => `<link rel="modulepreload" crossorigin href="/${escapeHtml(f)}" />`)
+      .join('\n    ');
+  };
+}
+
 async function main() {
   const issues = siteUrlIssues(ENV.VITE_SITE_URL);
   if (issues.length) fail(issues.join(' '));
@@ -129,6 +175,12 @@ async function main() {
     compose(shell, headHtml(headTags(notFoundMeta(), site)), notFoundBody()),
   );
 
+  const manifestFile = join(DIST, '.vite', 'manifest.json');
+  const preloadRoute = routePreloader(
+    existsSync(manifestFile)
+      ? (JSON.parse(readFileSync(manifestFile, 'utf8')) as ViteManifest)
+      : null,
+  );
   const pages = publicPages(site, content);
   const seen = new Set<string>();
   for (const p of pages) {
@@ -148,7 +200,9 @@ async function main() {
       p.path,
       compose(
         shell,
-        [headHtml(headTags(p.meta, site)), preloads, data].filter(Boolean).join('\n    '),
+        [headHtml(headTags(p.meta, site)), preloads, preloadRoute(p.path), data]
+          .filter(Boolean)
+          .join('\n    '),
         p.body,
       ),
     );
@@ -160,6 +214,8 @@ async function main() {
   );
   for (const s of sitemaps) writeFileSync(join(DIST, s.file), s.xml);
   writeFileSync(join(DIST, 'robots.txt'), robotsTxt(site));
+  // Build metadata only: never deployed.
+  rmSync(join(DIST, '.vite'), { recursive: true, force: true });
 
   console.log(
     `✓ Prerendered ${pages.length} pages (${content.length} published content entries) for ${site}; wrote app.html, 404.html, ${sitemaps.map((s) => s.file).join(', ')} and robots.txt.`,

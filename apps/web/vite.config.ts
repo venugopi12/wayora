@@ -153,6 +153,9 @@ export default defineConfig(({ mode }) => ({
     // scripts/extract-sourcemaps.mjs moves them out of dist/ so a deploy of
     // dist/ can't publish them. The dev server always has full source maps.
     sourcemap: 'hidden',
+    // Read by scripts/prerender.ts to preload each prerendered page's route
+    // chunks, then deleted (dist/.vite is never deployed).
+    manifest: true,
     target: 'es2022',
     rolldownOptions: {
       output: {

@@ -248,6 +248,10 @@ describe.skipIf(!TEST_DATABASE_URL)('payments (integration, real PostgreSQL)', (
       expect(after.payment).toMatchObject({ state: 'paid', canPay: false, demoScenarios: null });
       expect(after.history.at(-1)).toMatchObject({ status: 'confirmed', by: 'wayora' });
       expect(after.history.at(-1)!.note).toMatch(/after a demo payment.*no real money was charged/);
+      // Phase 32: a paid, active booking never claims "nothing was paid".
+      expect(after.refund).toMatchObject({ state: 'not-applicable', amount: null });
+      expect(after.refund.explanation).toMatch(/booking is active.*would be owed back/);
+      expect(after.refund.explanation).not.toMatch(/Nothing was paid/);
 
       const prisma = testPrisma();
       const row = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });

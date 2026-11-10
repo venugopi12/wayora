@@ -76,12 +76,19 @@ const crumbsLd = (site: string, crumbs: Crumb[]) => breadcrumbLd(site, crumbs);
 
 export { homeMeta };
 
-const HERO_PRELOAD = HERO_LAYERS[0]!.portraitSrc
-  ? [
-      { href: HERO_LAYERS[0]!.portraitSrc, media: '(max-width: 767px)' },
-      { href: HERO_LAYERS[0]!.src, media: '(min-width: 768px)' },
-    ]
-  : [{ href: HERO_LAYERS[0]!.src }];
+/**
+ * Every hero layer, not just the back one: the middle layer is the page's
+ * largest image (its LCP element), and all three are small SVGs (≤ 20 kB),
+ * so fetching them alongside the scripts costs little (Phase 32, measured).
+ */
+const HERO_PRELOAD = HERO_LAYERS.flatMap((layer) =>
+  layer.portraitSrc
+    ? [
+        { href: layer.portraitSrc, media: '(max-width: 767px)' },
+        { href: layer.src, media: '(min-width: 768px)' },
+      ]
+    : [{ href: layer.src }],
+);
 
 export function discoverMeta(site: string): PageMeta {
   return {
