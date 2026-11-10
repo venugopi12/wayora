@@ -3,6 +3,7 @@ import {
   bookingListQuerySchema,
   bookingParamsSchema,
   createBookingRequestSchema,
+  type SearchServiceType,
 } from '@wayora/contracts';
 import { currentUser, noStore, requireAuth } from '../../middleware/session.js';
 import { sendData } from '../../utils/respond.js';
@@ -27,6 +28,13 @@ export function bookingsRouter(
   bookings: BookingsService,
   /** Limits writes per user; runs after requireAuth. */
   writeLimiter?: RequestHandler,
+  /** A booking was submitted (analytics, Phase 31). Must not throw or wait. */
+  onSubmitted?: (submission: {
+    userId: string;
+    idempotencyKey: string;
+    serviceType: SearchServiceType;
+    searchId: string;
+  }) => void,
 ): Router {
   const router = Router();
   router.use(noStore, requireAuth);
@@ -36,6 +44,12 @@ export function bookingsRouter(
     const key = validateIdempotencyKey(req.get(IDEMPOTENCY_KEY_HEADER));
     const rawBody: unknown = req.body;
     const { body } = validateRequest(req, { body: createBookingRequestSchema });
+    onSubmitted?.({
+      userId: currentUser(res).id,
+      idempotencyKey: key,
+      serviceType: body.serviceType,
+      searchId: body.searchId,
+    });
     const result = await bookings.create(currentUser(res).id, body, rawBody, key, {
       requestId: requestIdOf(res),
     });

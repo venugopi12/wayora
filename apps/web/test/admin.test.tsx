@@ -36,6 +36,8 @@ describe('admin access (presentation follows the server)', JOURNEY, () => {
       .map((a) => a.textContent);
     expect(links).toEqual([
       'Overview',
+      // Analytics (Phase 31): counts for support staff; money and exports for administrators.
+      'Analytics',
       'Users',
       'Bookings',
       'Payments',

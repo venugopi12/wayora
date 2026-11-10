@@ -137,7 +137,9 @@ While running, the worker also writes a liveness heartbeat to Redis
 page reads so "worker running" isn't confused with "Redis reachable"
 ([admin.md](admin.md#platform-health)).
 
-Jobs today: `system.heartbeat`, and `notifications.dispatch` (Phase 14), a
+Jobs today: `system.heartbeat`, `analytics.purge` (Phase 31, daily: deletes
+analytics events past retention, [analytics.md](analytics.md#retention)), and
+`notifications.dispatch` (Phase 14), a
 BullMQ job scheduler that works through the notification email outbox in
 PostgreSQL (the worker has database access for it; see
 [notifications.md](notifications.md#delivery)). Payment reconciliation, booking

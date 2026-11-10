@@ -22,6 +22,7 @@ import {
 } from './config/env.js';
 import { loadEnvFile } from './config/load-env-file.js';
 import { ResilientRedisStore } from './middleware/rate-limit.js';
+import { redisAnalyticsCache } from './modules/analytics/cache.js';
 import { IdempotencyService } from './modules/bookings/idempotency.js';
 import { createTravelReminders } from './modules/notifications/reminders.js';
 import { RedisSearchSessionStore, type SearchSessionStore } from './modules/search/sessions.js';
@@ -145,6 +146,8 @@ async function main(): Promise<void> {
     plannerEvents,
     supportEvents,
     ...(redis ? { redis: redis.client } : {}),
+    // Analytics reports are shared across API instances through Redis (Phase 31).
+    ...(redis ? { analyticsCache: redisAnalyticsCache(redis.client) } : {}),
     ...(searchSessions ? { searchSessions } : {}),
     ...(redis
       ? {

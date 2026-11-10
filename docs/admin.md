@@ -70,6 +70,9 @@ The mapping lives in one place, `packages/contracts/src/admin.ts`
 | `admin.content.read`        | –    | ✓       | ✓     |
 | `admin.content.edit`        | –    | –       | ✓     |
 | `admin.content.publish`     | –    | –       | ✓     |
+| `admin.analytics.read`      | –    | ✓       | ✓     |
+| `admin.analytics.financial` | –    | –       | ✓     |
+| `admin.analytics.export`    | –    | –       | ✓     |
 
 Support staff have two write permissions:
 
@@ -84,6 +87,11 @@ Support staff have two write permissions:
 Content management (Phase 29, [seo.md](seo.md#cms)): support staff can read
 and preview guides and other content; creating, editing, publishing and
 archiving need `admin.content.edit` and `admin.content.publish` (admins).
+
+Analytics (Phase 31, [analytics.md](analytics.md#access)): support staff read
+the reports without money; the revenue report, money figures and CSV
+exports need `admin.analytics.financial` and `admin.analytics.export`
+(admins).
 
 Enforcement (`apps/api/src/modules/admin/access.ts`):
 
@@ -182,8 +190,11 @@ it answers: category, outcome (`SUCCESS`, `PARTIAL` some providers failed,
 duration, the search session id, and the provider calls made
 (`[{id, status, durationMs}]`; empty when an earlier session was reused).
 
-Deliberately **not** recorded: who searched, IP, user agent, routes,
-destinations, dates, traveller counts or names, request bodies. Invalid
+Deliberately **not** recorded: who searched, IP, user agent, exact dates,
+traveller counts or names, request bodies. Since Phase 31 each row also has
+the catalogue places searched, the month of travel and the names of the
+filters and sort used ([analytics.md](analytics.md#search-events)), for
+popular routes and travel periods shown only above a minimum group size. Invalid
 requests (`400`) aren't searches; a visitor who left mid-search isn't a
 failure. The write is fire-and-forget: if it fails it is logged and the
 search answers normally (tested).

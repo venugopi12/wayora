@@ -1,5 +1,10 @@
 import { Queue, Worker } from 'bullmq';
-import { JOB_NAMES, QUEUE_NAMES, notificationsDispatchJobSchema } from '@wayora/contracts';
+import {
+  JOB_NAMES,
+  QUEUE_NAMES,
+  analyticsPurgeJobSchema,
+  notificationsDispatchJobSchema,
+} from '@wayora/contracts';
 import { createPrismaClient, type PrismaClient } from '@wayora/database';
 import { bullConnection, loadWorkerEnv, vapidConfig } from './config.js';
 import { startBeacon } from './liveness/beacon.js';
@@ -8,6 +13,7 @@ import { NotificationDispatcher } from './notifications/dispatcher.js';
 import { NotConfiguredEmailProvider } from './notifications/email.js';
 import { NotConfiguredPushSender, PushDispatcher, WebPushSender } from './notifications/push.js';
 import { createProcessor, type Handler } from './processor.js';
+import { purgeAnalyticsEvents } from './jobs/analytics-purge.js';
 
 const env = loadWorkerEnv();
 const logger = createLogger(env);
@@ -36,6 +42,12 @@ if (env.DATABASE_URL) {
   extraHandlers[JOB_NAMES.notificationsDispatch] = async (data) => {
     notificationsDispatchJobSchema.parse(data);
     return { email: await dispatcher.run(), push: await pushDispatcher.run() };
+  };
+  // Analytics retention (Phase 31, docs/analytics.md#retention).
+  const db = prisma;
+  extraHandlers[JOB_NAMES.analyticsPurge] = async (data) => {
+    analyticsPurgeJobSchema.parse(data);
+    return purgeAnalyticsEvents(db, { retentionDays: env.ANALYTICS_RETENTION_DAYS });
   };
 } else {
   logger.warn(
@@ -77,6 +89,18 @@ if (prisma) {
       logger.error(
         { err: { message: (err as Error).message } },
         'Could not schedule notification dispatch',
+      ),
+    );
+  void queue
+    .upsertJobScheduler(
+      'analytics-purge',
+      { every: 24 * 3600 * 1000 },
+      { name: JOB_NAMES.analyticsPurge, data: {}, opts: { attempts: 3 } },
+    )
+    .catch((err: unknown) =>
+      logger.error(
+        { err: { message: (err as Error).message } },
+        'Could not schedule the analytics purge',
       ),
     );
 }

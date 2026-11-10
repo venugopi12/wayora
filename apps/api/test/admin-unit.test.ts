@@ -39,7 +39,7 @@ describe('roles and permissions (one map, enforced by the API)', () => {
     for (const p of ADMIN_PERMISSIONS) expect(hasPermission('admin', p)).toBe(true);
   });
 
-  it('defines read permissions plus writes: supplier reservations (Phase 23), rewards (Phase 25), promotions (Phase 26), support (Phase 27), reviews (Phase 28) and content (Phase 29)', () => {
+  it('defines read permissions plus writes: supplier reservations (Phase 23), rewards (Phase 25), promotions (Phase 26), support (Phase 27), reviews (Phase 28), content (Phase 29) and analytics money and export (Phase 31)', () => {
     const writes = ADMIN_PERMISSIONS.filter((p) => !p.endsWith('.read'));
     expect(writes).toEqual([
       'admin.reservations.manage',
@@ -51,7 +51,13 @@ describe('roles and permissions (one map, enforced by the API)', () => {
       'admin.reviews.remove',
       'admin.content.edit',
       'admin.content.publish',
+      'admin.analytics.financial',
+      'admin.analytics.export',
     ]);
+    // Analytics (Phase 31): support staff read counts; money and exports are administrators'.
+    expect(ROLE_PERMISSIONS.support).toContain('admin.analytics.read');
+    expect(ROLE_PERMISSIONS.support).not.toContain('admin.analytics.financial');
+    expect(ROLE_PERMISSIONS.support).not.toContain('admin.analytics.export');
     // Support staff's writes: working support tickets (Phase 27) and moderating reviews (Phase 28).
     expect(ROLE_PERMISSIONS.support.filter((p) => !p.endsWith('.read'))).toEqual([
       'admin.support.manage',
@@ -90,7 +96,7 @@ describe('search analytics', () => {
     expect(outcomeFor([status('empty')], 0)).toBe('EMPTY');
   });
 
-  it('records one event per search: outcome, timing and provider calls, nothing about the traveller', async () => {
+  it('records one event per search: outcome, timing, provider calls and coarse details, nothing about the traveller', async () => {
     const events: SearchEventRecord[] = [];
     const service = serviceWith(
       [stubProvider('p1', { kind: 'results', results: [hotelResult('p1', 'a', 5000)] })],
@@ -112,6 +118,7 @@ describe('search analytics', () => {
     expect(events[1]!.providers).toEqual([]);
     expect(Object.keys(events[0]!).sort()).toEqual(
       [
+        'details',
         'durationMs',
         'errorCode',
         'outcome',
@@ -121,6 +128,13 @@ describe('search analytics', () => {
         'serviceType',
       ].sort(),
     );
+    // Phase 31: catalogue places, a month, filter/sort names; no travellers or dates.
+    expect(Object.keys(events[0]!.details!).sort()).toEqual(
+      ['destinationPlace', 'filterKeys', 'originPlace', 'reused', 'sort', 'travelMonth'].sort(),
+    );
+    expect(events[0]!.details).toMatchObject({ destinationPlace: 'city:goa', reused: false });
+    expect(events[1]!.details!.reused).toBe(true);
+    expect(JSON.stringify(events)).not.toMatch(/adults|checkIn|checkOut|\d{4}-\d{2}-(?!01)\d{2}/);
   });
 
   it('records failed searches with their error code and still throws', async () => {

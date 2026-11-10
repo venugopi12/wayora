@@ -52,6 +52,12 @@ export const ADMIN_PERMISSIONS = [
   'admin.content.edit',
   /** Publish, archive and restore content (Phase 29). Admins only. */
   'admin.content.publish',
+  /** Analytics: counts, conversion, funnel, search, customers, providers, marketing, support (Phase 31). */
+  'admin.analytics.read',
+  /** Analytics money figures: booking value, payments, refunds, discounts (Phase 31). Admins only. */
+  'admin.analytics.financial',
+  /** Download analytics as CSV (audited; Phase 31). Admins only. */
+  'admin.analytics.export',
 ] as const;
 export const adminPermissionSchema = z.enum(ADMIN_PERMISSIONS);
 export type AdminPermission = z.infer<typeof adminPermissionSchema>;
@@ -74,6 +80,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly AdminPermission[]> = {
     'admin.reviews.read',
     'admin.reviews.moderate',
     'admin.content.read',
+    'admin.analytics.read',
   ],
   admin: ADMIN_PERMISSIONS,
 };

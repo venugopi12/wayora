@@ -1,5 +1,6 @@
 import {
   Activity,
+  ChartLine,
   BellRing,
   CreditCard,
   FileText,
@@ -34,6 +35,13 @@ export const ADMIN_NAV: readonly AdminNavItem[] = [
     icon: LayoutDashboard,
     permission: 'admin.overview.read',
     end: true,
+  },
+  {
+    to: ADMIN_PATHS.analytics,
+    label: 'Analytics',
+    icon: ChartLine,
+    permission: 'admin.analytics.read',
+    end: false,
   },
   {
     to: ADMIN_PATHS.users,

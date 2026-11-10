@@ -31,6 +31,8 @@ import { adminContentRouter } from '../content/content.routes.js';
 import type { ContentService } from '../content/content.service.js';
 import type { ReviewsService } from '../reviews/reviews.service.js';
 import type { RewardsService } from '../rewards/rewards.service.js';
+import { adminAnalyticsRouter } from '../analytics/analytics.routes.js';
+import type { AnalyticsService } from '../analytics/analytics.service.js';
 
 export interface AdminRouterOptions {
   prisma: PrismaClient;
@@ -49,6 +51,8 @@ export interface AdminRouterOptions {
   reviews?: ReviewsService | null;
   /** Content workspace (Phase 29). */
   content?: ContentService | null;
+  /** Analytics reports and exports (Phase 31). */
+  analytics?: AnalyticsService | null;
 }
 
 const noQuery = z.object({}).strict();
@@ -88,6 +92,7 @@ export function adminRouter({
   support,
   reviews,
   content,
+  analytics,
 }: AdminRouterOptions): Router {
   const router = Router();
   router.use(noStore);
@@ -214,6 +219,8 @@ export function adminRouter({
   if (reviews) router.use('/reviews', adminReviewsRouter(reviews, prisma, logger));
   // Content (Phase 29, docs/seo.md#cms-workflow).
   if (content) router.use('/content', adminContentRouter(content, prisma, logger));
+  // Analytics (Phase 31, docs/analytics.md#api).
+  if (analytics) router.use('/analytics', adminAnalyticsRouter(analytics, prisma, logger));
 
   return router;
 }

@@ -20,7 +20,7 @@ import { AppError } from '../../utils/errors.js';
 import type { Logger } from '../../utils/logger.js';
 import type { SearchProvider } from '../providers/provider.js';
 import type { ProviderRegistry } from '../providers/registry.js';
-import { outcomeFor, providerCalls, type SearchEventRecorder } from './analytics.js';
+import { outcomeFor, providerCalls, searchDetails, type SearchEventRecorder } from './analytics.js';
 import { mapWithConcurrency } from './concurrency.js';
 import {
   PROVIDER_STATUS_MESSAGES,
@@ -99,6 +99,8 @@ interface ProviderRound {
 interface CallRecord {
   statuses: ProviderStatus[];
   attempts: Map<string, number>;
+  /** Answered from an earlier identical search's session. */
+  reused?: boolean;
 }
 
 const categoryName = (type: SearchRequest['serviceType']) =>
@@ -191,6 +193,7 @@ export class SearchService {
         durationMs: elapsed(),
         errorCode: null,
         providers: providerCalls(calls.statuses, calls.attempts),
+        details: searchDetails(request, calls.reused ?? false),
       });
       return response;
     } catch (error) {
@@ -204,6 +207,7 @@ export class SearchService {
           durationMs: elapsed(),
           errorCode: error instanceof AppError ? error.code : 'INTERNAL_ERROR',
           providers: providerCalls(calls.statuses, calls.attempts),
+          details: searchDetails(request, calls.reused ?? false),
         });
       }
       throw error;
@@ -228,6 +232,7 @@ export class SearchService {
     const { sessions } = this.options;
     let session = await this.store(() => sessions.findReusable(key), log);
     const reused = session !== undefined;
+    if (calls) calls.reused = reused;
     if (!session) {
       session = await this.queryProviders(request, providers, context.signal, log, calls);
       const complete = session.providerStatuses.every(

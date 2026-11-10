@@ -74,6 +74,7 @@ such as `REDIS_URL=redis://localhost:6379` are not).
 | `PAYMENT_DEMO_SCENARIOS`        | unset (off)                   | Lets requests choose demo outcomes; keep off outside testing                                                                                                                                                                                                                                                                                          |
 | `TRAVEL_STATUS_PROVIDER`        | `demo` or `none`              | Default `none` in production. `demo` simulates travel status and disruptions, labelled as simulated (warned). No live provider exists; other `TRAVEL_STATUS_*` tuning in docs/trips.md#configuration                                                                                                                                                  |
 | `AI_PROVIDER`                   | `none`, `demo` or `anthropic` | Default `none` in production (the assistant says it's unavailable; everything else works). `demo` gives rule-based answers labelled "not AI" (warned). `anthropic` needs `AI_API_KEY` (a secret: store it in your secret manager) and `AI_MODEL`; see [assistant.md](assistant.md#configuration)                                                      |
+| `ANALYTICS_TIMEZONE`            | e.g. `Asia/Kolkata`           | Calendar days of analytics reports (default `Asia/Kolkata`; any IANA zone) — [analytics.md](analytics.md#timezone)                                                                                                                                                                                                                                    |
 | Rate limits, timeouts           | defaults                      | `RATE_LIMIT_*`, `AUTH_RATE_LIMIT_MAX`, `LOGIN_FAILURES_PER_EMAIL_MAX`, `SEARCH_RATE_LIMIT_MAX`, `BOOKING_RATE_LIMIT_MAX`, `PAYMENT_RATE_LIMIT_MAX`, `NOTIFICATION_RATE_LIMIT_MAX`, `PLANNER_RATE_LIMIT_MAX`, `PLANNER_INVITE_RATE_LIMIT_MAX`, `HEALTH_CHECK_TIMEOUT_MS`, `SHUTDOWN_TIMEOUT_MS`, `SESSION_*`, `SEARCH_*` — see `apps/api/.env.example` |
 
 There are no signing secrets to provision: session tokens are random values
@@ -83,14 +84,15 @@ environment), never into `VITE_*` variables.
 
 ### Worker (`apps/worker`)
 
-| Variable                                                                                      | Production   | Notes                                                    |
-| --------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------- |
-| `NODE_ENV`                                                                                    | `production` |                                                          |
-| `REDIS_URL`                                                                                   | **required** | Same Redis as the API                                    |
-| `DATABASE_URL`                                                                                | **required** | Notification outbox; refused with a development password |
-| `WEB_ORIGIN`                                                                                  | `https://`   | Links in emails                                          |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (**secret store**), `VAPID_SUBJECT`                   | optional     | Browser push; all three or none ([pwa.md](pwa.md#push))  |
-| `WORKER_CONCURRENCY`, `NOTIFICATION_DISPATCH_INTERVAL_MS`, `SHUTDOWN_TIMEOUT_MS`, `LOG_LEVEL` | defaults     | See `apps/worker/.env.example`                           |
+| Variable                                                                                      | Production   | Notes                                                                    |
+| --------------------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------ |
+| `NODE_ENV`                                                                                    | `production` |                                                                          |
+| `REDIS_URL`                                                                                   | **required** | Same Redis as the API                                                    |
+| `DATABASE_URL`                                                                                | **required** | Notification outbox; refused with a development password                 |
+| `WEB_ORIGIN`                                                                                  | `https://`   | Links in emails                                                          |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (**secret store**), `VAPID_SUBJECT`                   | optional     | Browser push; all three or none ([pwa.md](pwa.md#push))                  |
+| `ANALYTICS_RETENTION_DAYS`                                                                    | default 400  | Analytics events kept this long ([analytics.md](analytics.md#retention)) |
+| `WORKER_CONCURRENCY`, `NOTIFICATION_DISPATCH_INTERVAL_MS`, `SHUTDOWN_TIMEOUT_MS`, `LOG_LEVEL` | defaults     | See `apps/worker/.env.example`                                           |
 
 ### Web (`apps/web`, build time only)
 

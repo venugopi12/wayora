@@ -252,6 +252,23 @@ export const envSchema = z.object({
     }),
   /** Push subscriptions added or removed per user per hour. */
   PUSH_SUBSCRIBE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+  // Analytics (Phase 31, docs/analytics.md#timezone). The IANA timezone whose
+  // calendar days reports use (presets, buckets, "today").
+  ANALYTICS_TIMEZONE: z
+    .string()
+    .trim()
+    .default('Asia/Kolkata')
+    .refine(
+      (tz) => {
+        try {
+          new Intl.DateTimeFormat('en-US', { timeZone: tz });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { message: 'ANALYTICS_TIMEZONE must be an IANA timezone, e.g. Asia/Kolkata.' },
+    ),
 });
 
 /** Which search-session store this configuration selects. */

@@ -67,6 +67,20 @@ import { ReviewsService } from './modules/reviews/reviews.service.js';
 import { ContentService } from './modules/content/content.service.js';
 import type { ReviewsRouterOptions } from './modules/reviews/reviews.routes.js';
 import type { PaymentProvider } from './modules/payments/providers/types.js';
+import { AnalyticsService } from './modules/analytics/analytics.service.js';
+import type { AnalyticsCache } from './modules/analytics/cache.js';
+import {
+  activityTracker,
+  declinedTracking,
+  interactionRecorder,
+  keyPart,
+  noAnalytics,
+  offerViewed,
+  prismaAnalyticsRecorder,
+  withActivity,
+} from './modules/analytics/events.js';
+import { localDayOf } from './modules/analytics/range.js';
+import { CATEGORY } from './utils/categories.js';
 import { v1Router, type AccountsRouterOptions } from './routes/v1.js';
 import type { StreamTimings } from './services/signal-stream.js';
 import type { DependencyCheck } from './services/health.js';
@@ -117,6 +131,8 @@ export interface AppDependencies {
   redis?: HealthRedis;
   /** Search analytics on/off (default: on whenever there is a database). */
   recordSearchEvents?: boolean;
+  /** Analytics report cache (Phase 31). The server passes Redis; default: per-process memory. */
+  analyticsCache?: AnalyticsCache;
   /**
    * Live trip updates (docs/trips.md#live-updates). The server passes the
    * PostgreSQL-fed hub; without one, streams fall back to periodic re-reads.
@@ -374,6 +390,7 @@ export function createApp({
   paymentProviders,
   redis,
   recordSearchEvents = true,
+  analyticsCache,
   tripEvents,
   travelStatus,
   plannerEvents,
@@ -404,6 +421,8 @@ export function createApp({
         'RateLimit-Policy',
         'Retry-After',
         'Idempotent-Replayed',
+        // CSV exports name their file (Phase 31).
+        'Content-Disposition',
       ],
       maxAge: 600,
     }),
@@ -450,13 +469,40 @@ export function createApp({
       >
     | undefined;
   let sessionValid: (token: string | undefined) => Promise<boolean> = () => Promise.resolve(false);
+  // Analytics events (Phase 31, docs/analytics.md): best effort, idempotent, off the request path.
+  const analyticsRecorder = prisma ? prismaAnalyticsRecorder(prisma, logger, now) : noAnalytics;
+  const analyticsDay = (at: Date) => localDayOf(at, env.ANALYTICS_TIMEZONE);
   if (prisma) {
     const secure = env.NODE_ENV === 'production';
     const sessions = createSessionService(prisma, env, now);
     sessionValid = async (token) => Boolean(await sessions.resolve(token));
+    const signInEvent =
+      (type: 'user.login' | 'user.logout') =>
+      (user: { id: string; role: string }, sessionId: string) => {
+        if (user.role !== 'USER') return;
+        analyticsRecorder.record({
+          type,
+          dedupeKey: `${type}:${sessionId}`,
+          userId: user.id,
+          entityType: 'user',
+          entityId: user.id,
+        });
+      };
     accounts = {
-      loadSession: loadSession(sessions, secure),
+      loadSession: withActivity(
+        loadSession(sessions, secure),
+        activityTracker(analyticsRecorder, analyticsDay, now),
+      ),
+      onBookingSubmitted: ({ userId, idempotencyKey, serviceType, searchId }) =>
+        analyticsRecorder.record({
+          type: 'booking.initiated',
+          // Once per Idempotency-Key: a retried submission is the same attempt.
+          dedupeKey: `booking.initiated:${keyPart(`${userId}:${idempotencyKey}`)}`,
+          category: CATEGORY[serviceType],
+          searchId,
+        }),
       auth: {
+        events: { signedIn: signInEvent('user.login'), signedOut: signInEvent('user.logout') },
         auth: new AuthService(prisma, sessions),
         sessions,
         cookie: { secure, maxAgeMs: env.SESSION_ABSOLUTE_TIMEOUT_HOURS * HOUR_MS },
@@ -727,6 +773,14 @@ export function createApp({
             support: supportRoutes,
             reviews: reviewsRoutes.service,
             content: contentService,
+            analytics: new AnalyticsService({
+              prisma,
+              timezone: env.ANALYTICS_TIMEZONE,
+              ...(analyticsCache ? { cache: analyticsCache } : {}),
+              providers: () =>
+                registry.describe().map((p) => ({ id: p.id, name: p.name, kind: p.kind })),
+              ...(now ? { now } : {}),
+            }),
             health: new PlatformHealth({
               prisma,
               ...(redis ? { redis } : {}),
@@ -814,6 +868,7 @@ export function createApp({
               max: env.ANALYTICS_RATE_LIMIT_MAX,
               ...(analyticsStore ? { store: analyticsStore } : {}),
             }),
+            interactions: interactionRecorder(prisma, analyticsRecorder, now),
           },
           couponLimiter: bookingWriteRateLimiter({
             max: env.COUPON_RATE_LIMIT_MAX,
@@ -877,6 +932,10 @@ export function createApp({
           max: env.SEARCH_RATE_LIMIT_MAX,
           ...(searchStore ? { store: searchStore } : {}),
         }),
+        onOfferViewed: (req, serviceType, searchId, offerId) => {
+          if (!declinedTracking(req))
+            analyticsRecorder.record(offerViewed(serviceType, searchId, offerId));
+        },
       },
       ...(accountRoutes ? { accounts: accountRoutes } : {}),
     }),

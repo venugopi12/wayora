@@ -10,6 +10,8 @@ export const JOB_NAMES = {
   systemHeartbeat: 'system.heartbeat',
   /** Works through the notification email outbox (Phase 14, docs/notifications.md#delivery). */
   notificationsDispatch: 'notifications.dispatch',
+  /** Deletes analytics events past their retention (Phase 31, docs/analytics.md#retention). */
+  analyticsPurge: 'analytics.purge',
 } as const;
 
 /**
@@ -35,3 +37,7 @@ export type HeartbeatJobResult = z.infer<typeof heartbeatJobResultSchema>;
 /** The dispatch job carries nothing: the work is in the database outbox. */
 export const notificationsDispatchJobSchema = z.object({}).strict();
 export type NotificationsDispatchJob = z.infer<typeof notificationsDispatchJobSchema>;
+
+/** The purge job carries nothing: the retention period is worker configuration. */
+export const analyticsPurgeJobSchema = z.object({}).strict();
+export type AnalyticsPurgeJob = z.infer<typeof analyticsPurgeJobSchema>;

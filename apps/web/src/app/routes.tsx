@@ -78,6 +78,8 @@ const help = () => import('../features/help/routes');
 /** Guides, collections and landing pages (Phase 29). */
 const content = () => import('../features/content/routes');
 const adminContent = () => import('../features/admin/ContentAdmin');
+/** Analytics (Phase 31). */
+const adminAnalytics = () => import('../features/admin/AnalyticsAdmin');
 
 /** /sign-in (the pre-Phase 8 link) → /login, keeping any query string. */
 function LegacySignInRedirect() {
@@ -112,7 +114,7 @@ const serviceRoutes: RouteObject[] = SERVICE_NAV.map((service) => ({
  *   ├─ RequireAuth → AdminLayout   staff only (role from the server; docs/admin.md)
  *   │  └─ /admin, /admin/users[/:id], /admin/bookings[/:reference],
  *   │     /admin/payments[/:id], /admin/search, /admin/notifications,
- *   │     /admin/audit, /admin/health
+ *   │     /admin/audit, /admin/health, /admin/analytics[/:report]
  *   └─ MarketingLayout         header + <main> + footer for the public site
  *      └─ (pages)              errorElement here, so errors keep header and footer
  *         ├─ / , /status, /discover, /discover/:slug, /discover/themes[/:theme],
@@ -446,6 +448,14 @@ export function createRoutes({
                 {
                   path: 'reviews/:id',
                   lazy: async () => ({ Component: (await adminReviews()).AdminReviewRoute }),
+                },
+                {
+                  path: 'analytics',
+                  lazy: async () => ({ Component: (await adminAnalytics()).AnalyticsRoute }),
+                },
+                {
+                  path: 'analytics/:report',
+                  lazy: async () => ({ Component: (await adminAnalytics()).AnalyticsRoute }),
                 },
                 {
                   path: 'content',

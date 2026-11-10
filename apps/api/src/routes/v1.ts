@@ -32,7 +32,11 @@ import {
 import type { ContentService } from '../modules/content/content.service.js';
 import type { RewardsService } from '../modules/rewards/rewards.service.js';
 import type { ProviderRegistry } from '../modules/providers/registry.js';
-import { searchRouter, type BookingAvailability } from '../modules/search/search.routes.js';
+import {
+  searchRouter,
+  type BookingAvailability,
+  type OfferViewedHook,
+} from '../modules/search/search.routes.js';
 import type { SearchService } from '../modules/search/search.service.js';
 import { healthRouter, type HealthRouterOptions } from '../modules/system/health.routes.js';
 import { usersRouter } from '../modules/users/users.routes.js';
@@ -78,7 +82,14 @@ export interface AccountsRouterOptions {
   /** Reviews and ratings (Phase 28), docs/reviews.md. */
   reviews: ReviewsRouterOptions;
   /** Published content, first-party counts and popular destinations (Phase 29), docs/seo.md. */
-  content: { service: ContentService; eventLimiter?: RequestHandler };
+  content: {
+    service: ContentService;
+    eventLimiter?: RequestHandler;
+    /** Behavioural events from the web app (Phase 31, docs/analytics.md#client-events). */
+    interactions?: Parameters<typeof analyticsRouter>[2];
+  };
+  /** A booking was submitted (analytics, Phase 31). */
+  onBookingSubmitted?: Parameters<typeof bookingsRouter>[2];
   logger: Logger;
 }
 
@@ -92,6 +103,8 @@ export interface V1RouterOptions {
     limiter?: RequestHandler;
     /** How an offer can be booked now (Phase 23); absent = demo offers only. */
     bookingAvailability?: BookingAvailability;
+    /** Offer page loads, for analytics (Phase 31). */
+    onOfferViewed?: OfferViewedHook;
   };
 }
 
@@ -109,6 +122,7 @@ export function v1Router(options: V1RouterOptions): Router {
       options.search.service,
       options.search.limiter,
       options.search.bookingAvailability,
+      options.search.onOfferViewed,
     ),
   );
   router.use('/providers', providersRouter(options.search.registry));
@@ -159,7 +173,7 @@ export function v1Router(options: V1RouterOptions): Router {
       '/bookings',
       loadSession,
       tripsRouter(trips),
-      bookingsRouter(bookings, bookingLimiter),
+      bookingsRouter(bookings, bookingLimiter, options.accounts.onBookingSubmitted),
     );
     router.use('/payments', loadSession, paymentsRouter(payments, paymentLimiter));
     router.use(
@@ -177,7 +191,10 @@ export function v1Router(options: V1RouterOptions): Router {
     router.use('/reviews', loadSession, reviewsRouter(reviews));
     // Public: published content, cookieless counts, data-driven discovery.
     router.use('/content', contentRouter(content.service));
-    router.use('/analytics', analyticsRouter(content.service, content.eventLimiter));
+    router.use(
+      '/analytics',
+      analyticsRouter(content.service, content.eventLimiter, content.interactions),
+    );
     router.use('/discover', discoverRouter(content.service));
     router.use('/admin', loadSession, adminRouter(admin));
     // Signed provider webhooks: no session; only providers that verify signatures.

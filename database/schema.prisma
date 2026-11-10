@@ -743,8 +743,10 @@ model PushSubscription {
 // ─── Search analytics (Phase 15) ──────────────────────────────────────────
 
 /// One search request, for operational analytics (docs/admin.md#search).
-/// Holds no request details (places, dates, travellers) and no user id:
-/// only the category, outcome, counts and provider timings.
+/// Holds no user id and no travellers, exact dates or free text: the
+/// category, outcome, counts and provider timings, and since Phase 31
+/// (docs/analytics.md#search-events) the catalogue places searched, the month
+/// of travel and which filter and sort fields were used (names, not values).
 model SearchEvent {
   id          String         @id @default(uuid(7)) @db.Uuid
   category    TravelCategory
@@ -757,6 +759,17 @@ model SearchEvent {
   errorCode   String?        @map("error_code") @db.VarChar(64)
   /// [{ id, status, durationMs }] per provider (no supplier payloads).
   providers   Json
+  /// Catalogue place ids (airports, stations, cities; Phase 31). Null before Phase 31 and for searches without a route.
+  originPlace      String?   @map("origin_place") @db.VarChar(80)
+  destinationPlace String?   @map("destination_place") @db.VarChar(80)
+  /// First day of the month of travel (never the date itself; Phase 31).
+  travelMonth      DateTime? @map("travel_month") @db.Date
+  /// Names of the filter fields the request used (never their values; Phase 31).
+  filterKeys       String[]  @default([]) @map("filter_keys") @db.VarChar(40)
+  /// The sort the request asked for, when it chose one (Phase 31).
+  sort             String?   @db.VarChar(40)
+  /// The results came from an earlier identical search (a refinement, a page, a repeat; Phase 31).
+  reused           Boolean   @default(false)
   createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@index([createdAt])
@@ -2412,4 +2425,47 @@ model ContentDailyCount {
   @@id([day, event, key])
   @@index([event, day])
   @@map("content_daily_counts")
+}
+
+// ─── Analytics events (Phase 31) ──────────────────────────────────────────
+
+enum AnalyticsEventSource {
+  /// Recorded by the API or a database trigger, from the authoritative record.
+  SERVER
+  /// Sent by the web app (behavioural only; never when the visitor declined tracking).
+  CLIENT
+
+  @@map("analytics_event_source")
+}
+
+/// One business or behavioural event (docs/analytics.md#event-schema).
+/// Append-only. `dedupe_key` makes every write idempotent: a retried request,
+/// a replayed trigger or a double click records the event once. Metadata
+/// holds only the allow-listed fields of each type: no names, emails,
+/// phone numbers, tokens, card data, free text or request bodies.
+/// Nothing is back-filled: events exist from the Phase 31 release onwards.
+model AnalyticsEvent {
+  id          String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// e.g. booking.created, payment.succeeded (ANALYTICS_EVENT_TYPES).
+  type        String               @db.VarChar(48)
+  source      AnalyticsEventSource
+  dedupeKey   String               @unique @map("dedupe_key") @db.VarChar(200)
+  /// The customer, for user-level counts (active, returning). No foreign key: events outlive nothing they describe.
+  userId      String?              @map("user_id") @db.Uuid
+  entityType  String?              @map("entity_type") @db.VarChar(32)
+  entityId    String?              @map("entity_id") @db.Uuid
+  category    TravelCategory?
+  /// Simulated (demo) booking or payment; null when not applicable.
+  isDemo      Boolean?             @map("is_demo")
+  currency    String?              @db.Char(3)
+  amountMinor BigInt?              @map("amount_minor")
+  /// The search session it belongs to (funnel attribution).
+  searchId    String?              @map("search_id") @db.Uuid
+  metadata    Json                 @default("{}")
+  occurredAt  DateTime             @map("occurred_at") @db.Timestamptz(3)
+  recordedAt  DateTime             @default(now()) @map("recorded_at") @db.Timestamptz(3)
+
+  @@index([type, occurredAt])
+  @@index([occurredAt])
+  @@map("analytics_events")
 }

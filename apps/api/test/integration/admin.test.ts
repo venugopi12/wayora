@@ -584,9 +584,18 @@ describe.skipIf(!TEST_DATABASE_URL)('admin dashboard (integration, real PostgreS
             'providers',
             'resultCount',
             'searchId',
+            // Phase 31 (docs/analytics.md#search-events): catalogue places, travel
+            // month, filter/sort field names. Still no user, travellers or dates.
+            'originPlace',
+            'destinationPlace',
+            'travelMonth',
+            'filterKeys',
+            'sort',
+            'reused',
           ].sort(),
         );
-        expect(JSON.stringify(row)).not.toMatch(/asha|user@example|DEL|BOM|Goa|\+91/i);
+        expect(JSON.stringify(row)).not.toMatch(/asha|user@example|\+91|userId|adults/i);
+        expect(row.travelMonth?.getUTCDate() ?? 1).toBe(1);
       }
 
       const a = adminSearchAnalyticsSchema.parse(

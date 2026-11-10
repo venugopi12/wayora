@@ -33,4 +33,8 @@ export const ADMIN_PATHS = {
   content: '/admin/content',
   contentNew: '/admin/content/new',
   contentItem: (id: string) => `/admin/content/${encodeURIComponent(id)}`,
+  /** Analytics (Phase 31). */
+  analytics: '/admin/analytics',
+  analyticsReport: (report: string) =>
+    report === 'overview' ? '/admin/analytics' : `/admin/analytics/${encodeURIComponent(report)}`,
 } as const;

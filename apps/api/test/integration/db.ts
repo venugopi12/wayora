@@ -42,6 +42,10 @@ export async function resetAccounts(): Promise<void> {
   await testPrisma().$executeRawUnsafe(
     'TRUNCATE TABLE "sessions", "travellers", "users", "idempotency_keys", "audit_logs", "webhook_events", "search_events" CASCADE',
   );
+  // Analytics events have no foreign keys (Phase 31); keep the tracking-start marker.
+  await testPrisma().$executeRawUnsafe(
+    `DELETE FROM "analytics_events" WHERE "dedupe_key" <> 'analytics.tracking_started'`,
+  );
 }
 
 export const ORIGIN = 'http://localhost:5173';

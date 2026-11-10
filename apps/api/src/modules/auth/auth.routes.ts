@@ -18,6 +18,11 @@ export interface AuthRouterOptions {
   limits: { attemptsPerIp: number; failuresPerEmail: number };
   /** Separate store per limiter (Redis-backed in production). */
   createStore?: (name: string) => Store;
+  /** Sign-in and sign-out events for analytics (Phase 31); never awaited. */
+  events?: {
+    signedIn(user: { id: string; role: string }, sessionId: string): void;
+    signedOut(user: { id: string; role: string }, sessionId: string): void;
+  };
 }
 
 const emailKey = (email: string) =>
@@ -66,12 +71,18 @@ export function authRouter(options: AuthRouterOptions): Router {
     });
     await revokeCurrent(res.locals as AuthLocals);
     setSessionCookie(res, signedIn.token, cookie);
+    options.events?.signedIn(
+      { id: signedIn.user.id, role: signedIn.user.role.toUpperCase() },
+      signedIn.sessionId,
+    );
     sendData(res, { user: signedIn.user });
   }) satisfies RequestHandler);
 
   // Idempotent: works (and clears the cookie) with or without a valid session.
   router.post('/logout', (async (_req, res) => {
+    const current = (res.locals as AuthLocals).auth;
     await revokeCurrent(res.locals as AuthLocals);
+    if (current) options.events?.signedOut(current.user, current.session.id);
     clearSessionCookie(res, cookie);
     sendData(res, { signedOut: true });
   }) satisfies RequestHandler);

@@ -1,6 +1,8 @@
-import { Router, type RequestHandler, type Response } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import {
+  analyticsInteractionsSchema,
+  type AnalyticsInteractions,
   adminContentListQuerySchema,
   analyticsEventSchema,
   contentInputSchema,
@@ -62,16 +64,30 @@ export function contentRouter(service: ContentService): Router {
 /**
  * First-party counts and what they power (docs/seo.md#analytics).
  *
- * POST /analytics/events   { event, key }  → 202 (counted or not; no personal data)
- * GET  /discover/popular                    destinations by page views, when there is enough data
+ * POST /analytics/events         { event, key }  → 202 (counted or not; no personal data)
+ * POST /analytics/interactions   { events: [...] } → 202 { recorded } (Phase 31, docs/analytics.md#client-events)
+ * GET  /discover/popular                          destinations by page views, when there is enough data
  */
-export function analyticsRouter(service: ContentService, limiter?: RequestHandler): Router {
+export function analyticsRouter(
+  service: ContentService,
+  limiter?: RequestHandler,
+  interactions?: (req: Request, events: AnalyticsInteractions['events']) => Promise<number>,
+): Router {
   const router = Router();
   router.use(noStore);
   router.post('/events', ...(limiter ? [limiter] : []), async (req, res) => {
     const { body } = validateRequest(req, { query: noQuery, body: analyticsEventSchema });
     sendData(res, { counted: await service.record(body) }, 202);
   });
+  if (interactions) {
+    router.post('/interactions', ...(limiter ? [limiter] : []), async (req, res) => {
+      const { body } = validateRequest(req, {
+        query: noQuery,
+        body: analyticsInteractionsSchema,
+      });
+      sendData(res, { recorded: await interactions(req, body.events) }, 202);
+    });
+  }
   return router;
 }
 

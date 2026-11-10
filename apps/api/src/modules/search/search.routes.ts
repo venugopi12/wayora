@@ -1,6 +1,10 @@
-import { Router, type RequestHandler, type Response } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
-import { searchRequestSchemas, searchServiceTypeSchema } from '@wayora/contracts';
+import {
+  searchRequestSchemas,
+  searchServiceTypeSchema,
+  type SearchServiceType,
+} from '@wayora/contracts';
 import { AppError } from '../../utils/errors.js';
 import { sendData } from '../../utils/respond.js';
 import { validateRequest } from '../../utils/validate.js';
@@ -57,10 +61,19 @@ const demoOnly: BookingAvailability = (result) =>
         reason: 'Booking supplier offers on Wayora isn’t available for this supplier.',
       };
 
+/** Called after an offer page loaded a result (analytics, Phase 31). Must not throw or wait. */
+export type OfferViewedHook = (
+  req: Request,
+  serviceType: SearchServiceType,
+  searchId: string,
+  offerId: string,
+) => void;
+
 export function searchRouter(
   service: SearchService,
   limiter?: RequestHandler,
   bookingAvailability: BookingAvailability = demoOnly,
+  onOfferViewed?: OfferViewedHook,
 ): Router {
   const router = Router();
   const searchLimit: RequestHandler[] = limiter ? [limiter] : [];
@@ -90,6 +103,7 @@ export function searchRouter(
       throw error;
     }
     res.setHeader('Cache-Control', 'no-store');
+    onOfferViewed?.(req, params.serviceType, params.searchId, query.id);
     sendData(res, { ...offer, booking: bookingAvailability(offer.result) });
   });
 

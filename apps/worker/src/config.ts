@@ -34,6 +34,8 @@ export const workerEnvSchema = z.object({
   /** How often the outbox is checked. */
   NOTIFICATION_DISPATCH_INTERVAL_MS: z.coerce.number().int().min(1000).max(600_000).default(15_000),
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  /** Analytics events older than this are deleted daily (Phase 31, docs/analytics.md#retention). */
+  ANALYTICS_RETENTION_DAYS: z.coerce.number().int().min(90).max(3650).default(400),
   // Browser push (Phase 30, docs/pwa.md#push): the VAPID key pair and a
   // contact for push services. All three, or none (push off). The private
   // key is a secret: keep it in the secret store, never in the web app.

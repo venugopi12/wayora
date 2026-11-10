@@ -19,6 +19,8 @@ export interface SignedIn {
   user: SafeUser;
   /** Raw session token for the cookie. Never logged or returned in a body. */
   token: string;
+  /** The new session's id (analytics: one sign-in per session). */
+  sessionId: string;
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -45,8 +47,8 @@ export class AuthService {
         const user = await tx.user.create({
           data: { email: input.email, displayName: input.name, passwordHash },
         });
-        const { token } = await this.sessions.create(user.id, tx);
-        return { user: toSafeUser(user), token };
+        const { token, session } = await this.sessions.create(user.id, tx);
+        return { user: toSafeUser(user), token, sessionId: session.id };
       });
     } catch (error) {
       if (isUniqueViolation(error)) throw new AppError('CONFLICT', DUPLICATE_ACCOUNT);
@@ -72,7 +74,7 @@ export class AuthService {
       throw new AppError('UNAUTHENTICATED', INVALID_CREDENTIALS);
     }
     await this.upgradeHashIfNeeded(user, input.password);
-    const { token } = await this.sessions.create(user.id);
+    const { token, session } = await this.sessions.create(user.id);
     // Staff sign-ins are audited (docs/admin.md#audit-log). No IP, user agent or token.
     if (user.role !== 'USER') {
       await this.prisma.auditLog.create({
@@ -87,7 +89,7 @@ export class AuthService {
         },
       });
     }
-    return { user: toSafeUser(user), token };
+    return { user: toSafeUser(user), token, sessionId: session.id };
   }
 
   /**

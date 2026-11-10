@@ -18,6 +18,7 @@ import {
 } from '@wayora/ui';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { ApiClientError } from '../../lib/api-client';
+import { trackOfferSelected } from '../../services/analytics-events';
 import { fetchOffer, searchTravel } from '../../services/search';
 import { serviceBySlug } from '../navigation/config';
 import { readSearchParams } from '../search/params';
@@ -384,7 +385,12 @@ function OfferPage({
             {!demo && offer.data.booking?.available && result.price && searchId ? (
               <>
                 <Button asChild size="lg">
-                  <Link to={bookPath(serviceType, result.id, searchId, from ?? '')}>
+                  <Link
+                    to={bookPath(serviceType, result.id, searchId, from ?? '')}
+                    onClick={() =>
+                      trackOfferSelected({ serviceType, searchId, offerId: result.id })
+                    }
+                  >
                     Request this booking
                   </Link>
                 </Button>
@@ -393,7 +399,12 @@ function OfferPage({
             ) : demo && result.price && searchId ? (
               <>
                 <Button asChild size="lg">
-                  <Link to={bookPath(serviceType, result.id, searchId, from ?? '')}>
+                  <Link
+                    to={bookPath(serviceType, result.id, searchId, from ?? '')}
+                    onClick={() =>
+                      trackOfferSelected({ serviceType, searchId, offerId: result.id })
+                    }
+                  >
                     Book this demo offer
                   </Link>
                 </Button>
