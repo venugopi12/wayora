@@ -396,13 +396,8 @@ describe('Travel assistant', () => {
     await waitFor(() => expect(router.state.location.search).toBe(`?trip=${trip.id}`));
     expect(await screen.findByRole('link', { name: 'Goa with friends' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Make my itinerary less hectic.' }));
-    // Two requests, then the conversation page's lazy chunk loads. On a cold
-    // test run transforming that chunk alone can take over a second (this
-    // failed intermittently in full runs, never when run alone), so allow
-    // up to 5 s; the behaviour checked is unchanged.
-    await waitFor(
-      () => expect(router.state.location.pathname).toMatch(/^\/assistant\/[0-9a-f-]+$/),
-      { timeout: 5_000 },
+    await waitFor(() =>
+      expect(router.state.location.pathname).toMatch(/^\/assistant\/[0-9a-f-]+$/),
     );
     expect(api.writes()[0]).toMatchObject({
       path: '/assistant/conversations',
@@ -412,7 +407,14 @@ describe('Travel assistant', () => {
       body: { text: 'Make my itinerary less hectic.', intent: 'review' },
     });
 
-    // What the assistant can see, on request.
+    // What the assistant can see, on request. Wait until the conversation's own
+    // page has taken over (it focuses the message box on arrival): before that,
+    // the previous page is still on screen with its own copy of this
+    // disclosure, and opening that one is lost when the new page replaces it
+    // (seen on cold test runs, where the new route's code loads slowly).
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: /Message the assistant/ })).toHaveFocus(),
+    );
     fireEvent.click(await screen.findByText('What the assistant can see about this plan'));
     expect(await screen.findByText('Never shared')).toBeInTheDocument();
     expect(screen.getByText('Names and emails of plan members')).toBeInTheDocument();
