@@ -348,11 +348,22 @@ async function main(): Promise<void> {
   reminderTimer.unref();
   void reminders();
 
-  const server: Server = app.listen(env.PORT, env.HOST, () => {
+  // Not app.listen(port, host, callback): Express 5 also calls that callback
+  // when listening fails, which logged "listening" for a server that wasn't.
+  const server: Server = app.listen(env.PORT, env.HOST);
+  server.once('listening', () => {
     logger.info({ url: `http://localhost:${env.PORT}`, host: env.HOST }, 'Wayora API listening');
   });
-  server.on('error', (err) => {
-    logger.fatal({ err: unexpectedErrorForLog(err) }, 'HTTP server failed');
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      logger.fatal(
+        { port: env.PORT, host: env.HOST },
+        `Port ${env.PORT} is already in use, probably by another copy of the API that is still running. ` +
+          `Stop it (macOS/Linux: \`lsof -nP -iTCP:${env.PORT} -sTCP:LISTEN\` shows the process) or set PORT in apps/api/.env.`,
+      );
+    } else {
+      logger.fatal({ err: unexpectedErrorForLog(err) }, 'HTTP server failed');
+    }
     process.exit(1);
   });
   // Keep-alive slightly above typical load-balancer idle timeouts.

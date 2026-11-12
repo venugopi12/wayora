@@ -1,4 +1,5 @@
 import { Redis } from 'ioredis';
+import { connectionErrorMessage, endpointForLog } from '../utils/log-safety.js';
 import type { Logger } from '../utils/logger.js';
 
 export interface RedisConnection {
@@ -23,7 +24,7 @@ const ERROR_LOG_INTERVAL_MS = 30_000;
  * create their own connections — see apps/worker.
  */
 export function createRedisConnection(url: string, logger: Logger): RedisConnection {
-  const log = logger.child({ component: 'redis' });
+  const log = logger.child({ component: 'redis', redis: endpointForLog(url) });
   const client = new Redis(url, {
     lazyConnect: true,
     enableOfflineQueue: false,
@@ -39,8 +40,16 @@ export function createRedisConnection(url: string, logger: Logger): RedisConnect
     const now = Date.now();
     if (now - lastErrorLogAt < ERROR_LOG_INTERVAL_MS) return;
     lastErrorLogAt = now;
+    const code = (err as { code?: string }).code;
     log.warn(
-      { err: { message: err.message, code: (err as { code?: string }).code } },
+      {
+        err: { message: connectionErrorMessage(err), code },
+        ...(code === 'ECONNREFUSED' && process.env.NODE_ENV !== 'production'
+          ? {
+              hint: 'Redis is not running. Start it with `npm run infra:up` (Docker) or your local Redis service.',
+            }
+          : {}),
+      },
       'Redis connection error',
     );
   });

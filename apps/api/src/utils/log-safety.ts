@@ -102,3 +102,38 @@ function outline(text: string): string {
   if (lines.length <= 1) return lines[0] ?? '';
   return `${lines[0]} … ${lines[lines.length - 1]}`;
 }
+
+/**
+ * A readable, scrubbed reason for a failed network connection. Node reports
+ * "connection refused" for a host with several addresses (localhost → ::1
+ * and 127.0.0.1) as an `AggregateError` whose own message is empty; the
+ * reasons are in its `errors`. Falls back to the error code.
+ */
+export function connectionErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return scrub(String(error));
+  const inner =
+    error instanceof AggregateError
+      ? [...new Set(error.errors.map((e: unknown) => (e instanceof Error ? e.message : String(e))))]
+          .filter(Boolean)
+          .join('; ')
+      : '';
+  const code = (error as { code?: unknown }).code;
+  return scrub(
+    error.message || inner || (typeof code === 'string' ? code : '') || error.name || 'unknown',
+  );
+}
+
+/** `host:port` of a connection URL, without credentials; undefined when unparsable. */
+export function endpointForLog(url: string): string | undefined {
+  try {
+    const { hostname, port, protocol } = new URL(url);
+    const fallback = protocol.startsWith('redis')
+      ? '6379'
+      : protocol.startsWith('postgres')
+        ? '5432'
+        : '';
+    return `${hostname}:${port || fallback}`;
+  } catch {
+    return undefined;
+  }
+}

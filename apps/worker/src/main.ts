@@ -7,6 +7,7 @@ import {
 } from '@wayora/contracts';
 import { createPrismaClient, type PrismaClient } from '@wayora/database';
 import { bullConnection, loadWorkerEnv, vapidConfig } from './config.js';
+import { connectionErrorMessage, endpointForLog, errorCode } from './connection-errors.js';
 import { startBeacon } from './liveness/beacon.js';
 import { createLogger } from './logger.js';
 import { NotificationDispatcher } from './notifications/dispatcher.js';
@@ -51,7 +52,8 @@ if (env.DATABASE_URL) {
   };
 } else {
   logger.warn(
-    'DATABASE_URL not set: notification delivery is off (outbox rows wait in the database)',
+    'DATABASE_URL not set: notification delivery is off (outbox rows wait in the database). ' +
+      'To turn it on locally, add DATABASE_URL to apps/worker/.env (see apps/worker/.env.example).',
   );
 }
 
@@ -69,7 +71,19 @@ worker.on('error', (err) => {
   const now = Date.now();
   if (now - lastErrorLogAt < 30_000) return;
   lastErrorLogAt = now;
-  logger.error({ err: { message: err.message } }, 'Worker connection error (retrying)');
+  const code = errorCode(err);
+  logger.error(
+    {
+      redis: endpointForLog(env.REDIS_URL),
+      err: { message: connectionErrorMessage(err), code },
+      ...(code === 'ECONNREFUSED' && env.NODE_ENV !== 'production'
+        ? {
+            hint: 'Redis is not running. Start it with `npm run infra:up` (Docker) or your local Redis service.',
+          }
+        : {}),
+    },
+    'Worker connection error (retrying)',
+  );
 });
 worker.on('failed', (job, err) => {
   logger.warn({ jobId: job?.id, jobName: job?.name, err: { message: err.message } }, 'Job failed');

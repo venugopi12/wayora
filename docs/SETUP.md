@@ -15,7 +15,7 @@ Check with `node -v`, `npm -v`, `docker compose version`.
 ```bash
 git clone <repo> wayora && cd wayora
 npm install
-npm run setup
+npm run setup          # again after pulling: reports settings your .env files lack
 npm run infra:up
 npm run db:migrate
 npm run db:seed        # optional
@@ -292,14 +292,17 @@ binary is never committed.
 
 ## Troubleshooting
 
-| Symptom                                                                    | Fix                                                                                                                                 |
-| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `Invalid environment configuration` on start                               | Run `npm run setup`, then check the listed variables                                                                                |
-| Readiness shows `unready`, PostgreSQL down                                 | `npm run infra:up`; check `DATABASE_URL` matches `.env` credentials                                                                 |
-| Readiness shows `degraded`, `worker` down                                  | Start the worker (`npm run dev:worker`); it writes a heartbeat to Redis every 15 s                                                  |
-| Readiness shows `degraded`, Redis down                                     | `npm run infra:up`. The API keeps serving; rate limiting falls back to per-process memory                                           |
-| Web shows "Showing the built-in service list"                              | The API isn't running or `VITE_API_BASE_URL` is wrong; start `npm run dev:api`                                                      |
-| Port 5432/6379 already in use                                              | Set `POSTGRES_PORT` / `REDIS_PORT` in root `.env` and update the URLs in the app `.env` files                                       |
-| `prisma generate` fails fetching `binaries.prisma.sh` during `npm install` | Your network blocks Prisma's engine download. See [Prisma engines and restricted networks](#prisma-engines-and-restricted-networks) |
-| `npm run job:example` times out                                            | Start the worker (`npm run dev:worker`) and check Redis is up                                                                       |
-| CORS error in the browser                                                  | Add the web origin to `CORS_ORIGIN` in `apps/api/.env`                                                                              |
+| Symptom                                                                    | Fix                                                                                                                                              |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Invalid environment configuration` on start                               | Run `npm run setup`, then check the listed variables                                                                                             |
+| Readiness shows `unready`, PostgreSQL down                                 | `npm run infra:up`; check `DATABASE_URL` matches `.env` credentials                                                                              |
+| Readiness shows `degraded`, `worker` down                                  | Start the worker (`npm run dev:worker`); it writes a heartbeat to Redis every 15 s                                                               |
+| Readiness shows `degraded`, Redis down                                     | `npm run infra:up`. The API keeps serving; rate limiting falls back to per-process memory                                                        |
+| Web shows "Showing the built-in service list"                              | The API isn't running or `VITE_API_BASE_URL` is wrong; start `npm run dev:api`                                                                   |
+| API: `Port 4000 is already in use`                                         | Another API is still running (an earlier `npm run dev` in another terminal). `lsof -nP -iTCP:4000 -sTCP:LISTEN` shows it; stop it, or set `PORT` |
+| `Redis connection error … ECONNREFUSED` / worker `connection error`        | Redis isn't running: `npm run infra:up` (Docker), or start your local Redis (`brew services start redis`)                                        |
+| Worker: `DATABASE_URL not set: notification delivery is off`               | Your `apps/worker/.env` predates Phase 14. `npm run setup` lists missing settings; `npm run setup -- --add-missing` appends them                 |
+| Port 5432/6379 already in use                                              | Set `POSTGRES_PORT` / `REDIS_PORT` in root `.env` and update the URLs in the app `.env` files                                                    |
+| `prisma generate` fails fetching `binaries.prisma.sh` during `npm install` | Your network blocks Prisma's engine download. See [Prisma engines and restricted networks](#prisma-engines-and-restricted-networks)              |
+| `npm run job:example` times out                                            | Start the worker (`npm run dev:worker`) and check Redis is up                                                                                    |
+| CORS error in the browser                                                  | Add the web origin to `CORS_ORIGIN` in `apps/api/.env`                                                                                           |
