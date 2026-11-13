@@ -102,6 +102,7 @@ is missing. See the `.env.example` next to each app and
 - [Travel providers](docs/providers.md) (Phase 22): what is demo and what isn't (no live supplier is integrated), the supplier toolkit (HTTP, credentials, exact money conversion), normalized fare/baggage/cancellation fields, offer revalidation, failures and retries, provider health, honest labels, and how to add a real supplier
 - [Security](docs/security.md): current controls and the plan for payments and providers
 - [Deployment and release](docs/deployment.md): production configuration, build, backup and migrations, deploying the API/worker/web, health checks, smoke tests, rollback, logs, web server headers
+- [Deploying to Vercel](docs/deployment-vercel.md): one project with the web app and the API on one domain, Neon and Upstash from the Marketplace, migrations at build, maintenance by Cron Job
 
 ## API at a glance
 
