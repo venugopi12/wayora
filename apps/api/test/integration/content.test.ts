@@ -237,10 +237,10 @@ describe.skipIf(!TEST_DATABASE_URL)('content and counts (PostgreSQL)', () => {
         author: 'Meera A.',
         destinations: ['goa'],
         cover: {
-          src: '/media/artwork/destination-goa.svg',
+          src: '/media/photos/destination-goa.webp',
           og: '/media/og/destination-goa.jpg',
-          width: 1600,
-          height: 1200,
+          width: 1200,
+          height: 900,
         },
       });
       // 350 body words + headings, tip and introduction; 200 words a minute, rounded up.

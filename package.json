@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "setup": "node scripts/setup-env.mjs",
+    "photos": "node apps/web/scripts/fetch-photos.mjs",
     "build:packages": "npm run build -w @wayora/contracts -w @wayora/database",
     "dev": "npm run build:packages && concurrently -k -n api,worker,web -c blue,magenta,green \"npm:dev:api\" \"npm:dev:worker\" \"npm:dev:web\"",
     "dev:api": "npm run dev -w @wayora/api",

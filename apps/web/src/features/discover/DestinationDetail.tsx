@@ -113,6 +113,10 @@ function Hero({ destination }: { destination: Destination }) {
                 <span className="absolute right-3 bottom-3 rounded-full bg-deep/70 px-2.5 py-1 text-caption text-ink-inverse backdrop-blur-sm">
                   Illustration
                 </span>
+              ) : destination.image?.credit ? (
+                <span className="absolute right-3 bottom-3 rounded-full bg-deep/70 px-2.5 py-1 text-caption text-ink-inverse backdrop-blur-sm">
+                  {destination.image.credit}
+                </span>
               ) : null}
             </DestinationImage>
           </ImageReveal>

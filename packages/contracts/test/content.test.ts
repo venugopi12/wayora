@@ -56,17 +56,17 @@ describe('slugs and URLs', () => {
 });
 
 describe('media', () => {
-  it('only offers Wayora artwork, each with a raster social card', () => {
+  it('only offers the destination photographs in the media library, each with a social card', () => {
     expect(MEDIA_KEYS).toHaveLength(12);
     expect(mediaAsset('destination-goa')).toEqual({
       key: 'destination-goa',
-      src: '/media/artwork/destination-goa.svg',
-      width: 1600,
-      height: 1200,
+      src: '/media/photos/destination-goa.webp',
+      width: 1200,
+      height: 900,
       og: '/media/og/destination-goa.jpg',
     });
     expect(mediaAsset('https://example.com/a.jpg')).toBeNull();
-    // Every destination in the shared catalogue has artwork.
+    // Every destination in the shared catalogue has a photograph.
     for (const d of PLANNER_CATALOG) expect(mediaAsset(`destination-${d.id}`), d.id).not.toBeNull();
   });
 });

@@ -8,8 +8,10 @@
  * shared contract in @wayora/contracts (`destinationSchema`); the test suite
  * validates this file against it.
  *
- * Images are original artwork (apps/web/scripts/generate-artwork.mjs). To swap
- * in licensed photography, see docs/media-assets.md.
+ * Images are photographs from Unsplash (Unsplash License), downloaded into
+ * public/media/photos by `npm run photos`; each was taken in the place it
+ * illustrates. Sources and photographers: scripts/photos.manifest.json and
+ * docs/media-assets.md.
  *
  * Adding a destination: append a summary below (unique id/slug, at least one
  * category), its intro and highlights in ./details.ts, add its image, and run
@@ -22,7 +24,7 @@ import type {
   TravelMoodSlug,
 } from '@wayora/contracts';
 
-const ART = '/media/artwork';
+const PHOTOS = '/media/photos';
 
 const destinationInputs = [
   {
@@ -34,11 +36,12 @@ const destinationInputs = [
     locality: 'West coast',
     description: 'Sunset beaches, fishing villages and a coastline made for slowing down.',
     image: {
-      src: `${ART}/destination-goa.svg`,
-      alt: 'Illustration of fishing boats on a sunset sea between coconut palms',
-      focalPoint: '55% 55%',
-      tone: '#a2789c',
-      kind: 'artwork',
+      src: `${PHOTOS}/destination-goa.webp`,
+      alt: 'A turquoise bay and sandy beach lined with palms and beach huts in Goa',
+      focalPoint: '50% 50%',
+      tone: '#2f8fb5',
+      kind: 'photo',
+      credit: 'Photo by alexey turenkov on Unsplash',
     },
     categories: ['beach-escapes', 'weekend-getaways'],
     featured: true,
@@ -55,11 +58,12 @@ const destinationInputs = [
     description:
       'Palaces in shades of pink, hilltop forts and bazaars that hum late into the evening.',
     image: {
-      src: `${ART}/destination-jaipur.svg`,
-      alt: 'Illustration of a tiered pink palace facade below a hilltop fort wall',
-      focalPoint: '62% 50%',
-      tone: '#c98a92',
-      kind: 'artwork',
+      src: `${PHOTOS}/destination-jaipur.webp`,
+      alt: 'The pink, honeycombed facade of the Hawa Mahal in Jaipur under a blue sky',
+      focalPoint: '50% 55%',
+      tone: '#c9805a',
+      kind: 'photo',
+      credit: 'Photo by Roberto Reposo on Unsplash',
     },
     categories: ['cultural-journeys', 'weekend-getaways'],
     featured: true,
@@ -76,11 +80,12 @@ const destinationInputs = [
     description:
       'Backwaters lined with coconut palms, best seen slowly from the deck of a houseboat.',
     image: {
-      src: `${ART}/destination-kerala.svg`,
-      alt: 'Illustration of a houseboat on still backwaters lined with coconut palms',
-      focalPoint: '58% 60%',
-      tone: '#9db8b3',
-      kind: 'artwork',
+      src: `${PHOTOS}/destination-kerala.webp`,
+      alt: 'A traditional houseboat on the palm-lined backwaters of Alappuzha, Kerala',
+      focalPoint: '55% 55%',
+      tone: '#6f9a86',
+      kind: 'photo',
+      credit: 'Photo by Abhishek Prasad on Unsplash',
     },
     categories: ['nature-wellness', 'beach-escapes'],
     featured: true,
@@ -96,11 +101,12 @@ const destinationInputs = [
     locality: 'Himachal Pradesh',
     description: 'Snow peaks, cedar forests and valley roads that climb toward the high Himalaya.',
     image: {
-      src: `${ART}/destination-manali.svg`,
-      alt: 'Illustration of snow-capped Himalayan peaks above cedar-covered slopes',
-      focalPoint: '52% 40%',
-      tone: '#a6aedc',
-      kind: 'artwork',
+      src: `${PHOTOS}/destination-manali.webp`,
+      alt: 'A small town below snow-covered mountains and clouds near Manali',
+      focalPoint: '50% 45%',
+      tone: '#7f8fa3',
+      kind: 'photo',
+      credit: 'Photo by Naman jaswani on Unsplash',
     },
     categories: ['mountain-retreats', 'nature-wellness'],
     featured: true,
@@ -116,11 +122,12 @@ const destinationInputs = [
     locality: 'Karnataka',
     description: 'Leafy parks, a restless food scene and the energy of India’s technology capital.',
     image: {
-      src: `${ART}/destination-bengaluru.svg`,
-      alt: 'Illustration of a modern skyline at dusk rising behind the broad canopies of rain trees',
-      focalPoint: '50% 55%',
-      tone: '#7f86bf',
-      kind: 'artwork',
+      src: `${PHOTOS}/destination-bengaluru.webp`,
+      alt: 'The domed Vidhana Soudha building in Bengaluru under a bright, cloudy sky',
+      focalPoint: '50% 60%',
+      tone: '#8fa3b8',
+      kind: 'photo',
+      credit: 'Photo by zablanca_clicks on Unsplash',
     },
     categories: ['city-breaks'],
     featured: false,
@@ -136,11 +143,12 @@ const destinationInputs = [
     locality: 'Telangana',
     description: 'Centuries-old bazaars, a hilltop fort and a cuisine people travel for.',
     image: {
-      src: `${ART}/destination-hyderabad.svg`,
-      alt: 'Illustration of an arched gateway monument with four minarets above a lamp-lit street',
+      src: `${PHOTOS}/destination-hyderabad.webp`,
+      alt: 'The Charminar and its four minarets above a busy street in Hyderabad',
       focalPoint: '50% 50%',
-      tone: '#b88a9e',
-      kind: 'artwork',
+      tone: '#b79a78',
+      kind: 'photo',
+      credit: 'Photo by Kanishq Kancharla on Unsplash',
     },
     categories: ['cultural-journeys', 'city-breaks'],
     featured: false,
@@ -156,11 +164,12 @@ const destinationInputs = [
     locality: 'Maharashtra',
     description: 'Sea-facing promenades, grand old landmarks and neighbourhoods that never pause.',
     image: {
-      src: `${ART}/destination-mumbai.svg`,
-      alt: 'Illustration of a curving seafront promenade lit at night, with city towers across the bay',
-      focalPoint: '55% 50%',
-      tone: '#3a4076',
-      kind: 'artwork',
+      src: `${PHOTOS}/destination-mumbai.webp`,
+      alt: 'The lights of Mumbai’s curving seafront reflected in the bay at dusk',
+      focalPoint: '45% 55%',
+      tone: '#2b2f4a',
+      kind: 'photo',
+      credit: 'Photo by Nishith Parikh on Unsplash',
     },
     categories: ['city-breaks', 'cultural-journeys'],
     featured: false,
@@ -176,11 +185,12 @@ const destinationInputs = [
     locality: 'National Capital Territory',
     description: 'Monuments from many dynasties, old bazaars and the broad avenues of the capital.',
     image: {
-      src: `${ART}/destination-delhi.svg`,
-      alt: 'Illustration of a domed garden tomb on an arched plinth, reflected in a long water channel',
-      focalPoint: '50% 45%',
-      tone: '#d4a59e',
-      kind: 'artwork',
+      src: `${PHOTOS}/destination-delhi.webp`,
+      alt: 'Humayun’s Tomb in Delhi reflected in the water channel of its garden',
+      focalPoint: '50% 50%',
+      tone: '#a8785a',
+      kind: 'photo',
+      credit: 'Photo by Shubham Sharma on Unsplash',
     },
     categories: ['cultural-journeys', 'city-breaks'],
     featured: false,
@@ -196,11 +206,12 @@ const destinationInputs = [
     description:
       'Terraced rice fields, island temples and beaches on the edge of the Indian Ocean.',
     image: {
-      src: `${ART}/destination-bali.svg`,
-      alt: 'Illustration of terraced rice fields beneath a distant volcano, framed by palms and a split stone gateway',
-      focalPoint: '55% 55%',
-      tone: '#8fae9c',
-      kind: 'artwork',
+      src: `${PHOTOS}/destination-bali.webp`,
+      alt: 'Green rice terraces in morning mist below Mount Agung in Sidemen, Bali',
+      focalPoint: '50% 55%',
+      tone: '#6f8a4a',
+      kind: 'photo',
+      credit: 'Photo by Geio Tischler on Unsplash',
     },
     categories: ['beach-escapes', 'nature-wellness', 'cultural-journeys'],
     featured: true,
@@ -216,11 +227,12 @@ const destinationInputs = [
     locality: 'Kansai',
     description: 'Temples, quiet gardens and wooden streets that change with every season.',
     image: {
-      src: `${ART}/destination-kyoto.svg`,
-      alt: 'Illustration of a five-storey wooden pagoda among autumn trees and misty hills',
-      focalPoint: '45% 50%',
-      tone: '#c79aa8',
-      kind: 'artwork',
+      src: `${PHOTOS}/destination-kyoto.webp`,
+      alt: 'A five-storey pagoda at the end of a street of traditional wooden houses in Kyoto',
+      focalPoint: '50% 55%',
+      tone: '#5a5f66',
+      kind: 'photo',
+      credit: 'Photo by Leo Bayard on Unsplash',
     },
     categories: ['cultural-journeys', 'nature-wellness'],
     featured: true,
@@ -236,11 +248,12 @@ const destinationInputs = [
     description:
       'A garden city on the water, with hawker centres and neighbourhoods close together.',
     image: {
-      src: `${ART}/destination-singapore.svg`,
-      alt: 'Illustration of a city skyline over a calm bay at night, framed by tropical trees',
-      focalPoint: '50% 50%',
-      tone: '#2c3466',
-      kind: 'artwork',
+      src: `${PHOTOS}/destination-singapore.webp`,
+      alt: 'Singapore’s Marina Bay skyline and observation wheel across the water',
+      focalPoint: '50% 45%',
+      tone: '#5f7f96',
+      kind: 'photo',
+      credit: 'Photo by Danny de Groot on Unsplash',
     },
     categories: ['city-breaks'],
     featured: false,
@@ -255,11 +268,12 @@ const destinationInputs = [
     region: 'middle-east',
     description: 'Desert light, a skyline of record-breaking towers and long Gulf beaches.',
     image: {
-      src: `${ART}/destination-dubai.svg`,
-      alt: 'Illustration of desert dunes at sunset with a skyline of slender towers on the horizon',
-      focalPoint: '60% 55%',
-      tone: '#d9a58f',
-      kind: 'artwork',
+      src: `${PHOTOS}/destination-dubai.webp`,
+      alt: 'The Burj Khalifa and Dubai’s skyscrapers above a highway interchange at sunset',
+      focalPoint: '50% 45%',
+      tone: '#a88a80',
+      kind: 'photo',
+      credit: 'Photo by David Rodrigo on Unsplash',
     },
     categories: ['city-breaks', 'beach-escapes'],
     featured: false,
@@ -303,6 +317,8 @@ export interface MoodImage {
   alt: string;
   focalPoint?: string;
   tone: string;
+  /** Photographer and source. */
+  credit: string;
 }
 
 export interface Mood {
@@ -321,10 +337,11 @@ export const MOODS: readonly Mood[] = [
     title: 'Beach escapes',
     line: 'Warm water, slow afternoons and sunsets you plan the day around.',
     image: {
-      src: `${ART}/mood-beach-escapes.svg`,
-      alt: 'Illustration of a calm sea at sunset, framed by coconut palms on a sandy shore',
-      focalPoint: '45% 50%',
-      tone: '#9a8fbf',
+      src: `${PHOTOS}/mood-beach-escapes.webp`,
+      alt: 'A quiet sandy cove with rocks and a palm frond on the Karnataka coast',
+      focalPoint: '50% 60%',
+      tone: '#9aa3a0',
+      credit: 'Photo by Shashank Hegade on Unsplash',
     },
     accent: '#f4c9b1',
   },
@@ -333,10 +350,11 @@ export const MOODS: readonly Mood[] = [
     title: 'Mountain retreats',
     line: 'Thin air, pine forests and mornings that start above the clouds.',
     image: {
-      src: `${ART}/mood-mountain-retreats.svg`,
-      alt: 'Illustration of snow-dusted peaks above misty valleys and pine forests',
-      focalPoint: '50% 45%',
-      tone: '#b7bee4',
+      src: `${PHOTOS}/mood-mountain-retreats.webp`,
+      alt: 'Snow-capped Himalayan peaks under a deep blue sky with white clouds',
+      focalPoint: '50% 60%',
+      tone: '#2f5fa8',
+      credit: 'Photo by Jonathan Charles on Unsplash',
     },
     accent: '#dde1f7',
   },
@@ -345,10 +363,11 @@ export const MOODS: readonly Mood[] = [
     title: 'Cultural journeys',
     line: 'Old quarters, grand architecture and traditions best explored on foot.',
     image: {
-      src: `${ART}/mood-cultural-cities.svg`,
-      alt: 'Illustration of a domed skyline at dusk, seen through a tall pointed arch',
+      src: `${PHOTOS}/mood-cultural-cities.webp`,
+      alt: 'An ornate brass door set in a carved, arched palace wall in Jaipur',
       focalPoint: '50% 55%',
-      tone: '#6a5f9e',
+      tone: '#b9a48a',
+      credit: 'Photo by Annie Spratt on Unsplash',
     },
     accent: '#d99aa6',
   },
@@ -357,10 +376,11 @@ export const MOODS: readonly Mood[] = [
     title: 'Nature & wellness',
     line: 'Green landscapes, slower rhythms and time to properly rest.',
     image: {
-      src: `${ART}/mood-nature-wellness.svg`,
-      alt: 'Illustration of a waterfall falling into a misty, forested valley',
-      focalPoint: '50% 50%',
-      tone: '#8fb0aa',
+      src: `${PHOTOS}/mood-nature-wellness.webp`,
+      alt: 'A waterfall seen through green forest leaves',
+      focalPoint: '55% 55%',
+      tone: '#3f6a3a',
+      credit: 'Photo by Varad Parulekar on Unsplash',
     },
     accent: '#cfdcd2',
   },
@@ -369,10 +389,11 @@ export const MOODS: readonly Mood[] = [
     title: 'City breaks',
     line: 'Food streets, skylines and neighbourhoods worth a few full days.',
     image: {
-      src: `${ART}/mood-city-breaks.svg`,
-      alt: 'Illustration of a city skyline at dusk with a bridge across a river',
-      focalPoint: '50% 55%',
-      tone: '#5b5f9e',
+      src: `${PHOTOS}/mood-city-breaks.webp`,
+      alt: 'A city at night with lit towers and a highway bridge beside a lake',
+      focalPoint: '50% 65%',
+      tone: '#1f2233',
+      credit: 'Photo by Zoshua Colah on Unsplash',
     },
     accent: '#bcc3ec',
   },
@@ -381,10 +402,11 @@ export const MOODS: readonly Mood[] = [
     title: 'Weekend getaways',
     line: 'Two days, one change of scenery, and a route home in time for Monday.',
     image: {
-      src: `${ART}/mood-weekend-getaways.svg`,
-      alt: 'Illustration of a winding road through rolling hills toward a low sun',
-      focalPoint: '55% 55%',
-      tone: '#b3a3c8',
+      src: `${PHOTOS}/mood-weekend-getaways.webp`,
+      alt: 'An empty road curving through tall trees in the hills near Nainital',
+      focalPoint: '50% 60%',
+      tone: '#3f5a55',
+      credit: 'Photo by Shivansh Singh on Unsplash',
     },
     accent: '#f7dccb',
   },

@@ -337,13 +337,13 @@ export function DisplaySection() {
           <div className="grid grid-cols-3 gap-3">
             <MediaFrame
               aspect="3/4"
-              src="/media/artwork/mood-beach-escapes.svg"
+              src="/media/photos/mood-beach-escapes.webp"
               alt="Illustration of a calm sea at sunset"
               className="rounded-lg"
             />
             <MediaFrame
               aspect="1/1"
-              src="/media/artwork/destination-kerala.svg"
+              src="/media/photos/destination-kerala.webp"
               alt="Illustration of a houseboat on backwaters"
               focalPoint="60% 60%"
               className="rounded-lg"

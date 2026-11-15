@@ -1,0 +1,126 @@
+{
+  "source": "Unsplash",
+  "license": "Unsplash License (https://unsplash.com/license)",
+  "photos": {
+    "hero-mountain-dawn": {
+      "page": "https://unsplash.com/photos/a-view-of-a-mountain-range-at-sunset-6yzwQhC1bJE",
+      "raw": "https://images.unsplash.com/photo-1672917585946-339e22ac54dc",
+      "author": "Karthik B K",
+      "place": "Kedarkantha, Uttarakhand, India"
+    },
+    "cta-night-peak": {
+      "page": "https://unsplash.com/photos/snowy-mountain-peak-under-starry-sky-3s85IxVDyXE",
+      "raw": "https://images.unsplash.com/photo-1574610758891-5b809b6e6e2e",
+      "author": "Haseeb Jamil",
+      "place": "Nanga Parbat"
+    },
+    "destination-goa": {
+      "page": "https://unsplash.com/photos/blue-body-of-water-under-sunny-sky-bWJiSZjIgTM",
+      "raw": "https://images.unsplash.com/photo-1512343879784-a960bf40e7f2",
+      "author": "alexey turenkov",
+      "place": "Goa, India"
+    },
+    "destination-jaipur": {
+      "page": "https://unsplash.com/photos/hawa-mahal-india-LgQoL6eOdHs",
+      "raw": "https://images.unsplash.com/photo-1578999935853-4ec5fa6c1f60",
+      "author": "Roberto Reposo",
+      "place": "Jaipur, Rajasthan, India"
+    },
+    "destination-kerala": {
+      "page": "https://unsplash.com/photos/houseboat-on-alappuzha-backwaters-ii0oWs5abCo",
+      "raw": "https://images.unsplash.com/photo-1593693411515-c20261bcad6e",
+      "author": "Abhishek Prasad",
+      "place": "Alappuzha, Kerala, India"
+    },
+    "destination-manali": {
+      "page": "https://unsplash.com/photos/town-below-snow-covered-mountains-Xpwj1j1HX34",
+      "raw": "https://images.unsplash.com/photo-1597167231350-d057a45dc868",
+      "author": "Naman jaswani",
+      "place": "Manali, Himachal Pradesh, India"
+    },
+    "destination-bengaluru": {
+      "page": "https://unsplash.com/photos/a-large-building-with-a-lot-of-people-around-it-ZB9Mad3xL8Q",
+      "raw": "https://images.unsplash.com/photo-1697130383976-38f28c444292",
+      "author": "zablanca_clicks",
+      "place": "Bangalore, Karnataka, India"
+    },
+    "destination-hyderabad": {
+      "page": "https://unsplash.com/photos/charminar-in-hyderabad-india-stands-tall-pWH7AigRk18",
+      "raw": "https://images.unsplash.com/photo-1750834115164-8c2658f18dd0",
+      "author": "Kanishq Kancharla",
+      "place": "Hyderabad, Telangana, India"
+    },
+    "destination-mumbai": {
+      "page": "https://unsplash.com/photos/a-body-of-water-with-a-city-in-the-background-nsunJX3Q9lg",
+      "raw": "https://images.unsplash.com/photo-1666843527155-14ec5f016802",
+      "author": "Nishith Parikh",
+      "place": "Mumbai, Maharashtra, India"
+    },
+    "destination-delhi": {
+      "page": "https://unsplash.com/photos/a-large-building-with-a-fountain-in-front-of-it-pwPSbwExzcY",
+      "raw": "https://images.unsplash.com/photo-1646938691456-a03d01a8276a",
+      "author": "Shubham Sharma",
+      "place": "Humayun's Tomb, New Delhi, India"
+    },
+    "destination-bali": {
+      "page": "https://unsplash.com/photos/person-walking-through-green-rice-terraces-7hww7t6NLcg",
+      "raw": "https://images.unsplash.com/photo-1558005530-a7958896ec60",
+      "author": "Geio Tischler",
+      "place": "Sidemen, Bali, Indonesia"
+    },
+    "destination-kyoto": {
+      "page": "https://unsplash.com/photos/a-tall-building-with-a-tower-in-the-middle-of-it-RvFpCWrMuts",
+      "raw": "https://images.unsplash.com/photo-1717649389730-ba6d16053b43",
+      "author": "Leo Bayard",
+      "place": "Kyoto, Japan"
+    },
+    "destination-singapore": {
+      "page": "https://unsplash.com/photos/white-boat-on-water-near-city-buildings-during-daytime-kUsaVA68ZbU",
+      "raw": "https://images.unsplash.com/photo-1620033263019-f2ec2c738a60",
+      "author": "Danny de Groot",
+      "place": "Singapore"
+    },
+    "destination-dubai": {
+      "page": "https://unsplash.com/photos/burj-khalifa-and-highway-in-dubai-Fr6zexbmjmc",
+      "raw": "https://images.unsplash.com/photo-1512453979798-5ea266f8880c",
+      "author": "David Rodrigo",
+      "place": "Dubai, United Arab Emirates"
+    },
+    "mood-beach-escapes": {
+      "page": "https://unsplash.com/photos/people-near-shore-jUUox80nXtQ",
+      "raw": "https://images.unsplash.com/photo-1554787990-fd7a431e3b0a",
+      "author": "Shashank Hegade",
+      "place": "Gokarna, Karnataka, India"
+    },
+    "mood-mountain-retreats": {
+      "page": "https://unsplash.com/photos/a-mountain-range-with-snow-capped-mountains-in-the-background-CS3hS-zvI_k",
+      "raw": "https://images.unsplash.com/photo-1718429205172-0d91b73ab23c",
+      "author": "Jonathan Charles",
+      "place": "Adi Kailash, Uttarakhand, India"
+    },
+    "mood-cultural-cities": {
+      "page": "https://unsplash.com/photos/ornate-brass-door-in-jaipur-KovxPeamVts",
+      "raw": "https://images.unsplash.com/photo-1524228529766-4d7fe5dc55ca",
+      "author": "Annie Spratt",
+      "place": "Jaipur, India"
+    },
+    "mood-weekend-getaways": {
+      "page": "https://unsplash.com/photos/gray-concrete-road-between-green-trees-during-daytime-T3pH4k0jz8g",
+      "raw": "https://images.unsplash.com/photo-1623692781109-898688d33165",
+      "author": "Shivansh Singh",
+      "place": "Nainital, Uttarakhand, India"
+    },
+    "mood-nature-wellness": {
+      "page": "https://unsplash.com/photos/waterfalls-in-the-middle-of-green-trees-_Y84HXfunEM",
+      "raw": "https://images.unsplash.com/photo-1625023455567-09b002682d1d",
+      "author": "Varad Parulekar",
+      "place": "India"
+    },
+    "mood-city-breaks": {
+      "page": "https://unsplash.com/photos/a-sprawling-cityscape-illuminated-at-night-with-a-highway-bridge-3JrvkmayEow",
+      "raw": "https://images.unsplash.com/photo-1769271972348-429a8ad18f51",
+      "author": "Zoshua Colah",
+      "place": "Powai, Mumbai, India"
+    }
+  }
+}

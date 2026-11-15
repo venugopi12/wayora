@@ -17,7 +17,7 @@ const ACCOUNT_POINTS = [
  * RootLayout, see docs/layouts.md): no site navigation or footer, so the
  * form is the only task on the page.
  *
- * lg+: form column | artwork panel. Below lg the artwork is dropped and the
+ * lg+: form column | photo panel. Below lg the photo is dropped and the
  * form uses the full width, so nothing pushes it below the fold on phones.
  */
 export function AuthLayout({ children }: { children?: ReactNode }) {
@@ -61,7 +61,7 @@ export function AuthLayout({ children }: { children?: ReactNode }) {
         aria-label="About Wayora accounts"
         className="relative m-3 hidden overflow-hidden rounded-2xl bg-deep lg:flex"
       >
-        {/* Original artwork (see docs/media-assets.md); decorative. */}
+        {/* The hero photograph (see docs/media-assets.md); decorative. */}
         {HERO_LAYERS.map((layer) => (
           <img
             key={layer.src}

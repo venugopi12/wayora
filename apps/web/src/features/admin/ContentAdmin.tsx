@@ -650,7 +650,7 @@ function ContentEditor({
 
         {!isFaq ? (
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Cover image" hint="Wayora’s own destination artwork only.">
+            <Field label="Cover image" hint="Photographs from Wayora’s media library only.">
               <Select
                 value={f.cover?.media ?? ''}
                 onChange={(e) =>

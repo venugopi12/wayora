@@ -254,7 +254,7 @@ describe('public pages (what the build prerenders)', () => {
     expect(html).toContain('&lt;b&gt;bold&lt;/b&gt;');
     expect(html).toContain('<ol>');
     const body = contentBody(guide());
-    expect(body).toContain('width="1600" height="1200"');
+    expect(body).toContain('width="1200" height="900"');
     expect(body).toContain('By Asha R., Wayora team');
   });
 

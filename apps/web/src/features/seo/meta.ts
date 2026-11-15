@@ -10,7 +10,7 @@ import type { Robots } from './policy';
 export const SITE_NAME = 'Wayora';
 export const DEFAULT_DESCRIPTION =
   'Wayora brings flights, hotels, trains, buses, metro, cabs and holiday packages into one booking experience.';
-/** The default social card: a 1200×630 raster of Wayora's own artwork. */
+/** The default social card: a 1200×630 crop of the hero photograph. */
 export const DEFAULT_OG_IMAGE = {
   path: '/media/og/default.jpg',
   width: 1200,

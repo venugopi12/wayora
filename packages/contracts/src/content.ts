@@ -72,9 +72,10 @@ export function slugify(text: string): string {
 // ─── Media library ───────────────────────────────────────────────────────
 
 /**
- * The images content may use: Wayora's own artwork (original illustrations,
- * apps/web/scripts/generate-artwork.mjs). Each has a raster social card in
- * /media/og/ for Open Graph. No uploads and no external URLs.
+ * The images content may use: the destination photographs in Wayora's media
+ * library (apps/web/public/media/photos, see docs/media-assets.md). Each has
+ * a JPEG social card in /media/og/ for Open Graph. No uploads and no
+ * external URLs.
  */
 const DESTINATION_ART = [
   'goa',
@@ -106,9 +107,9 @@ export function mediaAsset(key: string): MediaAsset | null {
   if (!(MEDIA_KEYS as readonly string[]).includes(key)) return null;
   return {
     key,
-    src: `/media/artwork/${key}.svg`,
-    width: 1600,
-    height: 1200,
+    src: `/media/photos/${key}.webp`,
+    width: 1200,
+    height: 900,
     og: `/media/og/${key}.jpg`,
   };
 }

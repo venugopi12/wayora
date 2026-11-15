@@ -114,7 +114,7 @@ function HeroRoute() {
 }
 
 /**
- * Cinematic homepage hero. Full-bleed layered artwork slides under the
+ * Cinematic homepage hero. A full-bleed photograph slides under the
  * transparent header; the headline reveals line by line through a mask.
  * All content is in the DOM and interactive from the first frame — motion is
  * presentational only (opacity / transform / clip-path), so there is no

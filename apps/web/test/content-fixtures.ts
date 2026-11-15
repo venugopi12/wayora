@@ -29,10 +29,10 @@ export function guide(over: Partial<PublicContent> = {}): PublicContent {
       },
     ],
     cover: {
-      src: '/media/artwork/destination-goa.svg',
+      src: '/media/photos/destination-goa.webp',
       alt: 'Illustration of the Goa coastline',
-      width: 1600,
-      height: 1200,
+      width: 1200,
+      height: 900,
       og: '/media/og/destination-goa.jpg',
     },
     destinations: ['goa'],

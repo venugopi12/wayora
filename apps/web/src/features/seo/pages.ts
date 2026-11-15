@@ -77,9 +77,9 @@ const crumbsLd = (site: string, crumbs: Crumb[]) => breadcrumbLd(site, crumbs);
 export { homeMeta };
 
 /**
- * Every hero layer, not just the back one: the middle layer is the page's
- * largest image (its LCP element), and all three are small SVGs (≤ 20 kB),
- * so fetching them alongside the scripts costs little (Phase 32, measured).
+ * The hero photograph is the home page's largest image (its LCP element), so
+ * it is fetched alongside the scripts: the portrait crop on phones, the
+ * landscape one otherwise (about 50–60 kB each).
  */
 const HERO_PRELOAD = HERO_LAYERS.flatMap((layer) =>
   layer.portraitSrc
@@ -103,7 +103,7 @@ export function discoverMeta(site: string): PageMeta {
 
 export function destinationMeta(site: string, d: Destination): PageMeta {
   const path = destinationPathOf(d.slug);
-  const og = d.image?.src.match(/destination-([a-z-]+)\.svg$/)
+  const og = d.image?.src.match(/destination-([a-z-]+)\.webp$/)
     ? `/media/og/destination-${d.slug}.jpg`
     : null;
   return {
@@ -329,7 +329,7 @@ export function blocksHtml(blocks: ContentBlock[]): string {
         case 'provider':
           return `<div role="note"><p><strong>Set by the provider, not Wayora:</strong> ${e(b.text)}</p></div>`;
         case 'image':
-          return `<figure><img src="/media/artwork/${e(b.media)}.svg" alt="${e(b.alt)}" width="1600" height="1200" loading="lazy" decoding="async" />${b.caption ? `<figcaption>${e(b.caption)}</figcaption>` : ''}</figure>`;
+          return `<figure><img src="/media/photos/${e(b.media)}.webp" alt="${e(b.alt)}" width="1200" height="900" loading="lazy" decoding="async" />${b.caption ? `<figcaption>${e(b.caption)}</figcaption>` : ''}</figure>`;
       }
     })
     .join('');

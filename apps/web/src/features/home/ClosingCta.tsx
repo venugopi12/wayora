@@ -6,7 +6,7 @@ import { DISCOVER } from '../navigation/config';
 import { CTA_MEDIA } from './media';
 
 /**
- * Closing call to action. The night artwork fades into the footer's navy, so
+ * Closing call to action. The night photograph fades into the footer's navy, so
  * the page ends in one continuous scene. The brand route draws in once.
  */
 export function ClosingCta() {
@@ -24,8 +24,14 @@ export function ClosingCta() {
             : undefined
         }
         alt={CTA_MEDIA.alt}
+        focalPoint={CTA_MEDIA.focalPoint}
         fallbackColor={CTA_MEDIA.tone}
         className="-z-10"
+      />
+      {/* The photograph fades into the footer's navy, so the page ends in one scene. */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-x-0 bottom-0 -z-10 h-48 bg-linear-to-b from-transparent to-deep"
       />
       <div
         aria-hidden="true"

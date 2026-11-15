@@ -19,7 +19,7 @@ export const CACHE_VERSION = 'v1';
 export const CACHE_NAMES = {
   /** Content-hashed JavaScript, CSS and fonts not in the precache. */
   assets: `wayora-assets-${CACHE_VERSION}`,
-  /** Public images: destination artwork, social images, icons. */
+  /** Public images: photographs, social images, icons. */
   media: `wayora-media-${CACHE_VERSION}`,
   /** Public pages (HTML) people opened, for reading offline. */
   pages: `wayora-pages-${CACHE_VERSION}`,

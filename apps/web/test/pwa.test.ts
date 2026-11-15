@@ -202,7 +202,7 @@ describe('cache policy', () => {
 
   it('assets cache first, images refresh in the background, other files pass through', () => {
     expect(classify(get(`${SITE}/assets/index-abc.js`), ctx).kind).toBe('asset');
-    expect(classify(get(`${SITE}/media/artwork/destination-goa.svg`), ctx).kind).toBe('media');
+    expect(classify(get(`${SITE}/media/photos/destination-goa.webp`), ctx).kind).toBe('media');
     expect(classify(get(`${SITE}/icons/icon-192.png`), ctx).kind).toBe('media');
     for (const path of ['/sw.js', '/manifest.webmanifest', '/sitemap.xml', '/robots.txt']) {
       expect(classify(get(`${SITE}${path}`), ctx).kind, path).toBe('bypass');
