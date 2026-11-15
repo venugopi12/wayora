@@ -35,7 +35,7 @@ export const HERO_LAYERS: readonly (MediaAsset & { depth: number })[] = [
     portraitSrc: `${PHOTOS}/hero-mountain-dawn-portrait.webp`,
     // Decorative: the headline carries the meaning.
     alt: '',
-    focalPoint: '50% 60%',
+    focalPoint: '50% 35%',
     tone: '#3a4658',
     kind: 'photo',
     credit: 'Photo by Karthik B K on Unsplash',

@@ -141,14 +141,15 @@ export function Hero() {
             {i === HERO_LAYERS.length - 1 ? <HeroRoute /> : null}
           </HeroLayer>
         ))}
-        {/* Scrims: keep the header and copy legible over any image. */}
+        {/* Scrims: keep the header and copy legible. On phones they are lighter, so
+            the dawn sky of the photograph stays visible above the headline. */}
         <div
           aria-hidden="true"
-          className="absolute inset-x-0 top-0 h-40 bg-linear-to-b from-deep/70 to-transparent"
+          className="absolute inset-x-0 top-0 h-32 bg-linear-to-b from-deep/60 to-transparent md:h-40 md:from-deep/70"
         />
         <div
           aria-hidden="true"
-          className="absolute inset-0 bg-linear-to-t from-deep/95 from-25% via-deep/75 via-55% to-transparent to-90% md:bg-linear-to-tr md:from-deep/95 md:from-15% md:via-deep/65 md:via-45% md:to-transparent md:to-75%"
+          className="absolute inset-0 bg-linear-to-t from-deep/90 from-10% via-deep/55 via-45% to-transparent to-80% md:bg-linear-to-tr md:from-deep/95 md:from-15% md:via-deep/65 md:via-45% md:to-transparent md:to-75%"
         />
       </ImageReveal>
 

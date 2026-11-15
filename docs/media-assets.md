@@ -31,7 +31,8 @@ exact sizes the app uses and writes them to `apps/web/public/media/photos/`
 site serves them itself; nothing is loaded from another site at runtime.
 The Vercel web build (`scripts/vercel/build-web.sh`) and CI run it; a failed
 download fails the build, so a deployment never goes live with missing
-images. Run it once after cloning, before `npm test` (one test checks every
+images. The social cards in `media/og/` (except `logo.png`) are downloaded
+too. Run it once after cloning, before `npm test` (one test checks every
 image file exists). Committing the downloaded files is fine and removes the
 build's dependency on Unsplash.
 
