@@ -24,13 +24,13 @@ export function guide(over: Partial<PublicContent> = {}): PublicContent {
       {
         type: 'image',
         media: 'destination-goa',
-        alt: 'Illustration of the Goa coastline',
+        alt: 'Photograph of the Goa coastline',
         caption: null,
       },
     ],
     cover: {
       src: '/media/photos/destination-goa.webp',
-      alt: 'Illustration of the Goa coastline',
+      alt: 'Photograph of the Goa coastline',
       width: 1200,
       height: 900,
       og: '/media/og/destination-goa.jpg',

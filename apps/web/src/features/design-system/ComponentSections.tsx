@@ -338,13 +338,13 @@ export function DisplaySection() {
             <MediaFrame
               aspect="3/4"
               src="/media/photos/mood-beach-escapes.webp"
-              alt="Illustration of a calm sea at sunset"
+              alt="A quiet sandy cove with rocks and a palm frond"
               className="rounded-lg"
             />
             <MediaFrame
               aspect="1/1"
               src="/media/photos/destination-kerala.webp"
-              alt="Illustration of a houseboat on backwaters"
+              alt="A houseboat on palm-lined backwaters in Kerala"
               focalPoint="60% 60%"
               className="rounded-lg"
             />

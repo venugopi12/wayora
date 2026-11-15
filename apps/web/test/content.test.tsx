@@ -45,10 +45,10 @@ describe('published guides', () => {
       'Set by the provider, not Wayora',
     );
     for (const img of within(article).getAllByRole('img', {
-      name: 'Illustration of the Goa coastline',
+      name: 'Photograph of the Goa coastline',
     })) {
       expect(img).toHaveAttribute('width', '1200');
-      expect(img).toHaveAttribute('height', '1200');
+      expect(img).toHaveAttribute('height', '900');
     }
     expect(within(article).getByRole('link', { name: /goa/i })).toHaveAttribute(
       'href',

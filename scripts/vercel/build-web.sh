@@ -16,5 +16,10 @@ export VITE_SITE_URL="${VITE_SITE_URL:-$SITE}"
 export VITE_API_BASE_URL="${VITE_API_BASE_URL:-$SITE}"
 echo "Building the web app for ${VITE_SITE_URL} (API ${VITE_API_BASE_URL})"
 
+# The photographs are not in the repository yet: fetch them (skips files that
+# exist). A failed download fails the build, so a deployment never goes live
+# with missing images; the previous deployment stays up.
+npm run photos
+
 npm run build -w @wayora/contracts
 npm run build -w @wayora/web

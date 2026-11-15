@@ -100,6 +100,10 @@ jobs:
       - name: Check migrations match schema.prisma
         run: npm run db:migrate:check
 
+      # The photographs are downloaded, not committed (docs/media-assets.md).
+      - name: Download photographs
+        run: npm run photos
+
       - name: Lint
         run: npm run lint
 
@@ -197,6 +201,10 @@ jobs:
 
       - name: Apply migrations
         run: npm run db:migrate:deploy
+
+      # The photographs are downloaded, not committed (docs/media-assets.md).
+      - name: Download photographs
+        run: npm run photos
 
       - name: Build
         run: npm run build

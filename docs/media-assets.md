@@ -7,55 +7,66 @@ Images are listed in two places; components never hard-code image paths:
   every mood's `image` (used by the homepage, Discover and destination pages).
   The test suite checks each path exists in `apps/web/public` and has alt text.
 
-## Current assets: original artwork
+## Current assets: photographs
 
-`artwork/` contains **original SVG artwork** made for Wayora by
-`apps/web/scripts/generate-artwork.mjs` (deterministic, seeded; re-running it
-reproduces the files byte for byte). There are no third-party images, stock
-photos, logos or licence obligations.
+Every image slot uses a real photograph from [Unsplash](https://unsplash.com),
+under the [Unsplash License](https://unsplash.com/license) (free to use,
+commercially too; credit not required, given anyway). No paid "Unsplash+"
+photos. Each destination photo is tagged on Unsplash as taken in the place it
+illustrates. Demo search results (hotels, flights and so on) deliberately
+have no photos: the listings are invented, and a real photo would suggest a
+real property.
 
-Photography was intended, but no licensed photo source could be downloaded or
-verified while building Phase 4 or Phase 6: the build environment's network
-allowlist blocks Unsplash, Pexels and Wikimedia (checked again in Phase 6 from
-both the build container and the developer's machine), so nothing was
-hot-linked or invented. Destination scenes are _inspired by_ each place's
-character (e.g. a pagoda for Kyoto, terraces for Bali); they are not replicas of
-specific buildings, and generic towers are used where a real skyline is
-dominated by one recognisable landmark.
-The artwork is a deliberate, consistent "editorial travel poster" series in the
-Wayora palette, not a broken-image placeholder.
-
-| File                                         | Slot                              | Size                  | Notes                                                   |
-| -------------------------------------------- | --------------------------------- | --------------------- | ------------------------------------------------------- |
-| `hero-dawn-sky.svg`, `-far.svg`, `-near.svg` | Hero, 3 parallax layers           | 2400×1500             | Shared viewBox; far/near are transparent                |
-| `hero-dawn-*-portrait.svg`                   | Hero on phones (< 768px)          | 1200×2000             | Art-directed portrait crop                              |
-| `mood-beach-escapes.svg`                     | Explore by mood                   | 1200×1500             |                                                         |
-| `mood-mountain-retreats.svg`                 | Explore by mood                   | 1200×1500             |                                                         |
-| `mood-cultural-cities.svg`                   | Explore by mood                   | 1200×1500             |                                                         |
-| `mood-weekend-getaways.svg`                  | Explore by mood                   | 1200×1500             |                                                         |
-| `destination-goa.svg`                        | Featured destinations             | 1600×1200             |                                                         |
-| `destination-jaipur.svg`                     | Featured destinations             | 1600×1200             | Inspired by Jaipur's palace architecture, not a replica |
-| `destination-kerala.svg`                     | Featured destinations (lead tile) | 1600×1200             |                                                         |
-| `destination-manali.svg`                     | Featured destinations (panorama)  | 2400×1000             |                                                         |
-| `cta-night-ridges.svg` (+ `-portrait`)       | Closing CTA                       | 2400×1200 / 1200×1600 | Bottom fades to exactly `#171B35` (footer navy)         |
-| `mood-nature-wellness.svg`                   | Discover moods (Phase 6)          | 1200×1500             | Waterfall into a misty forested valley                  |
-| `mood-city-breaks.svg`                       | Discover moods (Phase 6)          | 1200×1500             | Dusk skyline, river and suspension bridge               |
-| `destination-bengaluru.svg`                  | Discover destination (Phase 6)    | 1600×1200             | Glass towers behind rain-tree canopies                  |
-| `destination-hyderabad.svg`                  | Discover destination (Phase 6)    | 1600×1200             | Four-minaret gateway, inspired by, not a replica        |
-| `destination-mumbai.svg`                     | Discover destination (Phase 6)    | 1600×1200             | Curving seafront lit at night                           |
-| `destination-delhi.svg`                      | Discover destination (Phase 6)    | 1600×1200             | Domed garden tomb and water channel, not a replica      |
-| `destination-bali.svg`                       | Discover destination (Phase 6)    | 1600×1200             | Rice terraces, volcano, split gateway                   |
-| `destination-kyoto.svg`                      | Discover destination (Phase 6)    | 1600×1200             | Five-storey pagoda among autumn trees                   |
-| `destination-singapore.svg`                  | Discover destination (Phase 6)    | 1600×1200             | Generic night skyline over a bay, observation wheel     |
-| `destination-dubai.svg`                      | Discover destination (Phase 6)    | 1600×1200             | Dunes and a generic tower skyline (no landmark replica) |
-
-To regenerate after changing the script:
+The list is `apps/web/scripts/photos.manifest.json` (page, photographer,
+place). The files are **downloaded, not committed** (yet):
 
 ```bash
-node apps/web/scripts/generate-artwork.mjs
+npm run photos              # fetch anything missing
+npm run photos -- --force   # fetch everything again
 ```
 
-## Replacing a slot with licensed photography
+`apps/web/scripts/fetch-photos.mjs` asks Unsplash's image server for the
+exact sizes the app uses and writes them to `apps/web/public/media/photos/`
+(WebP) and `apps/web/public/media/og/` (JPEG social cards, 1200×630). The
+site serves them itself; nothing is loaded from another site at runtime.
+The Vercel web build (`scripts/vercel/build-web.sh`) and CI run it; a failed
+download fails the build, so a deployment never goes live with missing
+images. Run it once after cloning, before `npm test` (one test checks every
+image file exists). Committing the downloaded files is fine and removes the
+build's dependency on Unsplash.
+
+| Slot                     | Place                            | Photographer      | Source                                                                                                            |
+| ------------------------ | -------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `hero-mountain-dawn`     | Kedarkantha, Uttarakhand, India  | Karthik B K       | [photo](https://unsplash.com/photos/a-view-of-a-mountain-range-at-sunset-6yzwQhC1bJE)                             |
+| `cta-night-peak`         | Nanga Parbat                     | Haseeb Jamil      | [photo](https://unsplash.com/photos/snowy-mountain-peak-under-starry-sky-3s85IxVDyXE)                             |
+| `destination-goa`        | Goa, India                       | alexey turenkov   | [photo](https://unsplash.com/photos/blue-body-of-water-under-sunny-sky-bWJiSZjIgTM)                               |
+| `destination-jaipur`     | Jaipur, Rajasthan, India         | Roberto Reposo    | [photo](https://unsplash.com/photos/hawa-mahal-india-LgQoL6eOdHs)                                                 |
+| `destination-kerala`     | Alappuzha, Kerala, India         | Abhishek Prasad   | [photo](https://unsplash.com/photos/houseboat-on-alappuzha-backwaters-ii0oWs5abCo)                                |
+| `destination-manali`     | Manali, Himachal Pradesh, India  | Naman jaswani     | [photo](https://unsplash.com/photos/town-below-snow-covered-mountains-Xpwj1j1HX34)                                |
+| `destination-bengaluru`  | Bangalore, Karnataka, India      | zablanca_clicks   | [photo](https://unsplash.com/photos/a-large-building-with-a-lot-of-people-around-it-ZB9Mad3xL8Q)                  |
+| `destination-hyderabad`  | Hyderabad, Telangana, India      | Kanishq Kancharla | [photo](https://unsplash.com/photos/charminar-in-hyderabad-india-stands-tall-pWH7AigRk18)                         |
+| `destination-mumbai`     | Mumbai, Maharashtra, India       | Nishith Parikh    | [photo](https://unsplash.com/photos/a-body-of-water-with-a-city-in-the-background-nsunJX3Q9lg)                    |
+| `destination-delhi`      | Humayun's Tomb, New Delhi, India | Shubham Sharma    | [photo](https://unsplash.com/photos/a-large-building-with-a-fountain-in-front-of-it-pwPSbwExzcY)                  |
+| `destination-bali`       | Sidemen, Bali, Indonesia         | Geio Tischler     | [photo](https://unsplash.com/photos/person-walking-through-green-rice-terraces-7hww7t6NLcg)                       |
+| `destination-kyoto`      | Kyoto, Japan                     | Leo Bayard        | [photo](https://unsplash.com/photos/a-tall-building-with-a-tower-in-the-middle-of-it-RvFpCWrMuts)                 |
+| `destination-singapore`  | Singapore                        | Danny de Groot    | [photo](https://unsplash.com/photos/white-boat-on-water-near-city-buildings-during-daytime-kUsaVA68ZbU)           |
+| `destination-dubai`      | Dubai, United Arab Emirates      | David Rodrigo     | [photo](https://unsplash.com/photos/burj-khalifa-and-highway-in-dubai-Fr6zexbmjmc)                                |
+| `mood-beach-escapes`     | Gokarna, Karnataka, India        | Shashank Hegade   | [photo](https://unsplash.com/photos/people-near-shore-jUUox80nXtQ)                                                |
+| `mood-mountain-retreats` | Adi Kailash, Uttarakhand, India  | Jonathan Charles  | [photo](https://unsplash.com/photos/a-mountain-range-with-snow-capped-mountains-in-the-background-CS3hS-zvI_k)    |
+| `mood-cultural-cities`   | Jaipur, India                    | Annie Spratt      | [photo](https://unsplash.com/photos/ornate-brass-door-in-jaipur-KovxPeamVts)                                      |
+| `mood-weekend-getaways`  | Nainital, Uttarakhand, India     | Shivansh Singh    | [photo](https://unsplash.com/photos/gray-concrete-road-between-green-trees-during-daytime-T3pH4k0jz8g)            |
+| `mood-nature-wellness`   | India                            | Varad Parulekar   | [photo](https://unsplash.com/photos/waterfalls-in-the-middle-of-green-trees-_Y84HXfunEM)                          |
+| `mood-city-breaks`       | Powai, Mumbai, India             | Zoshua Colah      | [photo](https://unsplash.com/photos/a-sprawling-cityscape-illuminated-at-night-with-a-highway-bridge-3JrvkmayEow) |
+
+Sizes: hero 2400×1500 and 1200×2000 (phones); closing banner 2000×1000 and
+1000×1334; destinations 1200×900 (Manali 2000×834, a panorama); moods
+840×1120. About 60–250 kB each, 4.6 MB in total.
+
+The original SVG artwork (`media/artwork/`, `generate-artwork.mjs`,
+`generate-og-images.mjs`) is no longer used by the app and is kept only for
+reference.
+
+## Replacing a photograph
 
 1. **Licence first.** Use photos you own or that are licensed for commercial
    web use. Keep the licence and source URL. Don't use images with
